@@ -48,7 +48,7 @@ export default function LoginScreen() {
         <SignInButton />
         {__DEV__ && (
           <Pressable onPress={devLogin} style={styles.devButton} disabled={devLoading}>
-            <Text style={styles.devButtonText}>{devLoading ? 'Logging in...' : 'Skip Auth (Dev)'}</Text>
+            <Text style={styles.devButtonText}>{devLoading ? 'Logging in...' : 'Dev Login'}</Text>
           </Pressable>
         )}
       </View>
@@ -66,12 +66,11 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 60,
+    marginBottom: 32,
   },
   logo: {
-    width: '80%',
-    maxWidth: 360,
-    aspectRatio: 1,
+    width: 280,
+    height: 280,
     marginBottom: -20,
   },
   subtitle: {

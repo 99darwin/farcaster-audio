@@ -5,6 +5,7 @@ The user's signer_uuid is always looked up from the database, never accepted
 from the client, so it never leaves the backend.
 """
 
+import logging
 from typing import Literal
 
 import httpx
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.dependencies import get_current_user, get_db
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/feed", tags=["feed"])
 
@@ -33,6 +36,7 @@ async def _get_signer_uuid(db: AsyncSession, fid: int) -> str:
     """Look up the user's signer_uuid from the database."""
     result = await db.execute(select(User.signer_uuid).where(User.fid == fid))
     signer_uuid = result.scalar_one_or_none()
+    logger.info("[feed] signer_uuid lookup for fid=%s → %s", fid, signer_uuid[:8] + "..." if signer_uuid else None)
     if not signer_uuid:
         raise HTTPException(status_code=400, detail="No signer found for user")
     return signer_uuid
@@ -105,7 +109,10 @@ async def create_cast(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to publish cast")
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail=resp.text,
+        )
 
     return resp.json()
 
@@ -132,7 +139,10 @@ async def delete_cast(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to delete cast")
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail=resp.text,
+        )
 
     return resp.json()
 
@@ -159,7 +169,10 @@ async def create_reaction(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to create reaction")
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail=resp.text,
+        )
 
     return resp.json()
 
@@ -187,6 +200,9 @@ async def delete_reaction(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="Failed to remove reaction")
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail=resp.text,
+        )
 
     return resp.json()

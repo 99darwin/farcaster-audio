@@ -1,17 +1,21 @@
 import { useEffect, useState, useCallback } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useFeed } from '@/hooks/useFeed';
 import { useLiveSpaces } from '@/hooks/useLiveSpaces';
 import { SpacesRail } from '@/components/spaces/SpacesRail';
 import { FeedList } from '@/components/feed/FeedList';
 import { ComposeModal } from '@/components/feed/ComposeModal';
+import { Avatar } from '@/components/common/Avatar';
 import { colors } from '@/constants/theme';
 import type { NeynarCast } from '@/types/neynar';
 
 export default function HomeScreen() {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
+
   const {
     casts,
     isLoading,
@@ -52,6 +56,20 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen
+        options={{
+          title: 'Home',
+          headerRight: () => (
+            <Pressable onPress={() => router.push('/settings')} hitSlop={8} accessibilityLabel="Settings">
+              <Avatar
+                pfpUrl={user?.pfp_url ?? null}
+                displayName={user?.display_name || user?.username || ''}
+                size="sm"
+              />
+            </Pressable>
+          ),
+        }}
+      />
       <FeedList
         casts={casts}
         myFid={user?.fid ?? 0}

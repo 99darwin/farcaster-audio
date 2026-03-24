@@ -105,6 +105,7 @@ export default function RootLayout() {
         >
           <Stack.Screen name="index" options={{ title: 'Home' }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
+          <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
           <Stack.Screen name="space/[id]" options={{ title: 'Space' }} />
           <Stack.Screen name="space/create" options={{ title: 'Create Space' }} />
         </Stack>

@@ -21,7 +21,7 @@ async def verify_neynar_signer(signer_uuid: str, expected_fid: int) -> dict:
         resp = await client.get(
             "https://api.neynar.com/v2/farcaster/signer",
             params={"signer_uuid": signer_uuid},
-            headers={"api_key": settings.NEYNAR_API_KEY},
+            headers={"x-api-key": settings.NEYNAR_API_KEY},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -39,7 +39,7 @@ async def fetch_user_profile(fid: int) -> dict:
         resp = await client.get(
             "https://api.neynar.com/v2/farcaster/user/bulk",
             params={"fids": str(fid)},
-            headers={"api_key": settings.NEYNAR_API_KEY},
+            headers={"x-api-key": settings.NEYNAR_API_KEY},
         )
         resp.raise_for_status()
         data = resp.json()

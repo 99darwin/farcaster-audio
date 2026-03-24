@@ -38,6 +38,13 @@
     },
     "android": {
       "package": "xyz.juke.app"
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "YOUR_EAS_PROJECT_ID"
+      }
+    },
+    "owner": "your-expo-owner"
   }
 }
