@@ -85,4 +85,6 @@ jobs:
         run: npm ci
 
       - name: Build preview
+        env:
+          SENTRY_DISABLE_AUTO_UPLOAD: true
         run: eas build --platform ios --profile preview --non-interactive
