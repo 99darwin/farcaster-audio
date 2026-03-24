@@ -12,6 +12,7 @@ import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
 import { HostControls } from '@/components/spaces/HostControls';
 import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { colors } from '@/constants/theme';
 import * as api from '@/services/api';
 
 export default function SpaceScreen() {
@@ -194,14 +195,14 @@ export default function SpaceScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f23' },
-  header: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#2a2a4a' },
-  title: { color: '#ffffff', fontSize: 22, fontWeight: '700' },
+  container: { flex: 1, backgroundColor: colors.background.main },
+  header: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.background.border },
+  title: { color: colors.text.primary, fontSize: 22, fontWeight: '700' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
-  statusText: { color: '#ef4444', fontSize: 14, fontWeight: '600' },
-  listenerCount: { color: '#8888aa', fontSize: 14 },
-  reconnecting: { color: '#fbbf24', fontSize: 13, marginTop: 4 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error },
+  statusText: { color: colors.error, fontSize: 14, fontWeight: '600' },
+  listenerCount: { color: colors.text.secondary, fontSize: 14 },
+  reconnecting: { color: colors.warning, fontSize: 13, marginTop: 4 },
   scrollContent: { flex: 1 },
   controls: {
     flexDirection: 'row',
@@ -211,7 +212,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#2a2a4a',
-    backgroundColor: '#1a1a2e',
+    borderTopColor: colors.background.border,
+    backgroundColor: colors.background.surface,
   },
 });

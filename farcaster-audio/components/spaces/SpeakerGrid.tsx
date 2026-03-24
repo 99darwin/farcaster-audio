@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/common/Avatar';
+import { colors } from '@/constants/theme';
 import type { Participant } from '@/types/space';
 
 interface SpeakerGridProps {
@@ -34,7 +35,7 @@ export function SpeakerGrid({ speakers, hostFid }: SpeakerGridProps) {
               )}
               {speaker.is_muted && (
                 <View style={styles.mutedIndicator}>
-                  <Ionicons name="mic-off" size={14} color="#ffffff" />
+                  <Ionicons name="mic-off" size={14} color={colors.text.primary} />
                 </View>
               )}
             </View>
@@ -47,11 +48,11 @@ export function SpeakerGrid({ speakers, hostFid }: SpeakerGridProps) {
 
 const styles = StyleSheet.create({
   container: { padding: 16 },
-  title: { color: '#8888aa', fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 12 },
+  title: { color: colors.text.secondary, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 12 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
   speakerItem: { alignItems: 'center', width: 80, position: 'relative' },
-  name: { color: '#ffffff', fontSize: 12, marginTop: 6, textAlign: 'center' },
-  hostBadge: { backgroundColor: '#D85A30', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1, marginTop: 4 },
-  hostText: { color: '#ffffff', fontSize: 10, fontWeight: '700' },
-  mutedIndicator: { position: 'absolute', bottom: 20, right: 8, backgroundColor: '#1a1a2e', borderRadius: 10, padding: 2 },
+  name: { color: colors.text.primary, fontSize: 12, marginTop: 6, textAlign: 'center' },
+  hostBadge: { backgroundColor: colors.accent, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1, marginTop: 4 },
+  hostText: { color: colors.text.primary, fontSize: 10, fontWeight: '700' },
+  mutedIndicator: { position: 'absolute', bottom: 20, right: 8, backgroundColor: colors.background.surface, borderRadius: 10, padding: 2 },
 });

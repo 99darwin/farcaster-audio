@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { Avatar } from '@/components/common/Avatar';
 import { CastActions } from '@/components/feed/CastActions';
+import { colors } from '@/constants/theme';
 import type { NeynarCast } from '@/types/neynar';
 
 interface CastCardProps {
@@ -8,6 +9,7 @@ interface CastCardProps {
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onReply: (cast: NeynarCast) => void;
 }
 
 function getRelativeTime(timestamp: string): string {
@@ -23,7 +25,7 @@ function getRelativeTime(timestamp: string): string {
   return `${diffDays}d`;
 }
 
-export function CastCard({ cast, myFid, onLike, onRecast }: CastCardProps) {
+export function CastCard({ cast, myFid, onLike, onRecast, onReply }: CastCardProps) {
   const isLiked = cast.reactions.likes.some((l) => l.fid === myFid);
   const isRecasted = cast.reactions.recasts.some((r) => r.fid === myFid);
   const truncatedText = cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text;
@@ -57,7 +59,7 @@ export function CastCard({ cast, myFid, onLike, onRecast }: CastCardProps) {
           isRecasted={isRecasted}
           onLike={() => onLike(cast.hash, isLiked)}
           onRecast={() => onRecast(cast.hash, isRecasted)}
-          onReply={() => {}}
+          onReply={() => onReply(cast)}
         />
       </View>
     </View>
@@ -69,7 +71,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2a2a4a',
+    borderBottomColor: colors.background.border,
     gap: 12,
   },
   content: {
@@ -82,25 +84,25 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   displayName: {
-    color: '#ffffff',
+    color: colors.text.primary,
     fontWeight: '600',
     fontSize: 15,
     flexShrink: 1,
   },
   username: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 14,
   },
   dot: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 14,
   },
   timestamp: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 14,
   },
   text: {
-    color: '#e0e0e0',
+    color: colors.text.body,
     fontSize: 15,
     lineHeight: 21,
   },

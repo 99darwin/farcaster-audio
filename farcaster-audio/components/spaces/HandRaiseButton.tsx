@@ -1,6 +1,7 @@
 import { Pressable, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { colors } from '@/constants/theme';
 
 interface HandRaiseButtonProps {
   isRaised: boolean;
@@ -26,7 +27,7 @@ export function HandRaiseButton({ isRaised, onPress, disabled = false }: HandRai
         { opacity: disabled ? 0.5 : pressed ? 0.7 : 1 },
       ]}
     >
-      <Ionicons name="hand-left" size={20} color="#ffffff" />
+      <Ionicons name="hand-left" size={20} color={colors.text.primary} />
       <Text style={[styles.text, isRaised && styles.raisedText]}>
         {isRaised ? 'Lower hand' : 'Raise hand'}
       </Text>
@@ -39,14 +40,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.background.border,
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 24,
   },
   raisedButton: {
-    backgroundColor: '#D85A30',
+    backgroundColor: colors.accent,
   },
-  text: { color: '#ffffff', fontSize: 15, fontWeight: '600' },
-  raisedText: { color: '#ffffff' },
+  text: { color: colors.text.primary, fontSize: 15, fontWeight: '600' },
+  raisedText: { color: colors.text.primary },
 });

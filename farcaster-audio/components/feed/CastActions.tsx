@@ -1,5 +1,6 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { colors, touchTarget } from '@/constants/theme';
 
 function formatCount(n: number): string {
   if (n < 1000) return String(n);
@@ -34,14 +35,13 @@ export function CastActions({
       <Pressable
         onPress={onLike}
         style={styles.action}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityLabel={`Like, ${formatCount(likesCount)}`}
         accessibilityRole="button"
       >
         <Ionicons
           name={isLiked ? 'heart' : 'heart-outline'}
           size={18}
-          color={isLiked ? '#ef4444' : '#8888aa'}
+          color={isLiked ? colors.error : colors.text.secondary}
         />
         <Text style={[styles.count, isLiked && styles.activeCount]}>{formatCount(likesCount)}</Text>
       </Pressable>
@@ -49,14 +49,13 @@ export function CastActions({
       <Pressable
         onPress={onRecast}
         style={styles.action}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityLabel={`Recast, ${formatCount(recastsCount)}`}
         accessibilityRole="button"
       >
         <Ionicons
           name="repeat"
           size={18}
-          color={isRecasted ? '#22c55e' : '#8888aa'}
+          color={isRecasted ? colors.success : colors.text.secondary}
         />
         <Text style={[styles.count, isRecasted && styles.recastActive]}>{formatCount(recastsCount)}</Text>
       </Pressable>
@@ -64,11 +63,10 @@ export function CastActions({
       <Pressable
         onPress={onReply}
         style={styles.action}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityLabel={`Reply, ${formatCount(repliesCount)}`}
         accessibilityRole="button"
       >
-        <Ionicons name="chatbubble-outline" size={16} color="#8888aa" />
+        <Ionicons name="chatbubble-outline" size={16} color={colors.text.secondary} />
         <Text style={styles.count}>{formatCount(repliesCount)}</Text>
       </Pressable>
     </View>
@@ -84,16 +82,19 @@ const styles = StyleSheet.create({
   action: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
+    minWidth: touchTarget.min,
+    minHeight: touchTarget.min,
   },
   count: {
     fontSize: 13,
-    color: '#8888aa',
+    color: colors.text.secondary,
   },
   activeCount: {
-    color: '#ef4444',
+    color: colors.error,
   },
   recastActive: {
-    color: '#22c55e',
+    color: colors.success,
   },
 });

@@ -8,6 +8,7 @@ import * as Linking from 'expo-linking';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { SpaceMiniBar } from '@/components/spaces/SpaceMiniBar';
+import { colors } from '@/constants/theme';
 import Toast from 'react-native-toast-message';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import * as livekitService from '@/services/livekit';
@@ -93,9 +94,9 @@ export default function RootLayout() {
       <View style={styles.container}>
         <Stack
           screenOptions={{
-            headerStyle: { backgroundColor: '#1a1a2e' },
-            headerTintColor: '#ffffff',
-            contentStyle: { backgroundColor: '#0f0f23' },
+            headerStyle: { backgroundColor: colors.background.surface },
+            headerTintColor: colors.text.primary,
+            contentStyle: { backgroundColor: colors.background.main },
           }}
         >
           <Stack.Screen name="index" options={{ title: 'Home' }} />

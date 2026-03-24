@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useFeedStore } from '@/stores/feedStore';
 import { useAuthStore } from '@/stores/authStore';
-import { fetchFollowingFeed, likeCast, recastCast, removeLike, removeRecast } from '@/services/neynar';
+import { fetchFollowingFeed, likeCast, recastCast, removeLike, removeRecast, publishCast } from '@/services/neynar';
 
 export function useFeed() {
   const { casts, isLoading, isRefreshing, hasMore, error, cursor } = useFeedStore();
@@ -41,44 +41,46 @@ export function useFeed() {
     }
   }, [user, setCasts, setRefreshing, setError]);
 
-  // TODO: Replace empty string signerUuid with user.signer_uuid once wired to auth store/backend.
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {
       if (!user) return;
-      // Optimistic update
       updateCastReaction(castHash, 'like', !isLiked, user.fid);
       try {
         if (isLiked) {
-          await removeLike('', castHash);
+          await removeLike(castHash);
         } else {
-          await likeCast('', castHash);
+          await likeCast(castHash);
         }
       } catch {
-        // Revert optimistic update on failure
         updateCastReaction(castHash, 'like', isLiked, user.fid);
       }
     },
     [user, updateCastReaction],
   );
 
-  // TODO: Replace empty string signerUuid with user.signer_uuid once wired to auth store/backend.
   const handleRecast = useCallback(
     async (castHash: string, isRecasted: boolean) => {
       if (!user) return;
-      // Optimistic update
       updateCastReaction(castHash, 'recast', !isRecasted, user.fid);
       try {
         if (isRecasted) {
-          await removeRecast('', castHash);
+          await removeRecast(castHash);
         } else {
-          await recastCast('', castHash);
+          await recastCast(castHash);
         }
       } catch {
-        // Revert optimistic update on failure
         updateCastReaction(castHash, 'recast', isRecasted, user.fid);
       }
     },
     [user, updateCastReaction],
+  );
+
+  const handlePublishCast = useCallback(
+    async (text: string, parentHash?: string) => {
+      await publishCast(text, parentHash);
+      await refresh();
+    },
+    [refresh],
   );
 
   return {
@@ -92,5 +94,6 @@ export function useFeed() {
     refresh,
     handleLike,
     handleRecast,
+    handlePublishCast,
   };
 }

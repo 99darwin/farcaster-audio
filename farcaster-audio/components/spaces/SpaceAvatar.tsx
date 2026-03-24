@@ -1,5 +1,6 @@
 import { Pressable, Text, StyleSheet, View } from 'react-native';
 import { Avatar } from '@/components/common/Avatar';
+import { colors } from '@/constants/theme';
 import type { Room } from '@/types/space';
 
 interface SpaceAvatarProps {
@@ -28,11 +29,11 @@ export function SpaceAvatar({ room, onPress }: SpaceAvatarProps) {
 
 const styles = StyleSheet.create({
   container: { alignItems: 'center', width: 72, marginRight: 12, position: 'relative' },
-  name: { color: '#cccccc', fontSize: 11, marginTop: 4, textAlign: 'center' },
+  name: { color: colors.text.light, fontSize: 11, marginTop: 4, textAlign: 'center' },
   listenerBadge: {
     position: 'absolute', top: -2, right: 2,
-    backgroundColor: '#D85A30', borderRadius: 8,
+    backgroundColor: colors.accent, borderRadius: 8,
     paddingHorizontal: 4, paddingVertical: 1, minWidth: 16, alignItems: 'center',
   },
-  listenerCount: { color: '#ffffff', fontSize: 10, fontWeight: '700' },
+  listenerCount: { color: colors.text.primary, fontSize: 10, fontWeight: '700' },
 });

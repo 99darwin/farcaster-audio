@@ -1,4 +1,5 @@
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { colors } from '@/constants/theme';
 
 interface LoadingSpinnerProps {
   size?: 'small' | 'large';
@@ -8,7 +9,7 @@ interface LoadingSpinnerProps {
 
 export function LoadingSpinner({
   size = 'large',
-  color = '#D85A30',
+  color = colors.accent,
   fullScreen = false,
 }: LoadingSpinnerProps) {
   if (fullScreen) {
@@ -31,6 +32,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0f0f23',
+    backgroundColor: colors.background.main,
   },
 });
