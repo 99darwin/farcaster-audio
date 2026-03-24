@@ -1,4 +1,5 @@
-import { Room, RoomOptions, AudioSession } from '@livekit/react-native';
+import { AudioSession } from '@livekit/react-native';
+import { Room, type RoomOptions } from 'livekit-client';
 
 let activeRoom: Room | null = null;
 

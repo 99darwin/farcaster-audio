@@ -9,7 +9,8 @@ import {
   SafeAreaView,
   Linking,
 } from 'react-native';
-import WebView, { WebViewMessageEvent, ShouldStartLoadRequest } from 'react-native-webview';
+import WebView, { WebViewMessageEvent } from 'react-native-webview';
+import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/hooks/useAuth';
 import * as api from '@/services/api';

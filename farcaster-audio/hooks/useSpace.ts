@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { NativeModules, NativeEventEmitter } from 'react-native';
-import { Room } from '@livekit/react-native';
+import { Room, type RemoteParticipant, type Participant, type TrackPublication } from 'livekit-client';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useAuthStore } from '@/stores/authStore';
 import * as livekitService from '@/services/livekit';
@@ -28,7 +28,7 @@ export function useSpace() {
       roomRef.current = room;
 
       // 3. Set up event listeners
-      room.on('participantConnected', (participant) => {
+      room.on('participantConnected', (participant: RemoteParticipant) => {
         const fid = parseInt(participant.identity, 10);
         const metadata = participant.metadata ? JSON.parse(participant.metadata) : {};
         store.addParticipant({
@@ -41,17 +41,17 @@ export function useSpace() {
         });
       });
 
-      room.on('participantDisconnected', (participant) => {
+      room.on('participantDisconnected', (participant: RemoteParticipant) => {
         const fid = parseInt(participant.identity, 10);
         store.removeParticipant(fid);
       });
 
-      room.on('trackMuted', (publication, participant) => {
+      room.on('trackMuted', (_publication: TrackPublication, participant: Participant) => {
         const fid = parseInt(participant.identity, 10);
         store.updateParticipant(fid, { is_muted: true });
       });
 
-      room.on('trackUnmuted', (publication, participant) => {
+      room.on('trackUnmuted', (_publication: TrackPublication, participant: Participant) => {
         const fid = parseInt(participant.identity, 10);
         store.updateParticipant(fid, { is_muted: false });
       });
