@@ -69,13 +69,19 @@ async def dev_login(
 
 @router.get("/neynar-auth-url", response_model=AuthUrlResponse)
 async def get_auth_url():
-    """Fetch the Neynar authorization URL for SIWN."""
-    authorization_url = (
-        f"https://app.neynar.com/login"
-        f"?client_id={settings.NEYNAR_CLIENT_ID}"
-        f"&response_type=code"
-    )
-    return AuthUrlResponse(authorization_url=authorization_url)
+    """Fetch the Neynar authorization URL for SIWN via the Neynar API."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.neynar.com/v2/farcaster/login/authorize",
+            params={
+                "client_id": settings.NEYNAR_CLIENT_ID,
+                "response_type": "code",
+            },
+            headers={"x-api-key": settings.NEYNAR_API_KEY},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    return AuthUrlResponse(authorization_url=data["authorization_url"])
 
 
 @router.post("/login", response_model=LoginResponse)
