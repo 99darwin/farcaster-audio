@@ -5,6 +5,7 @@ import { SignInButton } from '@/components/auth/SignInButton';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useAuth } from '@/hooks/useAuth';
 import { useAuthStore } from '@/stores/authStore';
+import { colors } from '@/constants/theme';
 import * as api from '@/services/api';
 
 export default function LoginScreen() {
@@ -58,7 +59,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f0f23',
+    backgroundColor: colors.background.main,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
@@ -68,12 +69,13 @@ const styles = StyleSheet.create({
     marginBottom: 60,
   },
   logo: {
-    width: 360,
-    height: 360,
+    width: '80%',
+    maxWidth: 360,
+    aspectRatio: 1,
     marginBottom: -20,
   },
   subtitle: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 16,
   },
   buttonContainer: {
@@ -86,10 +88,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: colors.background.subtle,
   },
   devButtonText: {
-    color: '#666',
+    color: colors.text.secondary,
     fontSize: 14,
   },
 });

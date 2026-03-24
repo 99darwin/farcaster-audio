@@ -2,6 +2,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSpaceStore } from '@/stores/spaceStore';
+import { colors } from '@/constants/theme';
 
 interface SpaceMiniBarProps {
   onToggleMute: () => void;
@@ -35,7 +36,7 @@ export function SpaceMiniBar({ onToggleMute, onLeave }: SpaceMiniBarProps) {
           accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
           accessibilityRole="button"
         >
-          <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={18} color="#ffffff" />
+          <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={18} color={colors.text.primary} />
         </Pressable>
         <View style={styles.divider} />
         <Pressable
@@ -44,7 +45,7 @@ export function SpaceMiniBar({ onToggleMute, onLeave }: SpaceMiniBarProps) {
           accessibilityLabel="Leave space"
           accessibilityRole="button"
         >
-          <Ionicons name="exit-outline" size={18} color="#ef4444" />
+          <Ionicons name="exit-outline" size={18} color={colors.error} />
         </Pressable>
       </View>
     </Pressable>
@@ -56,9 +57,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background.surface,
     borderTopWidth: 1,
-    borderTopColor: '#D85A30',
+    borderTopColor: colors.accent,
     paddingHorizontal: 16,
     paddingVertical: 10,
     position: 'absolute',
@@ -67,10 +68,10 @@ const styles = StyleSheet.create({
     right: 0,
   },
   leftSection: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
-  title: { color: '#ffffff', fontSize: 14, fontWeight: '600', flexShrink: 1 },
-  reconnecting: { color: '#fbbf24', fontSize: 12 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error },
+  title: { color: colors.text.primary, fontSize: 14, fontWeight: '600', flexShrink: 1 },
+  reconnecting: { color: colors.warning, fontSize: 12 },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   controlButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8, minWidth: 44, minHeight: 44 },
-  divider: { width: 1, height: 20, backgroundColor: '#3a3a5a' },
+  divider: { width: 1, height: 20, backgroundColor: colors.background.subtle },
 });

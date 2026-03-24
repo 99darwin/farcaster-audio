@@ -3,6 +3,7 @@ import { Animated, FlatList, RefreshControl, View, Text, StyleSheet } from 'reac
 import { CastCard } from '@/components/feed/CastCard';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorView } from '@/components/common/ErrorView';
+import { colors } from '@/constants/theme';
 import type { NeynarCast } from '@/types/neynar';
 
 function SkeletonCard() {
@@ -44,14 +45,14 @@ const skeletonStyles = StyleSheet.create({
     flexDirection: 'row',
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2a2a4a',
+    borderBottomColor: colors.background.border,
     gap: 12,
   },
   avatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#3a3a5a',
+    backgroundColor: colors.background.subtle,
   },
   content: {
     flex: 1,
@@ -61,19 +62,19 @@ const skeletonStyles = StyleSheet.create({
     width: 120,
     height: 14,
     borderRadius: 4,
-    backgroundColor: '#3a3a5a',
+    backgroundColor: colors.background.subtle,
   },
   textLine: {
     width: '100%',
     height: 12,
     borderRadius: 4,
-    backgroundColor: '#3a3a5a',
+    backgroundColor: colors.background.subtle,
   },
   textLineShort: {
     width: '60%',
     height: 12,
     borderRadius: 4,
-    backgroundColor: '#3a3a5a',
+    backgroundColor: colors.background.subtle,
   },
 });
 
@@ -87,6 +88,7 @@ interface FeedListProps {
   onEndReached: () => void;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onReply: (cast: NeynarCast) => void;
   ListHeaderComponent?: React.ReactElement | null;
   error?: string | null;
   onRetry?: () => void;
@@ -102,6 +104,7 @@ export function FeedList({
   onEndReached,
   onLike,
   onRecast,
+  onReply,
   ListHeaderComponent,
   error,
   onRetry,
@@ -125,19 +128,21 @@ export function FeedList({
       accessibilityRole="list"
       data={casts}
       keyExtractor={(item) => item.hash}
+      keyboardDismissMode="on-drag"
       renderItem={({ item }) => (
         <CastCard
           cast={item}
           myFid={myFid}
           onLike={onLike}
           onRecast={onRecast}
+          onReply={onReply}
         />
       )}
       refreshControl={
         <RefreshControl
           refreshing={isRefreshing}
           onRefresh={onRefresh}
-          tintColor="#D85A30"
+          tintColor={colors.accent}
         />
       }
       onEndReached={onEndReached}
@@ -174,13 +179,13 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
   emptyText: {
-    color: '#ffffff',
+    color: colors.text.primary,
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 8,
   },
   emptySubtext: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 14,
   },
   emptyContainer: {

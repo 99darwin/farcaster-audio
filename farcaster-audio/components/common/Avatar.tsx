@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
+import { colors } from '@/constants/theme';
 
 interface AvatarProps {
   pfpUrl: string | null;
@@ -20,13 +21,14 @@ const FONT_SIZES = {
   lg: 22,
 };
 
-const LIVE_RING_COLOR = '#D85A30';
+const LIVE_RING_COLOR = colors.accent;
 
 export function Avatar({ pfpUrl, displayName, size = 'md', isLive = false }: AvatarProps) {
   const dimension = SIZES[size];
   const fontSize = FONT_SIZES[size];
   const initials = displayName
     .split(' ')
+    .filter(Boolean)
     .map((n) => n[0])
     .join('')
     .toUpperCase()
@@ -82,12 +84,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fallback: {
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.background.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
   initials: {
-    color: '#ffffff',
+    color: colors.text.primary,
     fontWeight: '600',
   },
 });

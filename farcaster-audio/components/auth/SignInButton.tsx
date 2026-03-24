@@ -4,16 +4,18 @@ import {
   Text,
   StyleSheet,
   Alert,
-  TouchableOpacity,
+  Pressable,
   Modal,
   SafeAreaView,
   Linking,
 } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
+import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/hooks/useAuth';
 import * as api from '@/services/api';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { colors } from '@/constants/theme';
 
 // Injected into the WebView before Neynar's page loads:
 // 1. Spoof document.referrer so Neynar's page accepts the WebView context
@@ -58,6 +60,7 @@ export function SignInButton() {
   const [authUrl, setAuthUrl] = useState<string | null>(null);
 
   const handlePress = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       const { authorization_url } = await api.getAuthUrl();
       const url = `${authorization_url}&deeplink_url=${encodeURIComponent('juke://auth/callback')}`;
@@ -119,9 +122,14 @@ export function SignInButton() {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={handlePress} style={styles.button}>
+      <Pressable
+        onPress={handlePress}
+        style={styles.button}
+        accessibilityRole="button"
+        accessibilityLabel="Sign in with Farcaster"
+      >
         <Text style={styles.buttonText}>Sign in with Farcaster</Text>
-      </TouchableOpacity>
+      </Pressable>
 
       {modalVisible && (
         <Modal
@@ -132,12 +140,14 @@ export function SignInButton() {
         >
           <SafeAreaView style={styles.modalContainer}>
             <View style={styles.closeButtonContainer}>
-              <TouchableOpacity
+              <Pressable
                 onPress={() => setModalVisible(false)}
                 style={styles.closeButton}
+                accessibilityRole="button"
+                accessibilityLabel="Close sign in"
               >
                 <Text style={styles.closeButtonText}>Close</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
             {authUrl ? (
               <WebView
@@ -178,12 +188,12 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: 24,
     borderRadius: 20,
-    backgroundColor: '#855DCD',
+    backgroundColor: colors.purple,
   },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#ffffff',
+    color: colors.text.primary,
   },
   modalContainer: {
     flex: 1,
@@ -196,14 +206,14 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     borderWidth: 1,
-    borderColor: '#855DCD',
+    borderColor: colors.purple,
     borderRadius: 10,
     padding: 8,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background.surface,
   },
   closeButtonText: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#855DCD',
+    color: colors.purple,
   },
 });

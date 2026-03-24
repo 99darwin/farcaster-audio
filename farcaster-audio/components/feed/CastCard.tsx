@@ -2,6 +2,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Avatar } from '@/components/common/Avatar';
 import { CastActions } from '@/components/feed/CastActions';
+import { colors } from '@/constants/theme';
 import type { NeynarCast, NeynarEmbed } from '@/types/neynar';
 
 interface CastCardProps {
@@ -9,6 +10,7 @@ interface CastCardProps {
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onReply: (cast: NeynarCast) => void;
 }
 
 function getRelativeTime(timestamp: string): string {
@@ -94,7 +96,7 @@ function QuoteCast({ cast }: { cast: NeynarCast }) {
   );
 }
 
-export function CastCard({ cast, myFid, onLike, onRecast }: CastCardProps) {
+export function CastCard({ cast, myFid, onLike, onRecast, onReply }: CastCardProps) {
   const isLiked = cast.viewer_context?.liked ?? cast.reactions.likes.some((l) => l.fid === myFid);
   const isRecasted = cast.viewer_context?.recasted ?? cast.reactions.recasts.some((r) => r.fid === myFid);
   const truncatedText = cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text;
@@ -133,7 +135,7 @@ export function CastCard({ cast, myFid, onLike, onRecast }: CastCardProps) {
           isRecasted={isRecasted}
           onLike={() => onLike(cast.hash, isLiked)}
           onRecast={() => onRecast(cast.hash, isRecasted)}
-          onReply={() => {}}
+          onReply={() => onReply(cast)}
         />
       </View>
     </View>
@@ -145,7 +147,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2a2a4a',
+    borderBottomColor: colors.background.border,
     gap: 12,
   },
   content: {
@@ -158,25 +160,25 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   displayName: {
-    color: '#ffffff',
+    color: colors.text.primary,
     fontWeight: '600',
     fontSize: 15,
     flexShrink: 1,
   },
   username: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 14,
   },
   dot: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 14,
   },
   timestamp: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 14,
   },
   text: {
-    color: '#e0e0e0',
+    color: colors.text.body,
     fontSize: 15,
     lineHeight: 21,
   },
@@ -206,7 +208,7 @@ const styles = StyleSheet.create({
   quoteContainer: {
     marginTop: 8,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.background.border,
     borderRadius: 12,
     padding: 12,
   },
@@ -222,17 +224,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   quoteDisplayName: {
-    color: '#ffffff',
+    color: colors.text.primary,
     fontWeight: '600',
     fontSize: 13,
     flexShrink: 1,
   },
   quoteUsername: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 13,
   },
   quoteText: {
-    color: '#c0c0d0',
+    color: colors.text.body,
     fontSize: 14,
     lineHeight: 19,
   },

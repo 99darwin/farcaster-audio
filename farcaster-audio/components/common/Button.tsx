@@ -1,5 +1,6 @@
 import { Pressable, Text, ActivityIndicator, StyleSheet, ViewStyle, TextStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { colors, touchTarget } from '@/constants/theme';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
@@ -24,10 +25,10 @@ const NORMALIZE_SIZE: Record<string, 'sm' | 'md' | 'lg'> = {
 };
 
 const VARIANT_STYLES: Record<ButtonVariant, { bg: string; text: string; border: string }> = {
-  primary: { bg: '#D85A30', text: '#ffffff', border: 'transparent' },
-  secondary: { bg: 'transparent', text: '#D85A30', border: '#D85A30' },
-  danger: { bg: '#dc2626', text: '#ffffff', border: 'transparent' },
-  ghost: { bg: 'transparent', text: '#8888aa', border: 'transparent' },
+  primary: { bg: colors.accent, text: colors.text.primary, border: 'transparent' },
+  secondary: { bg: 'transparent', text: colors.accent, border: colors.accent },
+  danger: { bg: colors.danger, text: colors.text.primary, border: 'transparent' },
+  ghost: { bg: 'transparent', text: colors.text.secondary, border: 'transparent' },
 };
 
 const SIZE_STYLES: Record<string, { paddingVertical: number; paddingHorizontal: number; fontSize: number }> = {
@@ -91,6 +92,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+    minHeight: touchTarget.min,
   },
   text: {
     fontWeight: '600',

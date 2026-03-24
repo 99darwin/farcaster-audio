@@ -5,6 +5,7 @@ import { Button } from '@/components/common/Button';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useLiveSpaces } from '@/hooks/useLiveSpaces';
 import Toast from 'react-native-toast-message';
+import { colors } from '@/constants/theme';
 import * as api from '@/services/api';
 
 export default function CreateSpaceScreen() {
@@ -37,11 +38,11 @@ export default function CreateSpaceScreen() {
 
       // Navigate to the space
       router.replace(`/space/${response.room.id}`);
-    } catch (err: any) {
+    } catch (err) {
       Toast.show({
         type: 'error',
         text1: 'Error',
-        text2: err.response?.data?.detail || 'Failed to create space',
+        text2: api.getErrorMessage(err),
       });
     } finally {
       setIsCreating(false);
@@ -60,7 +61,7 @@ export default function CreateSpaceScreen() {
           value={title}
           onChangeText={setTitle}
           placeholder="What do you want to talk about?"
-          placeholderTextColor="#555577"
+          placeholderTextColor={colors.text.placeholder}
           maxLength={256}
           autoFocus
           returnKeyType="done"
@@ -78,8 +79,8 @@ export default function CreateSpaceScreen() {
           <Switch
             value={announceCast}
             onValueChange={setAnnounceCast}
-            trackColor={{ false: '#3a3a5a', true: '#D85A30' }}
-            thumbColor="#ffffff"
+            trackColor={{ false: colors.background.subtle, true: colors.accent }}
+            thumbColor={colors.text.primary}
             accessibilityLabel="Announce on Farcaster"
           />
         </View>
@@ -101,30 +102,30 @@ export default function CreateSpaceScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f0f23',
+    backgroundColor: colors.background.main,
   },
   content: {
     flex: 1,
     padding: 24,
   },
   label: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 13,
     fontWeight: '600',
     textTransform: 'uppercase',
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background.surface,
     borderRadius: 12,
     padding: 16,
-    color: '#ffffff',
+    color: colors.text.primary,
     fontSize: 17,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.background.border,
   },
   charCount: {
-    color: '#555577',
+    color: colors.text.placeholder,
     fontSize: 12,
     textAlign: 'right',
     marginTop: 4,
@@ -136,20 +137,20 @@ const styles = StyleSheet.create({
     marginTop: 32,
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#2a2a4a',
+    borderTopColor: colors.background.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2a2a4a',
+    borderBottomColor: colors.background.border,
   },
   optionText: {
     flex: 1,
     marginRight: 16,
   },
   optionLabel: {
-    color: '#ffffff',
+    color: colors.text.primary,
     fontSize: 16,
   },
   optionDescription: {
-    color: '#8888aa',
+    color: colors.text.secondary,
     fontSize: 13,
     marginTop: 2,
   },

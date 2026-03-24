@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useState } from 'react';
 import { Avatar } from '@/components/common/Avatar';
+import { colors } from '@/constants/theme';
 import type { Participant } from '@/types/space';
 
 interface ListenerListProps {
@@ -45,9 +46,9 @@ export function ListenerList({ listeners }: ListenerListProps) {
 
 const styles = StyleSheet.create({
   container: { padding: 16, paddingTop: 0 },
-  title: { color: '#8888aa', fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 12 },
+  title: { color: colors.text.secondary, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 12 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   listenerItem: { alignItems: 'center' },
   toggleButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', marginTop: 4 },
-  toggleText: { color: '#D85A30', fontSize: 14, textAlign: 'center' },
+  toggleText: { color: colors.accent, fontSize: 14, textAlign: 'center' },
 });

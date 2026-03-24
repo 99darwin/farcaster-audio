@@ -1,6 +1,7 @@
 import { View, Text, Modal, ScrollView, Pressable, Alert, StyleSheet } from 'react-native';
 import { Avatar } from '@/components/common/Avatar';
 import { Button } from '@/components/common/Button';
+import { colors } from '@/constants/theme';
 import type { Participant } from '@/types/space';
 
 interface HostControlsProps {
@@ -111,14 +112,14 @@ export function HostControls({
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#1a1a2e', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%', paddingBottom: 40 },
-  handle: { width: 40, height: 4, backgroundColor: '#3a3a5a', borderRadius: 2, alignSelf: 'center', marginTop: 12 },
-  title: { color: '#ffffff', fontSize: 20, fontWeight: '700', textAlign: 'center', marginVertical: 16 },
+  sheet: { backgroundColor: colors.background.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%', paddingBottom: 40 },
+  handle: { width: 40, height: 4, backgroundColor: colors.background.subtle, borderRadius: 2, alignSelf: 'center', marginTop: 12 },
+  title: { color: colors.text.primary, fontSize: 20, fontWeight: '700', textAlign: 'center', marginVertical: 16 },
   scrollContent: { paddingHorizontal: 16 },
   section: { marginBottom: 24 },
-  sectionTitle: { color: '#8888aa', fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 12 },
-  participantRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#2a2a4a' },
-  participantName: { color: '#ffffff', fontSize: 15, flex: 1 },
+  sectionTitle: { color: colors.text.secondary, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 12 },
+  participantRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.background.border },
+  participantName: { color: colors.text.primary, fontSize: 15, flex: 1 },
   actions: { flexDirection: 'row', gap: 8 },
-  dangerSection: { paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#2a2a4a' },
+  dangerSection: { paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.background.border },
 });

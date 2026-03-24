@@ -39,36 +39,45 @@ export async function fetchFollowingFeed(
   return data;
 }
 
-export async function likeCast(signerUuid: string, castHash: string): Promise<void> {
+// --- Casting ---
+
+export async function publishCast(text: string, parent?: string): Promise<{ hash: string }> {
+  const { data } = await neynarClient.post('/v1/feed/cast', { text, parent });
+  return data?.cast ?? data;
+}
+
+export async function deleteCast(castHash: string): Promise<void> {
+  await neynarClient.delete(`/v1/feed/cast/${castHash}`);
+}
+
+// --- Reactions (signer_uuid injected server-side) ---
+
+export async function likeCast(castHash: string): Promise<void> {
   await neynarClient.post('/v1/feed/reaction', {
-    signer_uuid: signerUuid,
     reaction_type: 'like',
     target: castHash,
   });
 }
 
-export async function recastCast(signerUuid: string, castHash: string): Promise<void> {
+export async function recastCast(castHash: string): Promise<void> {
   await neynarClient.post('/v1/feed/reaction', {
-    signer_uuid: signerUuid,
     reaction_type: 'recast',
     target: castHash,
   });
 }
 
-export async function removeLike(signerUuid: string, castHash: string): Promise<void> {
+export async function removeLike(castHash: string): Promise<void> {
   await neynarClient.delete('/v1/feed/reaction', {
     data: {
-      signer_uuid: signerUuid,
       reaction_type: 'like',
       target: castHash,
     },
   });
 }
 
-export async function removeRecast(signerUuid: string, castHash: string): Promise<void> {
+export async function removeRecast(castHash: string): Promise<void> {
   await neynarClient.delete('/v1/feed/reaction', {
     data: {
-      signer_uuid: signerUuid,
       reaction_type: 'recast',
       target: castHash,
     },
