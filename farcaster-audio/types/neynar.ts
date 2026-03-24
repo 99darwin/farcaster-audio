@@ -1,0 +1,45 @@
+export interface NeynarUser {
+  fid: number;
+  username: string;
+  display_name: string;
+  pfp_url: string | null;
+  custody_address: string;
+  follower_count: number;
+  following_count: number;
+}
+
+export interface NeynarCastAuthor {
+  fid: number;
+  username: string;
+  display_name: string;
+  pfp_url: string | null;
+}
+
+export interface NeynarReactions {
+  likes_count: number;
+  recasts_count: number;
+  likes: Array<{ fid: number }>;
+  recasts: Array<{ fid: number }>;
+}
+
+export interface NeynarReplies {
+  count: number;
+}
+
+export interface NeynarCast {
+  hash: string;
+  author: NeynarCastAuthor;
+  text: string;
+  timestamp: string;
+  reactions: NeynarReactions;
+  replies: NeynarReplies;
+  thread_hash: string | null;
+  parent_hash: string | null;
+}
+
+export interface NeynarFeedResponse {
+  casts: NeynarCast[];
+  next: {
+    cursor: string | null;
+  };
+}

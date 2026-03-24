@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Farcaster Audio",
+    "slug": "farcaster-audio",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "farcaster-audio",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "backgroundColor": "#0f0f23"
+    },
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "xyz.farcasteraudio.app",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "NSMicrophoneUsageDescription": "Required to speak in audio spaces",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["farcaster-audio"]
+          }
+        ]
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "@sentry/react-native/expo"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

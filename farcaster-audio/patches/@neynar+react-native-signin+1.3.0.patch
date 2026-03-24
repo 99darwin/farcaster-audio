@@ -1,0 +1,15 @@
+diff --git a/node_modules/@neynar/react-native-signin/build/NeynarSigninButton.js b/node_modules/@neynar/react-native-signin/build/NeynarSigninButton.js
+index 969fa78..77cc9e8 100644
+--- a/node_modules/@neynar/react-native-signin/build/NeynarSigninButton.js
++++ b/node_modules/@neynar/react-native-signin/build/NeynarSigninButton.js
+@@ -125,8 +125,8 @@ export const NeynarSigninButton = ({ fetchAuthorizationUrl, successCallback, err
+                                 Linking.openURL(event.url).catch((err) => errorCallback(err));
+                                 return false; // Prevent WebView from loading this URL
+                             }
+-                            // Allow URLs that start with "http://" or "https://"
+-                            if (event.url.match(/^(https:\/\/)|(http:\/\/)/)) {
++                            // Allow about:blank and URLs that start with "http://" or "https://"
++                            if (event.url === "about:blank" || event.url.match(/^(https:\/\/)|(http:\/\/)/)) {
+                                 return true; // Load these URLs within the WebView
+                             }
+                             // Attempt to open all other URLs (not starting with "http://" or "https://")
