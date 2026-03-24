@@ -1,41 +1,112 @@
-import { useState } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
-import { NeynarSigninButton } from '@neynar/react-native-signin';
-import Constants from 'expo-constants';
+import { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Alert,
+  TouchableOpacity,
+  Modal,
+  SafeAreaView,
+  Linking,
+} from 'react-native';
+import WebView, { WebViewMessageEvent, ShouldStartLoadRequest } from 'react-native-webview';
 import { useAuth } from '@/hooks/useAuth';
 import * as api from '@/services/api';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 
+// Injected into the WebView before Neynar's page loads:
+// 1. Spoof document.referrer so Neynar's page accepts the WebView context
+// 2. Shim window.opener — Neynar's SIWN page calls window.opener.postMessage()
+//    to send auth data back, but window.opener is null in a WebView.
+//    This bridges it to ReactNativeWebView.postMessage() instead.
+const INJECTED_JS_BEFORE_LOAD = `
+(function() {
+  Object.defineProperty(Document.prototype, 'referrer', {
+    get: function() { return 'https://app.neynar.com/'; }
+  });
+
+  if (!window.opener) {
+    window.opener = {
+      postMessage: function(data) {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(
+            typeof data === 'string' ? data : JSON.stringify(data)
+          );
+        }
+      }
+    };
+  }
+
+  window.addEventListener('message', function(event) {
+    try {
+      var raw = event.data;
+      var data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (data && data.is_authenticated && data.signer_uuid) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(data));
+      }
+    } catch(e) {}
+  });
+})();
+true;
+`;
+
 export function SignInButton() {
   const { login } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
 
-  const fetchAuthorizationUrl = async () => {
-    const { authorization_url } = await api.getAuthUrl();
-    return authorization_url;
-  };
-
-  const handleSuccess = async (data: { signer_uuid: string; fid: string }) => {
-    setIsSigningIn(true);
+  const handlePress = useCallback(async () => {
     try {
+      const { authorization_url } = await api.getAuthUrl();
+      const url = `${authorization_url}&deeplink_url=${encodeURIComponent('juke://auth/callback')}`;
+      setAuthUrl(url);
+      setModalVisible(true);
+    } catch (error) {
+      Alert.alert('Sign In Error', 'Could not start sign in. Please try again.');
+    }
+  }, []);
+
+  const handleMessage = useCallback(async (event: WebViewMessageEvent) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (!data.signer_uuid || !data.fid) return;
+
+      setModalVisible(false);
+      setIsSigningIn(true);
       await login(data.signer_uuid, Number(data.fid));
     } catch (error) {
       Alert.alert('Sign In Failed', 'Could not complete sign in. Please try again.');
     } finally {
       setIsSigningIn(false);
     }
-  };
+  }, [login]);
 
-  const handleError = (error: Error) => {
-    console.error('SIWN error:', error);
-    Alert.alert('Sign In Error', error.message || 'An error occurred during sign in.');
-  };
+  const handleShouldStartLoad = useCallback((event: ShouldStartLoadRequest): boolean => {
+    // Intercept deep link redirects with auth data
+    if (event.url.startsWith('juke://')) {
+      try {
+        const url = new URL(event.url);
+        const signerUuid = url.searchParams.get('signer_uuid');
+        const fid = url.searchParams.get('fid');
+        if (signerUuid && fid) {
+          setModalVisible(false);
+          setIsSigningIn(true);
+          login(signerUuid, Number(fid))
+            .catch(() => Alert.alert('Sign In Failed', 'Could not complete sign in.'))
+            .finally(() => setIsSigningIn(false));
+        }
+      } catch {}
+      return false;
+    }
 
-  // In dev, use the Expo dev server URL; in prod, use the custom scheme
-  const debuggerHost = Constants.expoConfig?.hostUri ?? Constants.manifest2?.extra?.expoGo?.debuggerHost;
-  const redirectUrl = __DEV__ && debuggerHost
-    ? `exp://${debuggerHost}`
-    : 'juke://auth/callback';
+    if (event.url === 'about:blank' || /^https?:\/\//.test(event.url)) {
+      return true;
+    }
+
+    Linking.openURL(event.url).catch(() => {});
+    return false;
+  }, [login]);
 
   if (isSigningIn) {
     return (
@@ -47,12 +118,45 @@ export function SignInButton() {
 
   return (
     <View style={styles.container}>
-      <NeynarSigninButton
-        fetchAuthorizationUrl={fetchAuthorizationUrl}
-        successCallback={handleSuccess}
-        errorCallback={handleError}
-        redirectUrl={redirectUrl}
-      />
+      <TouchableOpacity onPress={handlePress} style={styles.button}>
+        <Text style={styles.buttonText}>Sign in with Farcaster</Text>
+      </TouchableOpacity>
+
+      {modalVisible && (
+        <Modal
+          animationType="slide"
+          transparent={false}
+          visible={modalVisible}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <SafeAreaView style={styles.modalContainer}>
+            <View style={styles.closeButtonContainer}>
+              <TouchableOpacity
+                onPress={() => setModalVisible(false)}
+                style={styles.closeButton}
+              >
+                <Text style={styles.closeButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            {authUrl ? (
+              <WebView
+                source={{ uri: authUrl }}
+                javaScriptEnabled
+                domStorageEnabled
+                startInLoadingState
+                injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE_LOAD}
+                onMessage={handleMessage}
+                onShouldStartLoadWithRequest={handleShouldStartLoad}
+                originWhitelist={['*']}
+              />
+            ) : (
+              <View style={styles.loadingContainer}>
+                <LoadingSpinner />
+              </View>
+            )}
+          </SafeAreaView>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -65,5 +169,40 @@ const styles = StyleSheet.create({
   loadingContainer: {
     padding: 20,
     alignItems: 'center',
+  },
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    backgroundColor: '#855DCD',
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  modalContainer: {
+    flex: 1,
+  },
+  closeButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 10,
+    paddingTop: 15,
+  },
+  closeButton: {
+    borderWidth: 1,
+    borderColor: '#855DCD',
+    borderRadius: 10,
+    padding: 8,
+    backgroundColor: '#fff',
+  },
+  closeButtonText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#855DCD',
   },
 });
