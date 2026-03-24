@@ -55,6 +55,7 @@ export const useFeedStore = create<FeedStore>((set) => ({
       casts: state.casts.map((cast) => {
         if (cast.hash !== hash) return cast;
         const reactions = { ...cast.reactions };
+        const viewerContext = { liked: false, recasted: false, ...cast.viewer_context };
         if (type === 'like') {
           reactions.likes_count = added
             ? reactions.likes_count + 1
@@ -62,6 +63,7 @@ export const useFeedStore = create<FeedStore>((set) => ({
           reactions.likes = added
             ? [...reactions.likes, { fid: myFid }]
             : reactions.likes.filter((l) => l.fid !== myFid);
+          viewerContext.liked = added;
         } else {
           reactions.recasts_count = added
             ? reactions.recasts_count + 1
@@ -69,8 +71,9 @@ export const useFeedStore = create<FeedStore>((set) => ({
           reactions.recasts = added
             ? [...reactions.recasts, { fid: myFid }]
             : reactions.recasts.filter((r) => r.fid !== myFid);
+          viewerContext.recasted = added;
         }
-        return { ...cast, reactions };
+        return { ...cast, reactions, viewer_context: viewerContext };
       }),
     })),
 
