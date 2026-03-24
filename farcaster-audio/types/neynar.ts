@@ -26,6 +26,24 @@ export interface NeynarReplies {
   count: number;
 }
 
+export interface NeynarViewerContext {
+  liked: boolean;
+  recasted: boolean;
+}
+
+export interface NeynarEmbed {
+  url?: string;
+  cast?: NeynarCast;
+  metadata?: {
+    content_type?: string;
+    _status?: string;
+    image?: {
+      width_px?: number;
+      height_px?: number;
+    };
+  };
+}
+
 export interface NeynarCast {
   hash: string;
   author: NeynarCastAuthor;
@@ -33,6 +51,8 @@ export interface NeynarCast {
   timestamp: string;
   reactions: NeynarReactions;
   replies: NeynarReplies;
+  viewer_context?: NeynarViewerContext;
+  embeds?: NeynarEmbed[];
   thread_hash: string | null;
   parent_hash: string | null;
 }
