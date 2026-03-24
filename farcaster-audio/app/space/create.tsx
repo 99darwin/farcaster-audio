@@ -1,16 +1,21 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Switch, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
+import { NativeModules } from 'react-native';
 import { Button } from '@/components/common/Button';
 import { useSpaceStore } from '@/stores/spaceStore';
+import { useAuthStore } from '@/stores/authStore';
 import { useLiveSpaces } from '@/hooks/useLiveSpaces';
 import Toast from 'react-native-toast-message';
 import { colors } from '@/constants/theme';
 import * as api from '@/services/api';
+import * as livekitService from '@/services/livekit';
+
+const { AudioSessionModule } = NativeModules;
 
 export default function CreateSpaceScreen() {
   const router = useRouter();
-  const joinSpace = useSpaceStore((s) => s.joinSpace);
+  const user = useAuthStore((s) => s.user);
   const { refresh: refreshSpaces } = useLiveSpaces();
   const [title, setTitle] = useState('');
   const [announceCast, setAnnounceCast] = useState(false);
@@ -25,20 +30,47 @@ export default function CreateSpaceScreen() {
 
     setIsCreating(true);
     try {
+      // Clean up any stale space state
+      const storeState = useSpaceStore.getState();
+      if (storeState.room) {
+        try { await livekitService.disconnectFromRoom(); } catch {}
+        storeState.leaveSpace();
+      }
+
       const response = await api.createRoom({
         title: trimmedTitle,
         announce_cast: announceCast,
       });
 
-      // Join the space store with host role
-      joinSpace(response.room, [], 'host');
+      // Build the host as the initial participant
+      const hostParticipant = {
+        fid: user!.fid,
+        role: 'host' as const,
+        is_muted: false,
+        is_speaking: false,
+        hand_raised: false,
+        display_name: user!.display_name || user!.username || `User ${user!.fid}`,
+        pfp_url: user!.pfp_url ?? null,
+      };
 
-      // Refresh the spaces rail so it shows immediately
+      // Set store state with the host in the participant list
+      useSpaceStore.getState().joinSpace(response.room, [hostParticipant], 'host');
+
+      // Connect to LiveKit directly (avoid useSpace hook which triggers reconnect side effects)
+      if (AudioSessionModule) {
+        await AudioSessionModule.configureForVoiceChat();
+      }
+      await livekitService.connectToRoom(response.livekit_ws_url, response.livekit_token);
+      await livekitService.enableMicrophone();
+      useSpaceStore.getState().setConnected(true);
+      useSpaceStore.getState().setMuted(false);
+
       refreshSpaces();
-
-      // Navigate to the space
       router.replace(`/space/${response.room.id}`);
     } catch (err) {
+      console.error('[CreateSpace] Error:', err);
+      // Clean up partial state on failure
+      useSpaceStore.getState().leaveSpace();
       Toast.show({
         type: 'error',
         text1: 'Error',

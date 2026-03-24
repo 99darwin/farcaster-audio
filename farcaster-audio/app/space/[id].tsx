@@ -30,13 +30,19 @@ export default function SpaceScreen() {
     joinRoom,
     leaveRoom,
     toggleMute,
+    attachListeners,
   } = useSpace();
   const permissions = useSpacePermissions();
   const [isJoining, setIsJoining] = useState(false);
   const [showHostControls, setShowHostControls] = useState(false);
 
   useEffect(() => {
-    if (!id || room?.id === id) return;
+    if (!id) return;
+    if (room?.id === id) {
+      // Room already in store (came from create) — just attach LiveKit listeners
+      attachListeners();
+      return;
+    }
     setIsJoining(true);
     joinRoom(id)
       .catch((err) => {

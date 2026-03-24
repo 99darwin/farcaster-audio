@@ -19,6 +19,7 @@ export interface Participant {
   fid: number;
   role: ParticipantRole;
   is_muted: boolean;
+  is_speaking: boolean;
   hand_raised: boolean;
   display_name: string;
   pfp_url: string | null;

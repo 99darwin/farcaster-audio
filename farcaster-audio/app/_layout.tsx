@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react-native';
+import { registerGlobals } from '@livekit/react-native';
 import { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -14,6 +15,9 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import * as livekitService from '@/services/livekit';
 import * as api from '@/services/api';
 import { Config } from '@/constants/config';
+
+// Must be called before any LiveKit Room usage
+registerGlobals();
 
 Sentry.init({
   dsn: Config.SENTRY_DSN,

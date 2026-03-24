@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { NativeModules, NativeEventEmitter } from 'react-native';
+import { RoomEvent } from 'livekit-client';
 import type { Room, RemoteParticipant, Participant, TrackPublication } from 'livekit-client';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -16,18 +17,10 @@ export function useSpace() {
   const roomRef = useRef<Room | null>(null);
   const { reconnect, setToken } = useReconnect();
 
-  const connect = useCallback(
-    async (roomId: string, token: string, wsUrl: string) => {
-      // 1. Configure native audio session
-      if (AudioSessionModule) {
-        await AudioSessionModule.configureForVoiceChat();
-      }
-
-      // 2. Connect to LiveKit room
-      const room = await livekitService.connectToRoom(wsUrl, token);
+  const setupRoomListeners = useCallback(
+    (room: Room) => {
       roomRef.current = room;
 
-      // 3. Set up event listeners
       room.on('participantConnected', (participant: RemoteParticipant) => {
         const fid = parseInt(participant.identity, 10);
         const metadata = participant.metadata ? JSON.parse(participant.metadata) : {};
@@ -35,6 +28,7 @@ export function useSpace() {
           fid,
           role: metadata.role || 'listener',
           is_muted: true,
+          is_speaking: false,
           hand_raised: false,
           display_name: participant.name || `User ${fid}`,
           pfp_url: null,
@@ -48,12 +42,23 @@ export function useSpace() {
 
       room.on('trackMuted', (publication: TrackPublication, participant: Participant) => {
         const fid = parseInt(participant.identity, 10);
-        store.updateParticipant(fid, { is_muted: true });
+        store.updateParticipant(fid, { is_muted: true, is_speaking: false });
       });
 
       room.on('trackUnmuted', (publication: TrackPublication, participant: Participant) => {
         const fid = parseInt(participant.identity, 10);
         store.updateParticipant(fid, { is_muted: false });
+      });
+
+      room.on(RoomEvent.ActiveSpeakersChanged, (activeSpeakers: Participant[]) => {
+        const speakingFids = new Set(activeSpeakers.map((p) => parseInt(p.identity, 10)));
+        const allParticipants = useSpaceStore.getState().participants;
+        for (const p of allParticipants) {
+          const isSpeaking = speakingFids.has(p.fid);
+          if (p.is_speaking !== isSpeaking) {
+            store.updateParticipant(p.fid, { is_speaking: isSpeaking });
+          }
+        }
       });
 
       room.on('disconnected', () => {
@@ -73,11 +78,38 @@ export function useSpace() {
     [store],
   );
 
+  const connect = useCallback(
+    async (roomId: string, token: string, wsUrl: string) => {
+      if (AudioSessionModule) {
+        await AudioSessionModule.configureForVoiceChat();
+      }
+
+      const room = await livekitService.connectToRoom(wsUrl, token);
+      setupRoomListeners(room);
+
+      // Auto-enable mic for hosts/speakers/co-hosts
+      const role = store.myRole;
+      if (role === 'host' || role === 'co_host' || role === 'speaker') {
+        await livekitService.enableMicrophone();
+        store.setMuted(false);
+      }
+    },
+    [store, setupRoomListeners],
+  );
+
   const disconnect = useCallback(async () => {
-    await livekitService.disconnectFromRoom();
+    try {
+      await livekitService.disconnectFromRoom();
+    } catch (e) {
+      console.warn('[useSpace] LiveKit disconnect error:', e);
+    }
     roomRef.current = null;
-    if (AudioSessionModule) {
-      await AudioSessionModule.deactivate();
+    try {
+      if (AudioSessionModule) {
+        await AudioSessionModule.deactivate();
+      }
+    } catch (e) {
+      console.warn('[useSpace] AudioSession deactivate error:', e);
     }
     store.leaveSpace();
   }, [store]);
@@ -142,6 +174,15 @@ export function useSpace() {
     };
   }, [reconnect]);
 
+  // If a LiveKit room is already connected (e.g. from create flow)
+  // but listeners aren't attached yet, attach them now.
+  const attachListeners = useCallback(() => {
+    const activeRoom = livekitService.getActiveRoom();
+    if (activeRoom && !roomRef.current) {
+      setupRoomListeners(activeRoom);
+    }
+  }, [setupRoomListeners]);
+
   return {
     room: store.room,
     participants: store.participants,
@@ -156,5 +197,6 @@ export function useSpace() {
     disconnect,
     toggleMute,
     startSpeaking,
+    attachListeners,
   };
 }

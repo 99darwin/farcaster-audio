@@ -87,7 +87,7 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
       participants,
       myRole,
       isConnected: true,
-      isMuted: true,
+      isMuted: myRole === 'listener',
       isHandRaised: false,
       handQueue: [],
     }),
