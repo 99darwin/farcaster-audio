@@ -62,7 +62,7 @@ async def feed_following(
     _current_user: int = Depends(get_current_user),
 ):
     """Proxy Neynar feed/following endpoint."""
-    params: dict[str, str | int] = {"fid": fid, "limit": limit}
+    params: dict[str, str | int] = {"fid": fid, "limit": limit, "viewer_fid": fid}
     if cursor:
         params["cursor"] = cursor
 

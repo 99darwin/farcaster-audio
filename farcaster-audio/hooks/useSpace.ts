@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { NativeModules, NativeEventEmitter } from 'react-native';
-import { Room, type RemoteParticipant, type Participant, type TrackPublication } from 'livekit-client';
+import type { Room, RemoteParticipant, Participant, TrackPublication } from 'livekit-client';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useAuthStore } from '@/stores/authStore';
 import * as livekitService from '@/services/livekit';
@@ -46,12 +46,12 @@ export function useSpace() {
         store.removeParticipant(fid);
       });
 
-      room.on('trackMuted', (_publication: TrackPublication, participant: Participant) => {
+      room.on('trackMuted', (publication: TrackPublication, participant: Participant) => {
         const fid = parseInt(participant.identity, 10);
         store.updateParticipant(fid, { is_muted: true });
       });
 
-      room.on('trackUnmuted', (_publication: TrackPublication, participant: Participant) => {
+      room.on('trackUnmuted', (publication: TrackPublication, participant: Participant) => {
         const fid = parseInt(participant.identity, 10);
         store.updateParticipant(fid, { is_muted: false });
       });

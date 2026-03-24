@@ -6,7 +6,20 @@ import httpx
 
 @pytest.mark.asyncio
 async def test_get_auth_url(client):
-    response = await client.get("/v1/auth/neynar-auth-url")
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {
+        "authorization_url": "https://app.neynar.com/login?client_id=test"
+    }
+
+    mock_http_client = AsyncMock()
+    mock_http_client.get = AsyncMock(return_value=mock_response)
+    mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+    mock_http_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.routers.auth.httpx.AsyncClient", return_value=mock_http_client):
+        response = await client.get("/v1/auth/neynar-auth-url")
     assert response.status_code == 200
     data = response.json()
     assert "authorization_url" in data
