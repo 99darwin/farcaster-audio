@@ -1,7 +1,7 @@
 export const Config = {
   API_BASE_URL: __DEV__
     ? 'http://localhost:8000'
-    : 'https://api.farcasteraudio.xyz',
+    : 'https://your-api-host.example.com',
 
   SENTRY_DSN: process.env.EXPO_PUBLIC_SENTRY_DSN ?? '',
 
