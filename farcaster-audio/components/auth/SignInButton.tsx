@@ -35,7 +35,7 @@ export function SignInButton() {
   const debuggerHost = Constants.expoConfig?.hostUri ?? Constants.manifest2?.extra?.expoGo?.debuggerHost;
   const redirectUrl = __DEV__ && debuggerHost
     ? `exp://${debuggerHost}`
-    : 'farcaster-audio://auth/callback';
+    : 'juke://auth/callback';
 
   if (isSigningIn) {
     return (

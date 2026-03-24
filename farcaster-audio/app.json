@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Farcaster Audio",
-    "slug": "farcaster-audio",
+    "name": "Juke",
+    "slug": "juke",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "farcaster-audio",
+    "scheme": "juke",
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",
@@ -13,13 +13,17 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "xyz.farcasteraudio.app",
+      "bundleIdentifier": "xyz.juke.app",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
+        "UIBackgroundModes": [
+          "audio"
+        ],
         "NSMicrophoneUsageDescription": "Required to speak in audio spaces",
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": ["farcaster-audio"]
+            "CFBundleURLSchemes": [
+              "juke"
+            ]
           }
         ]
       }
@@ -31,6 +35,9 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "android": {
+      "package": "xyz.juke.app"
     }
   }
 }

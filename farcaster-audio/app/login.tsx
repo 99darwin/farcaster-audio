@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
+import { View, Text, Image, StyleSheet, Pressable, Alert } from 'react-native';
 import { Redirect } from 'expo-router';
 import { SignInButton } from '@/components/auth/SignInButton';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -35,7 +35,12 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header} accessibilityRole="header">
-        <Text style={styles.title} accessibilityLabel="Farcaster Audio">Farcaster Audio</Text>
+        <Image
+          source={require('@/assets/logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+          accessibilityLabel="Juke"
+        />
         <Text style={styles.subtitle}>Live audio spaces for Farcaster</Text>
       </View>
       <View style={styles.buttonContainer}>
@@ -62,11 +67,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 60,
   },
-  title: {
-    color: '#ffffff',
-    fontSize: 36,
-    fontWeight: 'bold',
-    marginBottom: 8,
+  logo: {
+    width: 360,
+    height: 360,
+    marginBottom: -20,
   },
   subtitle: {
     color: '#8888aa',

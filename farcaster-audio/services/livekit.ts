@@ -37,20 +37,9 @@ export async function toggleMicrophone(): Promise<boolean> {
   const localParticipant = activeRoom?.localParticipant;
   if (!localParticipant) return false;
 
-  const audioTrack = Array.from(
-    localParticipant.audioTrackPublications.values(),
-  )[0];
-
-  if (audioTrack?.track) {
-    if (audioTrack.isMuted) {
-      await audioTrack.track.unmute();
-      return false; // not muted anymore
-    } else {
-      await audioTrack.track.mute();
-      return true; // now muted
-    }
-  }
-  return false;
+  const isCurrentlyEnabled = localParticipant.isMicrophoneEnabled;
+  await localParticipant.setMicrophoneEnabled(!isCurrentlyEnabled);
+  return isCurrentlyEnabled; // returns true (muted) when we just disabled
 }
 
 export async function enableMicrophone(): Promise<void> {
