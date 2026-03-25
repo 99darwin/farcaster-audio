@@ -34,7 +34,7 @@ def _neynar_headers() -> dict[str, str]:
 
 def _raise_upstream_error(resp: httpx.Response) -> None:
     """Log the full Neynar response, raise a sanitized error to the client."""
-    logger.error("[feed] Neynar %s → %s: %s", resp.request.url, resp.status_code, resp.text)
+    logger.error("[feed] Neynar %s → %s: %s", resp.request.url.path, resp.status_code, resp.text[:500])
     status = 502 if resp.status_code >= 500 else resp.status_code
     raise HTTPException(status_code=status, detail="Upstream service error")
 
@@ -65,7 +65,7 @@ class CastIdEmbed(BaseModel):
 class CastRequest(BaseModel):
     text: str = Field(min_length=1, max_length=10000)
     parent: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
-    embeds: list[HttpUrl] | None = Field(default=None, max_length=4)
+    embeds: list[HttpUrl] | None = Field(default=None, max_length=2)
     quote: CastIdEmbed | None = None
 
 
@@ -75,7 +75,7 @@ class CastRequest(BaseModel):
 @router.get("/following")
 async def feed_following(
     limit: int = Query(default=25, ge=1, le=100),
-    cursor: str | None = Query(default=None),
+    cursor: str | None = Query(default=None, max_length=500, pattern=r"^[a-zA-Z0-9_\-=.%]+$"),
     current_user: int = Depends(get_current_user),
 ):
     """Proxy Neynar feed/following endpoint."""
@@ -137,18 +137,16 @@ async def create_cast(
 @router.get("/cast/thread")
 async def get_cast_thread(
     hash: str = Query(..., pattern=r"^0x[a-fA-F0-9]+$"),
-    viewer_fid: int = Query(default=0),
     reply_depth: int = Query(default=2, ge=1, le=5),
-    _current_user: int = Depends(get_current_user),
+    current_user: int = Depends(get_current_user),
 ):
     """Proxy Neynar cast conversation endpoint to fetch a thread."""
     params: dict[str, str | int] = {
         "identifier": hash,
         "type": "hash",
         "reply_depth": reply_depth,
+        "viewer_fid": current_user,
     }
-    if viewer_fid:
-        params["viewer_fid"] = viewer_fid
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(

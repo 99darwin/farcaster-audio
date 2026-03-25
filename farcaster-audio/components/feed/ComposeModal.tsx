@@ -15,6 +15,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Toast from 'react-native-toast-message';
+import { uploadImage } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Avatar } from '@/components/common/Avatar';
 import { colors } from '@/constants/theme';
@@ -93,10 +94,16 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
     if (!canPublish) return;
     setIsPublishing(true);
     try {
+      // Upload local images to backend first, then pass hosted URLs as embeds
+      let uploadedUrls: string[] | undefined;
+      if (images.length > 0) {
+        uploadedUrls = await Promise.all(images.map(uploadImage));
+      }
+
       const quote = quoteCast
         ? { fid: quoteCast.author.fid, hash: quoteCast.hash }
         : undefined;
-      await onPublish(text.trim(), replyTo?.hash, images.length > 0 ? images : undefined, quote);
+      await onPublish(text.trim(), replyTo?.hash, uploadedUrls, quote);
       setText('');
       setImages([]);
       onClose();

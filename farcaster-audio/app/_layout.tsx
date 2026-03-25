@@ -106,7 +106,7 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: colors.background.main },
           }}
         >
-          <Stack.Screen name="index" options={{ title: 'Home' }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
           <Stack.Screen name="cast/[hash]" options={{ title: 'Thread' }} />
@@ -125,6 +125,7 @@ export default function RootLayout() {
           <SpaceMiniBar
             onToggleMute={handleToggleMute}
             onLeave={handleLeave}
+            bottomOffset={segments[0] === '(tabs)' ? 49 : 0}
           />
         )}
         <Toast />

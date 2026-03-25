@@ -23,7 +23,9 @@ neynarClient.interceptors.request.use(async (config) => {
 neynarClient.interceptors.response.use(
   (r) => r,
   (err) => {
-    console.error(`[Neynar] ${err.config?.method?.toUpperCase()} ${err.config?.url} → ${err.response?.status}`, err.response?.data);
+    if (__DEV__) {
+      console.error(`[Neynar] ${err.config?.method?.toUpperCase()} ${err.config?.url} → ${err.response?.status}`, err.response?.data);
+    }
     return Promise.reject(err);
   },
 );
@@ -96,12 +98,11 @@ export async function removeRecast(castHash: string): Promise<void> {
 
 export async function fetchCastThread(
   castHash: string,
-  viewerFid: number,
+  _viewerFid?: number,
   replyDepth: number = 2,
 ): Promise<{ conversation: { cast: NeynarCast & { direct_replies?: NeynarCast[] } } }> {
   const params: Record<string, string | number> = {
     hash: castHash,
-    viewer_fid: viewerFid,
     reply_depth: replyDepth,
   };
   const { data } = await neynarClient.get('/v1/feed/cast/thread', { params });

@@ -50,7 +50,9 @@ const processQueue = (error: unknown, token: string | null = null) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    console.error(`[API] ${error.config?.method?.toUpperCase()} ${error.config?.url} → ${error.response?.status}`, error.response?.data);
+    if (__DEV__) {
+      console.error(`[API] ${error.config?.method?.toUpperCase()} ${error.config?.url} → ${error.response?.status}`, error.response?.data);
+    }
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
@@ -158,6 +160,26 @@ export const followUser = (fid: number) =>
 
 export const unfollowUser = (fid: number) =>
   apiClient.delete(`/v1/users/${fid}/follow`).then((r) => r.data);
+
+// --- Media ---
+export async function uploadImage(uri: string): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', {
+    uri,
+    type: 'image/jpeg',
+    name: 'upload.jpg',
+  } as any);
+
+  const { data } = await apiClient.post<{ url: string }>('/v1/media/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000,
+  });
+  return data.url;
+}
+
+// --- Notifications ---
+export const getNotifications = (params?: { limit?: number; cursor?: string }) =>
+  apiClient.get<import('@/types/neynar').NotificationsResponse>('/v1/notifications', { params }).then((r) => r.data);
 
 // Error helper
 export function getErrorMessage(error: unknown): string {

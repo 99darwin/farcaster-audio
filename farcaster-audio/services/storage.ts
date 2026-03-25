@@ -56,6 +56,18 @@ export async function clearUserProfile(): Promise<void> {
   await SecureStore.deleteItemAsync(KEYS.USER_PROFILE);
 }
 
+// --- Notification Timestamp ---
+
+const LAST_SEEN_NOTIFICATION_KEY = 'last_seen_notification_ts';
+
+export async function getLastSeenNotificationTimestamp(): Promise<string | null> {
+  return SecureStore.getItemAsync(LAST_SEEN_NOTIFICATION_KEY);
+}
+
+export async function saveLastSeenNotificationTimestamp(timestamp: string): Promise<void> {
+  await SecureStore.setItemAsync(LAST_SEEN_NOTIFICATION_KEY, timestamp);
+}
+
 // --- Clear All ---
 
 export async function clearAll(): Promise<void> {

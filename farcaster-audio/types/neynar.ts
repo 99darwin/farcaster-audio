@@ -98,3 +98,21 @@ export interface NeynarFeedResponse {
     cursor: string | null;
   };
 }
+
+// --- Notifications ---
+
+export type NotificationType = 'likes' | 'recasts' | 'follows' | 'reply' | 'mention';
+
+export interface NeynarNotification {
+  type: NotificationType;
+  hash: string | null;
+  cast: NeynarCast | null;
+  user: NeynarCastAuthor;
+  timestamp: string;
+  is_seen: boolean;
+}
+
+export interface NotificationsResponse {
+  notifications: NeynarNotification[];
+  next: { cursor: string | null };
+}

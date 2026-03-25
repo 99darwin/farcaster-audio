@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     RECORDING_ENABLED: bool = False
     SENTRY_DSN: str = ""
     DEMO_LOGIN_ENABLED: bool = False
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
 
 
 settings = Settings()

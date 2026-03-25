@@ -8,7 +8,8 @@ import { CastCard } from '@/components/feed/CastCard';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorView } from '@/components/common/ErrorView';
 import { colors } from '@/constants/theme';
-import { likeCast, recastCast, removeLike, removeRecast } from '@/services/neynar';
+import { ComposeModal } from '@/components/feed/ComposeModal';
+import { likeCast, recastCast, removeLike, removeRecast, publishCast } from '@/services/neynar';
 import type { NeynarCast } from '@/types/neynar';
 
 export default function ProfileScreen() {
@@ -19,6 +20,8 @@ export default function ProfileScreen() {
   const isOwnProfile = fid === myFid;
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('casts');
+  const [composeVisible, setComposeVisible] = useState(false);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
 
   const {
     user,
@@ -73,11 +76,17 @@ export default function ProfileScreen() {
     [router],
   );
 
-  const handleQuoteCast = useCallback(
-    (_cast: NeynarCast) => {
-      router.push(`/cast/${_cast.hash}`);
+  const handleQuoteCast = useCallback((cast: NeynarCast) => {
+    setQuoteCastTarget(cast);
+    setComposeVisible(true);
+  }, []);
+
+  const handlePublish = useCallback(
+    async (text: string, _parentHash?: string, imageUris?: string[], quote?: { fid: number; hash: string }) => {
+      await publishCast(text, undefined, imageUris && imageUris.length > 0 ? imageUris : undefined, quote);
+      await fetchProfile();
     },
-    [router],
+    [fetchProfile],
   );
 
   const handleCastPress = useCallback(
@@ -147,6 +156,15 @@ export default function ProfileScreen() {
             </View>
           ) : null
         }
+      />
+      <ComposeModal
+        isVisible={composeVisible}
+        onClose={() => {
+          setComposeVisible(false);
+          setQuoteCastTarget(null);
+        }}
+        onPublish={handlePublish}
+        quoteCast={quoteCastTarget}
       />
     </View>
   );

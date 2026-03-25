@@ -8,9 +8,10 @@ import { colors } from '@/constants/theme';
 interface SpaceMiniBarProps {
   onToggleMute: () => void;
   onLeave: () => void;
+  bottomOffset?: number;
 }
 
-export function SpaceMiniBar({ onToggleMute, onLeave }: SpaceMiniBarProps) {
+export function SpaceMiniBar({ onToggleMute, onLeave, bottomOffset = 0 }: SpaceMiniBarProps) {
   const router = useRouter();
   const room = useSpaceStore((s) => s.room);
   const isMuted = useSpaceStore((s) => s.isMuted);
@@ -22,7 +23,7 @@ export function SpaceMiniBar({ onToggleMute, onLeave }: SpaceMiniBarProps) {
 
   return (
     <Pressable
-      style={[styles.container, { paddingBottom: insets.bottom || 10 }]}
+      style={[styles.container, { bottom: bottomOffset, paddingBottom: insets.bottom || 10 }]}
       onPress={() => router.push(`/space/${room.id}`)}
       accessibilityLabel={`Active space: ${room.title}`}
       accessibilityRole="button"
