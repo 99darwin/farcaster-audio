@@ -24,6 +24,7 @@ interface CastCardProps {
   onPress?: () => void;
   expanded?: boolean;
   threaded?: boolean;
+  hideThreadLine?: boolean;
 }
 
 function getRelativeTime(timestamp: string): string {
@@ -159,6 +160,7 @@ export function CastCard({
   onPress,
   expanded,
   threaded,
+  hideThreadLine,
 }: CastCardProps) {
   const router = useRouter();
   const isLiked = cast.viewer_context?.liked ?? cast.reactions.likes.some((l) => l.fid === myFid);
@@ -192,7 +194,7 @@ export function CastCard({
       accessibilityRole="summary"
       accessibilityLabel={`${cast.author.display_name}: ${truncatedText}`}
     >
-      {threaded && <View style={styles.threadLine} />}
+      {threaded && !hideThreadLine && <View style={styles.threadLine} />}
       <Pressable onPress={() => navigateToProfile(cast.author.fid)}>
         <Avatar
           pfpUrl={cast.author.pfp_url}
@@ -235,6 +237,8 @@ export function CastCard({
           onRecast={() => onRecast(cast.hash, isRecasted)}
           onQuoteCast={() => onQuoteCast(cast)}
           onReply={() => onReply(cast)}
+          authorUsername={cast.author.username}
+          castHash={cast.hash}
         />
       </View>
       <ImageViewer uri={viewerImage} onClose={() => setViewerImage(null)} />

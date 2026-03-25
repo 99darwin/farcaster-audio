@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { Config } from '@/constants/config';
 import { getTokens } from '@/services/storage';
-import type { NeynarCast, NeynarFeedResponse } from '@/types/neynar';
+import type { NeynarCast, NeynarCastWithReplies, NeynarFeedResponse } from '@/types/neynar';
 
 const neynarClient = axios.create({
   baseURL: Config.API_BASE_URL,
@@ -99,8 +99,8 @@ export async function removeRecast(castHash: string): Promise<void> {
 export async function fetchCastThread(
   castHash: string,
   _viewerFid?: number,
-  replyDepth: number = 2,
-): Promise<{ conversation: { cast: NeynarCast & { direct_replies?: NeynarCast[] } } }> {
+  replyDepth: number = 4,
+): Promise<{ conversation: { cast: NeynarCastWithReplies } }> {
   const params: Record<string, string | number> = {
     hash: castHash,
     reply_depth: replyDepth,

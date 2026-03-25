@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Pressable, FlatList, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useScrollToTop } from '@react-navigation/native';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useFeed } from '@/hooks/useFeed';
@@ -32,6 +33,9 @@ export default function HomeScreen() {
     handleRecast,
     handlePublishCast,
   } = useFeed();
+
+  const feedRef = useRef<FlatList>(null);
+  useScrollToTop(feedRef);
 
   useLiveSpaces();
 
@@ -70,6 +74,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <FeedList
+        ref={feedRef}
         casts={casts}
         myFid={user?.fid ?? 0}
         isLoading={isLoading}

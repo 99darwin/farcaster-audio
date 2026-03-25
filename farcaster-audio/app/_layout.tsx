@@ -11,6 +11,7 @@ import { useSpaceStore } from '@/stores/spaceStore';
 import { SpaceMiniBar } from '@/components/spaces/SpaceMiniBar';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { useOTAUpdate } from '@/hooks/useOTAUpdate';
+import { useNotificationBadge } from '@/hooks/useNotificationBadge';
 import { colors } from '@/constants/theme';
 import Toast from 'react-native-toast-message';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -36,6 +37,8 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const { isUpdateAvailable, isRestarting, applyUpdate, dismiss } = useOTAUpdate();
+
+  useNotificationBadge();
 
   useEffect(() => {
     hydrate();
