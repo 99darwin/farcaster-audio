@@ -5,16 +5,24 @@ Notifications router — proxies Neynar notifications API with quality filtering
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.config import settings
 from app.dependencies import get_current_user
-from app.routers.feed import NEYNAR_BASE, _neynar_headers, _raise_upstream_error
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/notifications", tags=["notifications"])
 
+NEYNAR_BASE = "https://api.neynar.com/v2"
 MIN_USER_SCORE = 0.5
+
+
+def _neynar_headers() -> dict[str, str]:
+    return {
+        "accept": "application/json",
+        "x-api-key": settings.NEYNAR_API_KEY,
+    }
 
 
 @router.get("")
@@ -37,7 +45,14 @@ async def get_notifications(
         )
 
     if resp.status_code != 200:
-        _raise_upstream_error(resp)
+        logger.error(
+            "[notifications] Neynar %s → %s: %s",
+            resp.request.url.path,
+            resp.status_code,
+            resp.text[:500],
+        )
+        status = 502 if resp.status_code >= 500 else resp.status_code
+        raise HTTPException(status_code=status, detail="Upstream service error")
 
     data = resp.json()
 

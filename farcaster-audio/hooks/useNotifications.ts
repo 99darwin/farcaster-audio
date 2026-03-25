@@ -21,58 +21,75 @@ function computeUnreadCount(
 }
 
 export function useNotifications() {
-  const store = useNotificationStore();
+  // Select stable action references individually — avoids re-render loops
+  const notifications = useNotificationStore((s) => s.notifications);
+  const isLoading = useNotificationStore((s) => s.isLoading);
+  const isRefreshing = useNotificationStore((s) => s.isRefreshing);
+  const hasMore = useNotificationStore((s) => s.hasMore);
+  const cursor = useNotificationStore((s) => s.cursor);
+  const error = useNotificationStore((s) => s.error);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
+
+  const setNotifications = useNotificationStore((s) => s.setNotifications);
+  const appendNotifications = useNotificationStore((s) => s.appendNotifications);
+  const setLoading = useNotificationStore((s) => s.setLoading);
+  const setRefreshing = useNotificationStore((s) => s.setRefreshing);
+  const setError = useNotificationStore((s) => s.setError);
+  const setUnreadCount = useNotificationStore((s) => s.setUnreadCount);
+  const markAllRead = useNotificationStore((s) => s.markAllRead);
+
   const user = useAuthStore((s) => s.user);
 
   const fetch = useCallback(async () => {
     if (!user) return;
-    store.setLoading(true);
+    setLoading(true);
     try {
       const data = await api.getNotifications({ limit: 25 });
-      store.setNotifications(data.notifications, data.next.cursor);
+      setNotifications(data.notifications, data.next.cursor);
 
       const lastSeen = await getLastSeenNotificationTimestamp();
       const unread = computeUnreadCount(data.notifications, lastSeen);
-      store.setUnreadCount(unread);
+      setUnreadCount(unread);
     } catch (err) {
-      store.setError(err instanceof Error ? err.message : 'Failed to fetch notifications');
+      setError(err instanceof Error ? err.message : 'Failed to fetch notifications');
     }
-  }, [user, store]);
+  }, [user, setLoading, setNotifications, setUnreadCount, setError]);
 
   const fetchMore = useCallback(async () => {
-    if (!user || !store.hasMore || store.isLoading || !store.cursor) return;
-    store.setLoading(true);
+    if (!user || !hasMore || isLoading || !cursor) return;
+    setLoading(true);
     try {
-      const data = await api.getNotifications({ limit: 25, cursor: store.cursor });
-      store.appendNotifications(data.notifications, data.next.cursor);
+      const data = await api.getNotifications({ limit: 25, cursor });
+      appendNotifications(data.notifications, data.next.cursor);
     } catch (err) {
-      store.setError(err instanceof Error ? err.message : 'Failed to load more');
+      setError(err instanceof Error ? err.message : 'Failed to load more');
     }
-  }, [user, store]);
+  }, [user, hasMore, isLoading, cursor, setLoading, appendNotifications, setError]);
 
   const refresh = useCallback(async () => {
     if (!user) return;
-    store.setRefreshing(true);
+    setRefreshing(true);
     try {
       const data = await api.getNotifications({ limit: 25 });
-      store.setNotifications(data.notifications, data.next.cursor);
+      setNotifications(data.notifications, data.next.cursor);
 
       const lastSeen = await getLastSeenNotificationTimestamp();
       const unread = computeUnreadCount(data.notifications, lastSeen);
-      store.setUnreadCount(unread);
+      setUnreadCount(unread);
     } catch (err) {
-      store.setError(err instanceof Error ? err.message : 'Failed to refresh');
+      setError(err instanceof Error ? err.message : 'Failed to refresh');
     }
-  }, [user, store]);
+  }, [user, setRefreshing, setNotifications, setUnreadCount, setError]);
 
   const markAsRead = useCallback(async () => {
-    if (store.notifications.length === 0) return;
-    const latestTimestamp = store.notifications[0]?.timestamp;
+    const current = useNotificationStore.getState().notifications;
+    if (current.length === 0) return;
+    const latestTimestamp = current[0]?.timestamp;
     if (latestTimestamp) {
       await saveLastSeenNotificationTimestamp(latestTimestamp);
     }
-    store.markAllRead();
-  }, [store]);
+    markAllRead();
+  }, [markAllRead]);
 
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {
@@ -91,12 +108,12 @@ export function useNotifications() {
   );
 
   return {
-    notifications: store.notifications,
-    isLoading: store.isLoading,
-    isRefreshing: store.isRefreshing,
-    hasMore: store.hasMore,
-    error: store.error,
-    unreadCount: store.unreadCount,
+    notifications,
+    isLoading,
+    isRefreshing,
+    hasMore,
+    error,
+    unreadCount,
     fetch,
     fetchMore,
     refresh,

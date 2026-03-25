@@ -63,7 +63,7 @@ class CastIdEmbed(BaseModel):
 
 
 class CastRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=10000)
+    text: str = Field(max_length=10000)
     parent: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
     embeds: list[HttpUrl] | None = Field(default=None, max_length=2)
     quote: CastIdEmbed | None = None
@@ -104,6 +104,8 @@ async def create_cast(
     db: AsyncSession = Depends(get_db),
 ):
     """Post a new cast (or reply) to Farcaster via Neynar."""
+    if not body.text.strip() and not body.embeds and not body.quote:
+        raise HTTPException(status_code=400, detail="Cast must have text, embeds, or a quote")
     signer_uuid = await _get_signer_uuid(db, current_user)
 
     payload: dict = {
