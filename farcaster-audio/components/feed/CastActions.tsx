@@ -1,4 +1,4 @@
-import { View, Text, Pressable, ActionSheetIOS, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ActionSheetIOS, Share, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, touchTarget } from '@/constants/theme';
 
@@ -19,6 +19,12 @@ interface CastActionsProps {
   onRecast: () => void;
   onQuoteCast: () => void;
   onReply: () => void;
+  authorUsername?: string;
+  castHash?: string;
+}
+
+function buildWarpcastUrl(username: string, hash: string): string {
+  return `https://warpcast.com/${username}/${hash.slice(0, 10)}`;
 }
 
 export function CastActions({
@@ -31,6 +37,8 @@ export function CastActions({
   onRecast,
   onQuoteCast,
   onReply,
+  authorUsername,
+  castHash,
 }: CastActionsProps) {
   const handleRecastPress = () => {
     ActionSheetIOS.showActionSheetWithOptions(
@@ -44,20 +52,23 @@ export function CastActions({
       },
     );
   };
+
+  const handleSharePress = () => {
+    if (!authorUsername || !castHash) return;
+    const url = buildWarpcastUrl(authorUsername, castHash);
+    Share.share({ url });
+  };
+
   return (
     <View style={styles.container}>
       <Pressable
-        onPress={onLike}
+        onPress={onReply}
         style={styles.action}
-        accessibilityLabel={`Like, ${formatCount(likesCount)}`}
+        accessibilityLabel={`Reply, ${formatCount(repliesCount)}`}
         accessibilityRole="button"
       >
-        <Ionicons
-          name={isLiked ? 'heart' : 'heart-outline'}
-          size={18}
-          color={isLiked ? colors.error : colors.text.secondary}
-        />
-        <Text style={[styles.count, isLiked && styles.activeCount]}>{formatCount(likesCount)}</Text>
+        <Ionicons name="chatbubble-outline" size={16} color={colors.text.secondary} />
+        <Text style={styles.count}>{formatCount(repliesCount)}</Text>
       </Pressable>
 
       <Pressable
@@ -75,14 +86,29 @@ export function CastActions({
       </Pressable>
 
       <Pressable
-        onPress={onReply}
+        onPress={onLike}
         style={styles.action}
-        accessibilityLabel={`Reply, ${formatCount(repliesCount)}`}
+        accessibilityLabel={`Like, ${formatCount(likesCount)}`}
         accessibilityRole="button"
       >
-        <Ionicons name="chatbubble-outline" size={16} color={colors.text.secondary} />
-        <Text style={styles.count}>{formatCount(repliesCount)}</Text>
+        <Ionicons
+          name={isLiked ? 'heart' : 'heart-outline'}
+          size={18}
+          color={isLiked ? colors.error : colors.text.secondary}
+        />
+        <Text style={[styles.count, isLiked && styles.activeCount]}>{formatCount(likesCount)}</Text>
       </Pressable>
+
+      {authorUsername && castHash && (
+        <Pressable
+          onPress={handleSharePress}
+          style={styles.action}
+          accessibilityLabel="Share"
+          accessibilityRole="button"
+        >
+          <Ionicons name="share-outline" size={16} color={colors.text.secondary} />
+        </Pressable>
+      )}
     </View>
   );
 }

@@ -1,15 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
-import { FlatList, View, Text, Pressable, StyleSheet, RefreshControl } from 'react-native';
+import { FlatList, View, Text, RefreshControl, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useCastThread } from '@/hooks/useCastThread';
 import { CastCard } from '@/components/feed/CastCard';
+import { ThreadedReplies } from '@/components/feed/ThreadedReplies';
 import { ComposeModal } from '@/components/feed/ComposeModal';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorView } from '@/components/common/ErrorView';
 import { colors } from '@/constants/theme';
 import { likeCast, recastCast, removeLike, removeRecast, publishCast } from '@/services/neynar';
-import type { NeynarCast } from '@/types/neynar';
+import type { NeynarCast, NeynarCastWithReplies } from '@/types/neynar';
 
 export default function CastThreadScreen() {
   const { hash } = useLocalSearchParams<{ hash: string }>();
@@ -93,9 +94,16 @@ export default function CastThreadScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
+      <FlatList<NeynarCastWithReplies>
         data={replies}
         keyExtractor={(item) => item.hash}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.accent}
+          />
+        }
         ListHeaderComponent={
           rootCast ? (
             <CastCard
@@ -110,24 +118,16 @@ export default function CastThreadScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <CastCard
-            cast={item}
+          <ThreadedReplies
+            replies={[item]}
             myFid={myFid}
             onLike={handleLike}
             onRecast={handleRecast}
             onQuoteCast={handleQuoteCast}
             onReply={handleReply}
-            onPress={() => handleCastPress(item.hash)}
-            threaded
+            onCastPress={handleCastPress}
           />
         )}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            tintColor={colors.accent}
-          />
-        }
         ListEmptyComponent={
           !isLoading ? (
             <View style={styles.empty}>

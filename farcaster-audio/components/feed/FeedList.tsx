@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, forwardRef } from 'react';
 import { Animated, FlatList, RefreshControl, View, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CastCard } from '@/components/feed/CastCard';
@@ -96,22 +96,25 @@ interface FeedListProps {
   onRetry?: () => void;
 }
 
-export function FeedList({
-  casts,
-  myFid,
-  isLoading,
-  isRefreshing,
-  hasMore,
-  onRefresh,
-  onEndReached,
-  onLike,
-  onRecast,
-  onQuoteCast,
-  onReply,
-  ListHeaderComponent,
-  error,
-  onRetry,
-}: FeedListProps) {
+export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
+  {
+    casts,
+    myFid,
+    isLoading,
+    isRefreshing,
+    hasMore,
+    onRefresh,
+    onEndReached,
+    onLike,
+    onRecast,
+    onQuoteCast,
+    onReply,
+    ListHeaderComponent,
+    error,
+    onRetry,
+  },
+  ref,
+) {
   const router = useRouter();
   const handleCastPress = useCallback(
     (hash: string) => router.push(`/cast/${hash}`),
@@ -133,6 +136,7 @@ export function FeedList({
 
   return (
     <FlatList
+      ref={ref}
       accessibilityRole="list"
       data={casts}
       keyExtractor={(item) => item.hash}
@@ -176,7 +180,7 @@ export function FeedList({
       contentContainerStyle={casts.length === 0 ? styles.emptyContainer : undefined}
     />
   );
-}
+});
 
 const styles = StyleSheet.create({
   footer: {

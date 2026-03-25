@@ -92,6 +92,10 @@ export interface NeynarCast {
   parent_hash: string | null;
 }
 
+export type NeynarCastWithReplies = NeynarCast & {
+  direct_replies?: NeynarCastWithReplies[];
+};
+
 export interface NeynarFeedResponse {
   casts: NeynarCast[];
   next: {

@@ -1,10 +1,10 @@
 import { useState, useCallback } from 'react';
 import { fetchCastThread } from '@/services/neynar';
-import type { NeynarCast } from '@/types/neynar';
+import type { NeynarCast, NeynarCastWithReplies } from '@/types/neynar';
 
 interface ThreadState {
   rootCast: NeynarCast | null;
-  replies: NeynarCast[];
+  replies: NeynarCastWithReplies[];
   isLoading: boolean;
   error: string | null;
 }
