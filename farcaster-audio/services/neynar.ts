@@ -44,10 +44,12 @@ export async function publishCast(
   text: string,
   parent?: string,
   embeds?: string[],
+  quote?: { fid: number; hash: string },
 ): Promise<{ hash: string }> {
   const payload: Record<string, unknown> = { text };
   if (parent) payload.parent = parent;
   if (embeds && embeds.length > 0) payload.embeds = embeds;
+  if (quote) payload.quote = quote;
   const { data } = await neynarClient.post('/v1/feed/cast', payload);
   return data?.cast ?? data;
 }

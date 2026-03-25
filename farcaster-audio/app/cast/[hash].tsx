@@ -67,9 +67,8 @@ export default function CastThreadScreen() {
   }, []);
 
   const handlePublish = useCallback(
-    async (text: string, parentHash?: string, imageUris?: string[], embeds?: string[]) => {
-      const allEmbeds = [...(imageUris ?? []), ...(embeds ?? [])];
-      await publishCast(text, parentHash, allEmbeds.length > 0 ? allEmbeds : undefined);
+    async (text: string, parentHash?: string, imageUris?: string[], quote?: { fid: number; hash: string }) => {
+      await publishCast(text, parentHash, imageUris && imageUris.length > 0 ? imageUris : undefined, quote);
       await fetch();
     },
     [fetch],

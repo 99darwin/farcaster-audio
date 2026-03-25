@@ -1,9 +1,9 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import { FlatList, View, Text, StyleSheet, RefreshControl } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useProfile } from '@/hooks/useProfile';
-import { ProfileHeader } from '@/components/profile/ProfileHeader';
+import { ProfileHeader, type ProfileTab } from '@/components/profile/ProfileHeader';
 import { CastCard } from '@/components/feed/CastCard';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorView } from '@/components/common/ErrorView';
@@ -18,6 +18,8 @@ export default function ProfileScreen() {
   const myFid = useAuthStore((s) => s.user?.fid) ?? 0;
   const isOwnProfile = fid === myFid;
 
+  const [activeTab, setActiveTab] = useState<ProfileTab>('casts');
+
   const {
     user,
     casts,
@@ -29,6 +31,14 @@ export default function ProfileScreen() {
     fetchMoreCasts,
     toggleFollow,
   } = useProfile(fid);
+
+  const filteredCasts = useMemo(
+    () =>
+      activeTab === 'casts'
+        ? casts.filter((c) => !c.parent_hash)
+        : casts.filter((c) => !!c.parent_hash),
+    [casts, activeTab],
+  );
 
   useEffect(() => {
     fetchProfile();
@@ -88,7 +98,7 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={casts}
+        data={filteredCasts}
         keyExtractor={(item) => item.hash}
         ListHeaderComponent={
           user ? (
@@ -96,6 +106,8 @@ export default function ProfileScreen() {
               user={user}
               isOwnProfile={isOwnProfile}
               onFollowToggle={toggleFollow}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
             />
           ) : null
         }
@@ -129,7 +141,9 @@ export default function ProfileScreen() {
         ListEmptyComponent={
           !isLoading ? (
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>No casts yet</Text>
+              <Text style={styles.emptyText}>
+                {activeTab === 'casts' ? 'No casts yet' : 'No replies yet'}
+              </Text>
             </View>
           ) : null
         }

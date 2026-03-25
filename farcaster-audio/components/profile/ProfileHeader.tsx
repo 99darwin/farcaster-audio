@@ -4,10 +4,14 @@ import { Avatar } from '@/components/common/Avatar';
 import { colors } from '@/constants/theme';
 import type { NeynarUser } from '@/types/neynar';
 
+export type ProfileTab = 'casts' | 'replies';
+
 interface ProfileHeaderProps {
   user: NeynarUser;
   isOwnProfile: boolean;
   onFollowToggle: () => void;
+  activeTab: ProfileTab;
+  onTabChange: (tab: ProfileTab) => void;
 }
 
 function formatCount(n: number): string {
@@ -16,7 +20,7 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-export function ProfileHeader({ user, isOwnProfile, onFollowToggle }: ProfileHeaderProps) {
+export function ProfileHeader({ user, isOwnProfile, onFollowToggle, activeTab, onTabChange }: ProfileHeaderProps) {
   const isFollowing = user.viewer_context?.following ?? false;
   const bio = user.profile?.bio?.text;
 
@@ -59,7 +63,24 @@ export function ProfileHeader({ user, isOwnProfile, onFollowToggle }: ProfileHea
         </Pressable>
       )}
 
-      <View style={styles.divider} />
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tab, activeTab === 'casts' && styles.tabActive]}
+          onPress={() => onTabChange('casts')}
+        >
+          <Text style={[styles.tabText, activeTab === 'casts' && styles.tabTextActive]}>
+            Casts
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, activeTab === 'replies' && styles.tabActive]}
+          onPress={() => onTabChange('replies')}
+        >
+          <Text style={[styles.tabText, activeTab === 'replies' && styles.tabTextActive]}>
+            Replies
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -136,9 +157,28 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontWeight: '600',
   },
-  divider: {
+  tabRow: {
+    flexDirection: 'row',
     marginTop: 16,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.background.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.background.border,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: colors.purple,
+  },
+  tabText: {
+    color: colors.text.secondary,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: colors.text.primary,
   },
 });

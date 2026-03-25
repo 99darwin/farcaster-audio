@@ -28,7 +28,7 @@ const MAX_IMAGES_PRO = 4;
 interface ComposeModalProps {
   isVisible: boolean;
   onClose: () => void;
-  onPublish: (text: string, parentHash?: string, imageUris?: string[], embeds?: string[]) => Promise<void>;
+  onPublish: (text: string, parentHash?: string, imageUris?: string[], quote?: { fid: number; hash: string }) => Promise<void>;
   replyTo?: NeynarCast | null;
   quoteCast?: NeynarCast | null;
 }
@@ -93,10 +93,10 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
     if (!canPublish) return;
     setIsPublishing(true);
     try {
-      const quoteEmbeds = quoteCast
-        ? [`https://warpcast.com/${quoteCast.author.username}/${quoteCast.hash.slice(0, 10)}`]
+      const quote = quoteCast
+        ? { fid: quoteCast.author.fid, hash: quoteCast.hash }
         : undefined;
-      await onPublish(text.trim(), replyTo?.hash, images.length > 0 ? images : undefined, quoteEmbeds);
+      await onPublish(text.trim(), replyTo?.hash, images.length > 0 ? images : undefined, quote);
       setText('');
       setImages([]);
       onClose();

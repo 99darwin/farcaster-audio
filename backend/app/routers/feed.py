@@ -57,10 +57,16 @@ class ReactionRequest(BaseModel):
     target: str = Field(pattern=r"^0x[a-fA-F0-9]+$")
 
 
+class CastIdEmbed(BaseModel):
+    fid: int
+    hash: str = Field(pattern=r"^0x[a-fA-F0-9]+$")
+
+
 class CastRequest(BaseModel):
     text: str = Field(min_length=1, max_length=10000)
     parent: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
     embeds: list[HttpUrl] | None = Field(default=None, max_length=4)
+    quote: CastIdEmbed | None = None
 
 
 # --- Endpoints ---
@@ -106,8 +112,13 @@ async def create_cast(
     }
     if body.parent:
         payload["parent"] = body.parent
+    embeds: list[dict] = []
     if body.embeds:
-        payload["embeds"] = [{"url": str(url)} for url in body.embeds]
+        embeds.extend({"url": str(url)} for url in body.embeds)
+    if body.quote:
+        embeds.append({"cast_id": {"fid": body.quote.fid, "hash": body.quote.hash}})
+    if embeds:
+        payload["embeds"] = embeds
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
