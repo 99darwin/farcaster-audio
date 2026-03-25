@@ -103,10 +103,11 @@ export default function RootLayout() {
           screenOptions={{
             headerStyle: { backgroundColor: colors.background.surface },
             headerTintColor: colors.text.primary,
+            headerBackTitle: '',
             contentStyle: { backgroundColor: colors.background.main },
           }}
         >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false, headerBackTitle: '' }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
           <Stack.Screen name="cast/[hash]" options={{ title: 'Thread' }} />

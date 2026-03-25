@@ -63,7 +63,9 @@ export function NotificationItem({ notification, isUnread, onLike }: Notificatio
     if (type === 'follows') {
       router.push(`/profile/${actor.fid}`);
     } else if (cast?.hash) {
-      router.push(`/cast/${cast.hash}`);
+      // Navigate to thread root so replies show full context
+      const threadHash = cast.thread_hash ?? cast.parent_hash ?? cast.hash;
+      router.push(`/cast/${threadHash}`);
     }
   };
 
