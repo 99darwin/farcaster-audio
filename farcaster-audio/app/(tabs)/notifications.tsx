@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { View, FlatList, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -22,11 +22,14 @@ export default function NotificationsScreen() {
   } = useNotifications();
 
   const [lastSeenTs, setLastSeenTs] = useState<string | null>(null);
+  const hasFetched = useRef(false);
 
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
     fetch();
     getLastSeenNotificationTimestamp().then(setLastSeenTs);
-  }, [fetch]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -49,6 +52,12 @@ export default function NotificationsScreen() {
     ),
     [lastSeenTs, handleLike],
   );
+
+  const handleEndReached = useCallback(() => {
+    if (!isLoading) {
+      fetchMore();
+    }
+  }, [isLoading, fetchMore]);
 
   const renderFooter = () => {
     if (!hasMore || !isLoading) return null;
@@ -73,7 +82,7 @@ export default function NotificationsScreen() {
         data={notifications}
         keyExtractor={(item, index) => item.hash ?? `${item.type}-${index}`}
         renderItem={renderItem}
-        onEndReached={fetchMore}
+        onEndReached={handleEndReached}
         onEndReachedThreshold={0.3}
         onRefresh={refresh}
         refreshing={isRefreshing}

@@ -103,6 +103,7 @@ export default function RootLayout() {
           screenOptions={{
             headerStyle: { backgroundColor: colors.background.surface },
             headerTintColor: colors.text.primary,
+            headerBackTitleVisible: false,
             contentStyle: { backgroundColor: colors.background.main },
           }}
         >
