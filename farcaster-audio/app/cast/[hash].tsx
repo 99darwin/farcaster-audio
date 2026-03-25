@@ -108,6 +108,7 @@ export default function CastThreadScreen() {
             onRecast={handleRecast}
             onReply={handleReply}
             onPress={() => handleCastPress(item.hash)}
+            threaded
           />
         )}
         refreshControl={
