@@ -163,15 +163,17 @@ export const unfollowUser = (fid: number) =>
 
 // --- Media ---
 export async function uploadImage(uri: string): Promise<string> {
+  const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
   const formData = new FormData();
   formData.append('file', {
     uri,
-    type: 'image/jpeg',
-    name: 'upload.jpg',
+    type: mimeType,
+    name: `upload.${ext}`,
   } as any);
 
   const { data } = await apiClient.post<{ url: string }>('/v1/media/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    headers: { 'Content-Type': undefined },
     timeout: 60000,
   });
   return data.url;
