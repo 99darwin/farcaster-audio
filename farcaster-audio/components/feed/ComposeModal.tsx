@@ -20,8 +20,10 @@ import { Avatar } from '@/components/common/Avatar';
 import { colors } from '@/constants/theme';
 import type { NeynarCast } from '@/types/neynar';
 
-const MAX_CAST_LENGTH = 320;
-const MAX_IMAGES = 2;
+const CAST_LENGTH_DEFAULT = 320;
+const CAST_LENGTH_PRO = 10000;
+const MAX_IMAGES_DEFAULT = 2;
+const MAX_IMAGES_PRO = 4;
 
 interface ComposeModalProps {
   isVisible: boolean;
@@ -32,28 +34,31 @@ interface ComposeModalProps {
 
 export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: ComposeModalProps) {
   const user = useAuthStore((s) => s.user);
+  const isPro = user?.is_pro ?? false;
+  const maxCastLength = isPro ? CAST_LENGTH_PRO : CAST_LENGTH_DEFAULT;
+  const maxImages = isPro ? MAX_IMAGES_PRO : MAX_IMAGES_DEFAULT;
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [isPublishing, setIsPublishing] = useState(false);
 
   const charCount = text.length;
-  const isOverLimit = charCount > MAX_CAST_LENGTH;
+  const isOverLimit = charCount > maxCastLength;
   const hasContent = text.trim().length > 0 || images.length > 0;
   const canPublish = hasContent && !isOverLimit && !isPublishing;
 
   const handlePickImage = async () => {
-    if (images.length >= MAX_IMAGES) return;
+    if (images.length >= maxImages) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
-      selectionLimit: MAX_IMAGES - images.length,
+      selectionLimit: maxImages - images.length,
       allowsMultipleSelection: true,
     });
 
     if (!result.canceled) {
       const uris = result.assets.map((a) => a.uri);
-      setImages((prev) => [...prev, ...uris].slice(0, MAX_IMAGES));
+      setImages((prev) => [...prev, ...uris].slice(0, maxImages));
     }
   };
 
@@ -139,7 +144,7 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
               placeholderTextColor={colors.text.placeholder}
               multiline
               autoFocus
-              maxLength={MAX_CAST_LENGTH + 50}
+              maxLength={maxCastLength + 50}
               value={text}
               onChangeText={setText}
               editable={!isPublishing}
@@ -167,14 +172,14 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
         <View style={styles.footer}>
           <Pressable
             onPress={handlePickImage}
-            disabled={isPublishing || images.length >= MAX_IMAGES}
+            disabled={isPublishing || images.length >= maxImages}
             hitSlop={8}
-            style={{ opacity: images.length >= MAX_IMAGES ? 0.4 : 1 }}
+            style={{ opacity: images.length >= maxImages ? 0.4 : 1 }}
           >
             <Ionicons name="image-outline" size={24} color={colors.purple} />
           </Pressable>
           <Text style={[styles.charCount, isOverLimit && styles.charCountOver]}>
-            {charCount}/{MAX_CAST_LENGTH}
+            {charCount}/{maxCastLength}
           </Text>
         </View>
       </KeyboardAvoidingView>

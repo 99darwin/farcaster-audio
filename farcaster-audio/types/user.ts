@@ -4,6 +4,7 @@ export interface UserProfile {
   display_name: string;
   pfp_url: string | null;
   custody_address: string;
+  is_pro: boolean;
 }
 
 export interface AuthState {

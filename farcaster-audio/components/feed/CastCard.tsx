@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Avatar } from '@/components/common/Avatar';
 import { CastActions } from '@/components/feed/CastActions';
@@ -202,6 +203,9 @@ export function CastCard({
             {cast.author.display_name}
           </Text>
           <Text style={styles.username}>@{cast.author.username}</Text>
+          {cast.author.pro?.status === 'subscribed' && (
+            <Ionicons name="checkmark-circle" size={14} color={colors.purple} />
+          )}
           <Text style={styles.dot}>{'\u00B7'}</Text>
           <Text style={styles.timestamp}>{getRelativeTime(cast.timestamp)}</Text>
         </Pressable>

@@ -124,6 +124,7 @@ async def login(
         )
 
     user = await get_or_create_user(db, body.fid, body.signer_uuid, profile)
+    is_pro = profile.get("pro", {}).get("status") == "subscribed"
 
     jwt_token, expires_at = create_jwt(user.fid)
     refresh_token = await create_refresh_token(user.fid, redis)
@@ -138,6 +139,7 @@ async def login(
             display_name=user.display_name or "",
             pfp_url=user.pfp_url,
             custody_address=user.custody_address,
+            is_pro=is_pro,
         ),
     )
 
@@ -195,6 +197,14 @@ async def refresh(
             detail="User not found",
         )
 
+    # Fetch fresh profile to get current Pro status
+    is_pro = False
+    try:
+        profile = await fetch_user_profile(user.fid)
+        is_pro = profile.get("pro", {}).get("status") == "subscribed"
+    except Exception:
+        pass
+
     jwt_token, expires_at = create_jwt(user.fid)
     new_refresh_token = await create_refresh_token(user.fid, redis)
 
@@ -208,5 +218,6 @@ async def refresh(
             display_name=user.display_name or "",
             pfp_url=user.pfp_url,
             custody_address=user.custody_address,
+            is_pro=is_pro,
         ),
     )

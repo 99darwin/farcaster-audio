@@ -58,9 +58,9 @@ class ReactionRequest(BaseModel):
 
 
 class CastRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=320)
+    text: str = Field(min_length=1, max_length=10000)
     parent: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
-    embeds: list[HttpUrl] | None = Field(default=None, max_length=2)
+    embeds: list[HttpUrl] | None = Field(default=None, max_length=4)
 
 
 # --- Endpoints ---

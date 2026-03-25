@@ -1,4 +1,5 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/common/Avatar';
 import { colors } from '@/constants/theme';
 import type { NeynarUser } from '@/types/neynar';
@@ -36,7 +37,12 @@ export function ProfileHeader({ user, isOwnProfile, onFollowToggle }: ProfileHea
       </View>
 
       <View style={styles.nameSection}>
-        <Text style={styles.displayName}>{user.display_name}</Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.displayName}>{user.display_name}</Text>
+          {user.pro?.status === 'subscribed' && (
+            <Ionicons name="checkmark-circle" size={18} color={colors.purple} />
+          )}
+        </View>
         <Text style={styles.username}>@{user.username}</Text>
       </View>
 
@@ -87,6 +93,11 @@ const styles = StyleSheet.create({
   },
   nameSection: {
     marginTop: 12,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   displayName: {
     color: colors.text.primary,

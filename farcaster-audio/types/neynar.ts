@@ -17,6 +17,11 @@ export interface NeynarUser {
     };
   };
   viewer_context?: NeynarUserViewerContext;
+  pro?: NeynarProStatus;
+}
+
+export interface NeynarProStatus {
+  status: 'subscribed' | 'unsubscribed';
 }
 
 export interface NeynarCastAuthor {
@@ -24,6 +29,7 @@ export interface NeynarCastAuthor {
   username: string;
   display_name: string;
   pfp_url: string | null;
+  pro?: NeynarProStatus;
 }
 
 export interface NeynarReactions {

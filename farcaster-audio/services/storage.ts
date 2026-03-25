@@ -38,6 +38,7 @@ export interface StoredUserProfile {
   display_name: string;
   pfp_url: string | null;
   custody_address: string;
+  is_pro: boolean;
 }
 
 export async function saveUserProfile(profile: StoredUserProfile): Promise<void> {
