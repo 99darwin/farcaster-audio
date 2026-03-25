@@ -1,7 +1,5 @@
 import { View, Text, Pressable, ActionSheetIOS, Share, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
-import Toast from 'react-native-toast-message';
 import { colors, touchTarget } from '@/constants/theme';
 
 function formatCount(n: number): string {
@@ -58,22 +56,7 @@ export function CastActions({
   const handleSharePress = () => {
     if (!authorUsername || !castHash) return;
     const url = buildWarpcastUrl(authorUsername, castHash);
-
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options: ['Cancel', 'Copy Link', 'Share...'],
-        cancelButtonIndex: 0,
-      },
-      async (buttonIndex) => {
-        if (buttonIndex === 1) {
-          await Clipboard.setStringAsync(url);
-          Toast.show({ type: 'success', text1: 'Link copied' });
-        }
-        if (buttonIndex === 2) {
-          Share.share({ url });
-        }
-      },
-    );
+    Share.share({ url });
   };
 
   return (
