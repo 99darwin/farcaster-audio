@@ -48,7 +48,8 @@ export async function saveUserProfile(profile: StoredUserProfile): Promise<void>
 export async function getUserProfile(): Promise<StoredUserProfile | null> {
   const data = await SecureStore.getItemAsync(KEYS.USER_PROFILE);
   if (!data) return null;
-  return JSON.parse(data) as StoredUserProfile;
+  const parsed = JSON.parse(data);
+  return { ...parsed, is_pro: parsed.is_pro ?? false };
 }
 
 export async function clearUserProfile(): Promise<void> {

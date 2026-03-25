@@ -205,14 +205,21 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Pressable
-            onPress={handlePickImage}
-            disabled={isPublishing || images.length >= maxImages}
-            hitSlop={8}
-            style={{ opacity: images.length >= maxImages ? 0.4 : 1 }}
-          >
-            <Ionicons name="image-outline" size={24} color={colors.purple} />
-          </Pressable>
+          <View style={styles.footerLeft}>
+            <Pressable
+              onPress={handlePickImage}
+              disabled={isPublishing || images.length >= maxImages}
+              hitSlop={8}
+              style={{ opacity: images.length >= maxImages ? 0.4 : 1 }}
+            >
+              <Ionicons name="image-outline" size={24} color={colors.purple} />
+            </Pressable>
+            {images.length > 0 && (
+              <Text style={styles.imageHint}>
+                {images.length}/{maxImages}
+              </Text>
+            )}
+          </View>
           <Text style={[styles.charCount, isOverLimit && styles.charCountOver]}>
             {charCount}/{maxCastLength}
           </Text>
@@ -348,6 +355,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.background.border,
+  },
+  footerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  imageHint: {
+    color: colors.text.secondary,
+    fontSize: 13,
   },
   charCount: {
     color: colors.text.secondary,

@@ -28,13 +28,22 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       {user && (
-        <View style={styles.profile}>
+        <Pressable
+          style={styles.profile}
+          onPress={() => {
+            router.dismiss();
+            router.push(`/profile/${user.fid}`);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="View your profile"
+        >
           <Avatar pfpUrl={user.pfp_url ?? null} displayName={user.display_name || user.username || ''} size="lg" />
           <View style={styles.profileText}>
             <Text style={styles.displayName}>{user.display_name}</Text>
             <Text style={styles.username}>@{user.username}</Text>
           </View>
-        </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
+        </Pressable>
       )}
 
       <View style={styles.section}>
