@@ -1,12 +1,10 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { View, FlatList, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { useFocusEffect } from 'expo-router';
 import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationItem } from '@/components/notifications/NotificationItem';
 import { getLastSeenNotificationTimestamp } from '@/services/storage';
 import { colors, typography } from '@/constants/theme';
 import type { NeynarNotification } from '@/types/neynar';
-import { useState } from 'react';
 
 export default function NotificationsScreen() {
   const {
@@ -31,16 +29,20 @@ export default function NotificationsScreen() {
     getLastSeenNotificationTimestamp().then(setLastSeenTs);
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
+  // Mark as read when screen is visible — fire and forget, no useFocusEffect needed
+  useEffect(() => {
+    if (notifications.length > 0) {
       markAsRead();
-    }, [markAsRead]),
-  );
+    }
+  }, [notifications.length > 0]);
 
-  const isUnread = (notification: NeynarNotification) => {
-    if (!lastSeenTs) return true;
-    return new Date(notification.timestamp).getTime() > new Date(lastSeenTs).getTime();
-  };
+  const isUnread = useCallback(
+    (notification: NeynarNotification) => {
+      if (!lastSeenTs) return true;
+      return new Date(notification.most_recent_timestamp).getTime() > new Date(lastSeenTs).getTime();
+    },
+    [lastSeenTs],
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: NeynarNotification }) => (
@@ -50,7 +52,7 @@ export default function NotificationsScreen() {
         onLike={handleLike}
       />
     ),
-    [lastSeenTs, handleLike],
+    [isUnread, handleLike],
   );
 
   const handleEndReached = useCallback(() => {
@@ -58,15 +60,6 @@ export default function NotificationsScreen() {
       fetchMore();
     }
   }, [isLoading, fetchMore]);
-
-  const renderFooter = () => {
-    if (!hasMore || !isLoading) return null;
-    return (
-      <View style={styles.footer}>
-        <ActivityIndicator color={colors.text.secondary} />
-      </View>
-    );
-  };
 
   if (isLoading && notifications.length === 0) {
     return (
@@ -80,13 +73,19 @@ export default function NotificationsScreen() {
     <View style={styles.container}>
       <FlatList
         data={notifications}
-        keyExtractor={(item, index) => item.hash ?? `${item.type}-${index}`}
+        keyExtractor={(item, index) => `${item.type}-${item.most_recent_timestamp}-${index}`}
         renderItem={renderItem}
         onEndReached={handleEndReached}
         onEndReachedThreshold={0.3}
         onRefresh={refresh}
         refreshing={isRefreshing}
-        ListFooterComponent={renderFooter}
+        ListFooterComponent={
+          hasMore && isLoading ? (
+            <View style={styles.footer}>
+              <ActivityIndicator color={colors.text.secondary} />
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
           <View style={styles.centered}>
             <Text style={styles.emptyText}>No notifications yet</Text>

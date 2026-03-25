@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Avatar } from '@/components/common/Avatar';
 import { colors, typography } from '@/constants/theme';
-import type { NeynarNotification } from '@/types/neynar';
+import type { NeynarNotification, NeynarCastAuthor } from '@/types/neynar';
 
 function getRelativeTime(timestamp: string): string {
   const now = Date.now();
@@ -26,6 +26,25 @@ const ACTION_TEXT: Record<string, string> = {
   mention: 'mentioned you',
 };
 
+function getActor(notification: NeynarNotification): NeynarCastAuthor | null {
+  const { type } = notification;
+  if ((type === 'likes' || type === 'recasts') && notification.reactions?.length) {
+    return notification.reactions[0].user;
+  }
+  if (type === 'follows' && notification.follows?.length) {
+    return notification.follows[0].user;
+  }
+  if ((type === 'reply' || type === 'mention') && notification.cast) {
+    return notification.cast.author;
+  }
+  return null;
+}
+
+function getExtraCount(notification: NeynarNotification): number {
+  const total = notification.count ?? 0;
+  return Math.max(0, total - 1);
+}
+
 interface NotificationItemProps {
   notification: NeynarNotification;
   isUnread: boolean;
@@ -34,34 +53,42 @@ interface NotificationItemProps {
 
 export function NotificationItem({ notification, isUnread, onLike }: NotificationItemProps) {
   const router = useRouter();
-  const { type, user, cast, timestamp } = notification;
+  const { type, cast, most_recent_timestamp } = notification;
+  const actor = getActor(notification);
+  const extraCount = getExtraCount(notification);
+
+  if (!actor) return null;
 
   const handlePress = () => {
     if (type === 'follows') {
-      router.push(`/profile/${user.fid}`);
+      router.push(`/profile/${actor.fid}`);
     } else if (cast?.hash) {
       router.push(`/cast/${cast.hash}`);
     }
   };
 
+  const displayName = actor.display_name || actor.username;
+  const othersText = extraCount > 0 ? ` and ${extraCount} other${extraCount > 1 ? 's' : ''}` : '';
+
   return (
     <Pressable
       style={[styles.container, isUnread && styles.unread]}
       onPress={handlePress}
-      accessibilityLabel={`${user.display_name || user.username} ${ACTION_TEXT[type] ?? type}`}
+      accessibilityLabel={`${displayName} ${ACTION_TEXT[type] ?? type}`}
     >
       <Avatar
-        pfpUrl={user.pfp_url}
-        displayName={user.display_name || user.username}
+        pfpUrl={actor.pfp_url}
+        displayName={displayName}
         size="sm"
       />
       <View style={styles.content}>
-        <Text style={styles.actionLine} numberOfLines={1}>
-          <Text style={styles.username}>{user.display_name || user.username}</Text>
+        <Text style={styles.actionLine} numberOfLines={2}>
+          <Text style={styles.username}>{displayName}</Text>
+          {othersText ? <Text style={styles.action}>{othersText}</Text> : null}
           {' '}
           <Text style={styles.action}>{ACTION_TEXT[type] ?? type}</Text>
           {'  '}
-          <Text style={styles.time}>{getRelativeTime(timestamp)}</Text>
+          <Text style={styles.time}>{getRelativeTime(most_recent_timestamp)}</Text>
         </Text>
         {type !== 'follows' && cast?.text ? (
           <Text style={styles.preview} numberOfLines={2}>

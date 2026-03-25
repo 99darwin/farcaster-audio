@@ -25,6 +25,10 @@ def _neynar_headers() -> dict[str, str]:
     }
 
 
+def _user_score(user: dict) -> float:
+    return user.get("experimental", {}).get("neynar_user_score", 1.0)
+
+
 @router.get("")
 async def get_notifications(
     limit: int = Query(default=25, ge=1, le=50),
@@ -56,14 +60,33 @@ async def get_notifications(
 
     data = resp.json()
 
-    # Filter out low-quality notifications (spam accounts)
+    # Filter out low-quality actors from notifications
     notifications = data.get("notifications", [])
-    filtered = [
-        n
-        for n in notifications
-        if n.get("user", {}).get("experimental", {}).get("neynar_user_score", 1.0)
-        > MIN_USER_SCORE
-    ]
+    filtered = []
+    for n in notifications:
+        ntype = n.get("type")
+        if ntype in ("likes", "recasts"):
+            # Strip low-score reactors; drop notification if none remain
+            good = [
+                r for r in n.get("reactions", [])
+                if _user_score(r.get("user", {})) > MIN_USER_SCORE
+            ]
+            if not good:
+                continue
+            n = {**n, "reactions": good, "count": len(good)}
+        elif ntype == "follows":
+            good = [
+                f for f in n.get("follows", [])
+                if _user_score(f.get("user", {})) > MIN_USER_SCORE
+            ]
+            if not good:
+                continue
+            n = {**n, "follows": good, "count": len(good)}
+        elif ntype in ("reply", "mention"):
+            author = n.get("cast", {}).get("author", {})
+            if _user_score(author) <= MIN_USER_SCORE:
+                continue
+        filtered.append(n)
 
     return {
         "notifications": filtered,

@@ -16,7 +16,7 @@ function computeUnreadCount(
   if (!lastSeenTimestamp) return notifications.length;
   const lastSeen = new Date(lastSeenTimestamp).getTime();
   return notifications.filter(
-    (n) => new Date(n.timestamp).getTime() > lastSeen,
+    (n) => new Date(n.most_recent_timestamp).getTime() > lastSeen,
   ).length;
 }
 
@@ -84,7 +84,7 @@ export function useNotifications() {
   const markAsRead = useCallback(() => {
     const current = useNotificationStore.getState().notifications;
     if (current.length === 0) return;
-    const latestTimestamp = current[0]?.timestamp;
+    const latestTimestamp = current[0]?.most_recent_timestamp;
     if (latestTimestamp) {
       saveLastSeenNotificationTimestamp(latestTimestamp);
     }

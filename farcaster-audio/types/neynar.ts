@@ -103,13 +103,25 @@ export interface NeynarFeedResponse {
 
 export type NotificationType = 'likes' | 'recasts' | 'follows' | 'reply' | 'mention';
 
+export interface NeynarNotificationReaction {
+  object: string;
+  cast: NeynarCast;
+  user: NeynarCastAuthor;
+}
+
+export interface NeynarNotificationFollow {
+  object: string;
+  user: NeynarCastAuthor;
+}
+
 export interface NeynarNotification {
   type: NotificationType;
-  hash: string | null;
-  cast: NeynarCast | null;
-  user: NeynarCastAuthor;
-  timestamp: string;
-  is_seen: boolean;
+  most_recent_timestamp: string;
+  seen: boolean;
+  cast?: NeynarCast;
+  reactions?: NeynarNotificationReaction[];
+  follows?: NeynarNotificationFollow[];
+  count?: number;
 }
 
 export interface NotificationsResponse {
