@@ -18,6 +18,9 @@
       }
     },
     "production": {
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      },
       "ios": {
         "buildConfiguration": "Release",
         "autoIncrement": true
