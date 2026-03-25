@@ -16,7 +16,6 @@
       "bundleIdentifier": "xyz.juke.app",
       "infoPlist": {
         "UIBackgroundModes": [
-          "audio",
           "audio"
         ],
         "NSMicrophoneUsageDescription": "Required to speak in audio spaces",
@@ -35,6 +34,12 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/YOUR_EAS_PROJECT_ID"
     },
     "plugins": [
       "expo-router",
