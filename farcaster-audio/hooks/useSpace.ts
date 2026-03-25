@@ -80,10 +80,6 @@ export function useSpace() {
 
   const connect = useCallback(
     async (roomId: string, token: string, wsUrl: string) => {
-      if (AudioSessionModule) {
-        await AudioSessionModule.configureForVoiceChat();
-      }
-
       const room = await livekitService.connectToRoom(wsUrl, token);
       setupRoomListeners(room);
 
@@ -104,13 +100,6 @@ export function useSpace() {
       console.warn('[useSpace] LiveKit disconnect error:', e);
     }
     roomRef.current = null;
-    try {
-      if (AudioSessionModule) {
-        await AudioSessionModule.deactivate();
-      }
-    } catch (e) {
-      console.warn('[useSpace] AudioSession deactivate error:', e);
-    }
     store.leaveSpace();
   }, [store]);
 
@@ -139,11 +128,15 @@ export function useSpace() {
   const toggleMute = useCallback(async () => {
     const isMuted = await livekitService.toggleMicrophone();
     store.setMuted(isMuted);
+    const myFid = useAuthStore.getState().user?.fid;
+    if (myFid) store.updateParticipant(myFid, { is_muted: isMuted });
   }, [store]);
 
   const startSpeaking = useCallback(async () => {
     await livekitService.enableMicrophone();
     store.setMuted(false);
+    const myFid = useAuthStore.getState().user?.fid;
+    if (myFid) store.updateParticipant(myFid, { is_muted: false });
   }, [store]);
 
   // Native audio session event listeners

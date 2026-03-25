@@ -57,9 +57,6 @@ export default function CreateSpaceScreen() {
       useSpaceStore.getState().joinSpace(response.room, [hostParticipant], 'host');
 
       // Connect to LiveKit directly (avoid useSpace hook which triggers reconnect side effects)
-      if (AudioSessionModule) {
-        await AudioSessionModule.configureForVoiceChat();
-      }
       await livekitService.connectToRoom(response.livekit_ws_url, response.livekit_token);
       await livekitService.enableMicrophone();
       useSpaceStore.getState().setConnected(true);

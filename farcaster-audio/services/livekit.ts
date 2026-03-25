@@ -1,5 +1,8 @@
 import { Room, type RoomOptions } from 'livekit-client';
 import { AudioSession } from '@livekit/react-native';
+import { NativeModules } from 'react-native';
+
+const { AudioSessionModule } = NativeModules;
 
 let activeRoom: Room | null = null;
 
@@ -17,11 +20,18 @@ export async function connectToRoom(
   wsUrl: string,
   token: string,
 ): Promise<Room> {
-  // Start LiveKit audio session
+  // Start LiveKit audio session first
   await AudioSession.startAudioSession();
 
   const room = new Room(ROOM_OPTIONS);
   await room.connect(wsUrl, token, { autoSubscribe: true });
+
+  // Configure native audio session AFTER LiveKit connects
+  // so our settings aren't overridden
+  if (AudioSessionModule) {
+    await AudioSessionModule.configureForVoiceChat();
+  }
+
   activeRoom = room;
   return room;
 }
@@ -30,6 +40,9 @@ export async function disconnectFromRoom(): Promise<void> {
   if (activeRoom) {
     await activeRoom.disconnect();
     activeRoom = null;
+  }
+  if (AudioSessionModule) {
+    await AudioSessionModule.deactivate();
   }
   await AudioSession.stopAudioSession();
 }

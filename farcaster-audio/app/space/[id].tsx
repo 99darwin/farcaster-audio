@@ -72,18 +72,22 @@ export default function SpaceScreen() {
 
   const handlePromote = useCallback(async (fid: number) => {
     if (!id) return;
+    useSpaceStore.getState().updateParticipant(fid, { role: 'speaker', is_muted: false });
     try {
       await api.promoteParticipant(id, fid);
     } catch (err) {
+      useSpaceStore.getState().updateParticipant(fid, { role: 'listener', is_muted: true });
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to promote participant' });
     }
   }, [id]);
 
   const handleDemote = useCallback(async (fid: number) => {
     if (!id) return;
+    useSpaceStore.getState().updateParticipant(fid, { role: 'listener', is_muted: true });
     try {
       await api.demoteParticipant(id, fid);
     } catch (err) {
+      useSpaceStore.getState().updateParticipant(fid, { role: 'speaker' });
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to demote participant' });
     }
   }, [id]);
