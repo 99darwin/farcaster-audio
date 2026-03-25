@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -37,6 +39,7 @@ export default function SpaceScreen() {
   const [isJoining, setIsJoining] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [showHostControls, setShowHostControls] = useState(false);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (!id) return;
@@ -126,10 +129,11 @@ export default function SpaceScreen() {
     try {
       await api.endRoom(id);
       router.replace('/');
+      await leaveRoom(id);
     } catch (err) {
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to end space' });
     }
-  }, [id, router]);
+  }, [id, router, leaveRoom]);
 
   if (isLeaving || isJoining || !room) {
     return <LoadingSpinner fullScreen />;
@@ -164,29 +168,41 @@ export default function SpaceScreen() {
       </ScrollView>
 
       {/* Bottom Controls */}
-      <View style={styles.controls}>
+      <View style={[styles.controls, { paddingBottom: insets.bottom || 12 }]}>
         {permissions.isListener && (
           <HandRaiseButton isRaised={isHandRaised} onPress={handleRaiseHand} />
         )}
         {permissions.canSelfMute && (
-          <Button
-            title={isMuted ? 'Unmute' : 'Mute'}
+          <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               toggleMute();
             }}
-            variant={isMuted ? 'secondary' : 'primary'}
+            style={[styles.controlIcon, isMuted && styles.controlIconMuted]}
             accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-          />
+            accessibilityRole="button"
+          >
+            <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={24} color={colors.text.primary} />
+          </Pressable>
         )}
-        {permissions.canEndRoom && (
-          <Button
-            title="Host Controls"
+        {(permissions.canPromote || permissions.canMuteOthers || permissions.canKick || permissions.canEndRoom) && (
+          <Pressable
             onPress={() => setShowHostControls(true)}
-            variant="ghost"
-          />
+            style={styles.controlIcon}
+            accessibilityLabel="Host controls"
+            accessibilityRole="button"
+          >
+            <Ionicons name="settings-outline" size={24} color={colors.text.primary} />
+          </Pressable>
         )}
-        <Button title="Leave" onPress={handleLeave} variant="danger" size="sm" accessibilityLabel="Leave space" />
+        <Pressable
+          onPress={handleLeave}
+          style={[styles.controlIcon, styles.controlIconLeave]}
+          accessibilityLabel="Leave space"
+          accessibilityRole="button"
+        >
+          <Ionicons name="exit-outline" size={24} color={colors.text.primary} />
+        </Pressable>
       </View>
 
       {/* Host Controls Modal */}
@@ -213,20 +229,33 @@ const styles = StyleSheet.create({
   header: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.background.border },
   title: { color: colors.text.primary, fontSize: 22, fontWeight: '700' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
   statusText: { color: colors.error, fontSize: 14, fontWeight: '600' },
   listenerCount: { color: colors.text.secondary, fontSize: 14 },
   reconnecting: { color: colors.warning, fontSize: 13, marginTop: 4 },
   scrollContent: { flex: 1 },
   controls: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-evenly',
     alignItems: 'center',
-    gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.background.border,
     backgroundColor: colors.background.surface,
+  },
+  controlIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.background.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  controlIconMuted: {
+    backgroundColor: colors.accent,
+  },
+  controlIconLeave: {
+    backgroundColor: colors.danger,
   },
 });

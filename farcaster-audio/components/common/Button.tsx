@@ -12,7 +12,6 @@ interface ButtonProps {
   disabled?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'small' | 'medium' | 'large';
   accessibilityLabel?: string;
-  accessibilityRole?: string;
 }
 
 const NORMALIZE_SIZE: Record<string, 'sm' | 'md' | 'lg'> = {

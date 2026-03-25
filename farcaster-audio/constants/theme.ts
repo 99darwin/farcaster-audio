@@ -16,6 +16,7 @@ export const colors = {
   purple: "#855DCD",
   danger: "#dc2626",
   error: "#ef4444",
+  live: "#ef4444",
   success: "#22c55e",
   warning: "#fbbf24",
 } as const;

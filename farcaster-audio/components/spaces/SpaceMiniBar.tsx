@@ -1,4 +1,5 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSpaceStore } from '@/stores/spaceStore';
@@ -15,11 +16,13 @@ export function SpaceMiniBar({ onToggleMute, onLeave }: SpaceMiniBarProps) {
   const isMuted = useSpaceStore((s) => s.isMuted);
   const isConnected = useSpaceStore((s) => s.isConnected);
 
+  const insets = useSafeAreaInsets();
+
   if (!room) return null;
 
   return (
     <Pressable
-      style={styles.container}
+      style={[styles.container, { paddingBottom: insets.bottom || 10 }]}
       onPress={() => router.push(`/space/${room.id}`)}
       accessibilityLabel={`Active space: ${room.title}`}
       accessibilityRole="button"
@@ -68,7 +71,7 @@ const styles = StyleSheet.create({
     right: 0,
   },
   leftSection: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
   title: { color: colors.text.primary, fontSize: 14, fontWeight: '600', flexShrink: 1 },
   reconnecting: { color: colors.warning, fontSize: 12 },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 4 },

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { View, Text, Modal, ScrollView, Pressable, Alert, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/common/Avatar';
 import { Button } from '@/components/common/Button';
 import { useSpaceStore } from '@/stores/spaceStore';
@@ -51,6 +52,7 @@ export function HostControls({
     }).catch(() => {});
   }, [visible]);
 
+  const listeners = participants.filter((p) => p.role === 'listener');
   const handRaisedParticipants = participants.filter((p) => handQueue.includes(p.fid));
 
   const confirmEndSpace = () => {
@@ -91,7 +93,9 @@ export function HostControls({
                     <Avatar pfpUrl={p.pfp_url} displayName={p.display_name} size="sm" />
                     <Text style={styles.participantName}>{p.display_name}</Text>
                     <View style={styles.actions}>
-                      <Button title="Accept" onPress={() => onPromote(p.fid)} size="sm" accessibilityLabel={`Promote ${p.display_name} to speaker`} accessibilityRole="button" />
+                      <Pressable onPress={() => onPromote(p.fid)} style={styles.iconButton} accessibilityLabel={`Promote ${p.display_name} to speaker`} accessibilityRole="button">
+                        <Ionicons name="checkmark-circle-outline" size={18} color={colors.success} />
+                      </Pressable>
                     </View>
                   </View>
                 ))}
@@ -109,8 +113,12 @@ export function HostControls({
                   </Text>
                   {s.fid !== hostFid && (
                     <View style={styles.actions}>
-                      <Button title="Mute" onPress={() => onMute(s.fid)} variant="ghost" size="sm" accessibilityLabel={`Mute ${s.display_name}`} accessibilityRole="button" />
-                      <Button title="Demote" onPress={() => onDemote(s.fid)} variant="secondary" size="sm" accessibilityLabel={`Demote ${s.display_name} to listener`} accessibilityRole="button" />
+                      <Pressable onPress={() => onMute(s.fid)} style={styles.iconButton} accessibilityLabel={`Mute ${s.display_name}`} accessibilityRole="button">
+                        <Ionicons name="mic-off" size={18} color={colors.text.secondary} />
+                      </Pressable>
+                      <Pressable onPress={() => onDemote(s.fid)} style={styles.iconButton} accessibilityLabel={`Demote ${s.display_name} to listener`} accessibilityRole="button">
+                        <Ionicons name="arrow-down-circle-outline" size={18} color={colors.text.secondary} />
+                      </Pressable>
                     </View>
                   )}
                 </View>
@@ -118,18 +126,25 @@ export function HostControls({
             </View>
 
             {/* Listeners */}
-            {participants.filter((p) => p.role === 'listener').length > 0 && (
+            {listeners.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>
-                  Listeners ({participants.filter((p) => p.role === 'listener').length})
+                  Listeners ({listeners.length})
                 </Text>
-                {participants.filter((p) => p.role === 'listener').map((p) => (
+                {listeners.map((p) => (
                   <View key={p.fid} style={styles.participantRow}>
                     <Avatar pfpUrl={p.pfp_url} displayName={p.display_name} size="sm" />
                     <Text style={styles.participantName}>{p.display_name}</Text>
                     <View style={styles.actions}>
-                      <Button title="Promote" onPress={() => onPromote(p.fid)} size="sm" accessibilityLabel={`Promote ${p.display_name} to speaker`} />
-                      <Button title="Kick" onPress={() => confirmKick(p.fid, p.display_name)} variant="danger" size="sm" accessibilityLabel={`Kick ${p.display_name}`} />
+                      <Pressable onPress={() => onPromote(p.fid)} style={styles.iconButton} accessibilityLabel={`Promote ${p.display_name} to speaker`} accessibilityRole="button">
+                        <Ionicons name="arrow-up-circle-outline" size={18} color={colors.success} />
+                      </Pressable>
+                      <Pressable onPress={() => confirmKick(p.fid, p.display_name)} style={styles.iconButton} accessibilityLabel={`Kick ${p.display_name}`} accessibilityRole="button">
+                        <Ionicons name="remove-circle-outline" size={18} color={colors.error} />
+                      </Pressable>
+                      <Pressable onPress={() => confirmBan(p.fid, p.display_name)} style={styles.iconButton} accessibilityLabel={`Ban ${p.display_name}`} accessibilityRole="button">
+                        <Ionicons name="ban-outline" size={18} color={colors.error} />
+                      </Pressable>
                     </View>
                   </View>
                 ))}
@@ -138,7 +153,7 @@ export function HostControls({
 
             {/* Danger Zone */}
             <View style={[styles.section, styles.dangerSection]}>
-              <Button title="End Space" onPress={confirmEndSpace} variant="danger" accessibilityLabel="End space for everyone" accessibilityRole="button" />
+              <Button title="End Space" onPress={confirmEndSpace} variant="danger" accessibilityLabel="End space for everyone" />
             </View>
           </ScrollView>
         </Pressable>
@@ -157,6 +172,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.text.secondary, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 12 },
   participantRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.background.border },
   participantName: { color: colors.text.primary, fontSize: 15, flex: 1 },
-  actions: { flexDirection: 'row', gap: 8 },
+  actions: { flexDirection: 'row', gap: 4 },
+  iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
   dangerSection: { paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.background.border },
 });

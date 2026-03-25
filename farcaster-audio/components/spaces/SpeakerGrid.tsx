@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: colors.success,
   },
-  name: { color: colors.text.primary, fontSize: 12, marginTop: 6, textAlign: 'center' },
+  name: { color: colors.text.primary, fontSize: 13, marginTop: 6, textAlign: 'center' },
   hostBadge: { backgroundColor: colors.accent, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1, marginTop: 4 },
   hostText: { color: colors.text.primary, fontSize: 10, fontWeight: '700' },
   mutedIndicator: { position: 'absolute', bottom: 20, right: 8, backgroundColor: colors.background.surface, borderRadius: 10, padding: 2 },

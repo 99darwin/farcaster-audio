@@ -19,7 +19,7 @@ export function ListenerList({ listeners }: ListenerListProps) {
       <Text style={styles.title}>Listeners ({listeners.length})</Text>
       <View style={styles.grid}>
         {visibleListeners.map((listener) => (
-          <View key={listener.fid} style={styles.listenerItem}>
+          <View key={listener.fid} style={styles.listenerItem} accessibilityLabel={listener.display_name}>
             <Avatar
               pfpUrl={listener.pfp_url}
               displayName={listener.display_name}
