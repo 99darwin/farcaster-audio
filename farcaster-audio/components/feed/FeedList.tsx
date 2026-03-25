@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { Animated, FlatList, RefreshControl, View, Text, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
 import { CastCard } from '@/components/feed/CastCard';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorView } from '@/components/common/ErrorView';
@@ -109,6 +110,11 @@ export function FeedList({
   error,
   onRetry,
 }: FeedListProps) {
+  const router = useRouter();
+  const handleCastPress = useCallback(
+    (hash: string) => router.push(`/cast/${hash}`),
+    [router],
+  );
   if (isLoading && casts.length === 0) {
     return (
       <View accessibilityLabel="Loading feed">
@@ -136,6 +142,7 @@ export function FeedList({
           onLike={onLike}
           onRecast={onRecast}
           onReply={onReply}
+          onPress={() => handleCastPress(item.hash)}
         />
       )}
       refreshControl={

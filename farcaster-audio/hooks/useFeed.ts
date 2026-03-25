@@ -12,7 +12,7 @@ export function useFeed() {
     if (!user) return;
     setLoading(true);
     try {
-      const data = await fetchFollowingFeed(user.fid);
+      const data = await fetchFollowingFeed();
       setCasts(data.casts, data.next.cursor);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch feed');
@@ -23,7 +23,7 @@ export function useFeed() {
     if (!user || !hasMore || isLoading || !cursor) return;
     setLoading(true);
     try {
-      const data = await fetchFollowingFeed(user.fid, 25, cursor);
+      const data = await fetchFollowingFeed(25, cursor);
       appendCasts(data.casts, data.next.cursor);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load more');
@@ -34,7 +34,7 @@ export function useFeed() {
     if (!user) return;
     setRefreshing(true);
     try {
-      const data = await fetchFollowingFeed(user.fid);
+      const data = await fetchFollowingFeed();
       setCasts(data.casts, data.next.cursor);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh feed');
@@ -76,8 +76,8 @@ export function useFeed() {
   );
 
   const handlePublishCast = useCallback(
-    async (text: string, parentHash?: string) => {
-      await publishCast(text, parentHash);
+    async (text: string, parentHash?: string, imageUris?: string[]) => {
+      await publishCast(text, parentHash, imageUris);
       await refresh();
     },
     [refresh],

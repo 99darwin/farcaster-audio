@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { Config } from '@/constants/config';
 import { getTokens } from '@/services/storage';
-import type { NeynarFeedResponse } from '@/types/neynar';
+import type { NeynarCast, NeynarFeedResponse } from '@/types/neynar';
 
 const neynarClient = axios.create({
   baseURL: Config.API_BASE_URL,
@@ -29,11 +29,10 @@ neynarClient.interceptors.response.use(
 );
 
 export async function fetchFollowingFeed(
-  fid: number,
   limit: number = 25,
   cursor?: string,
 ): Promise<NeynarFeedResponse> {
-  const params: Record<string, string | number> = { fid, limit };
+  const params: Record<string, string | number> = { limit };
   if (cursor) params.cursor = cursor;
   const { data } = await neynarClient.get<NeynarFeedResponse>('/v1/feed/following', { params });
   return data;
@@ -41,8 +40,15 @@ export async function fetchFollowingFeed(
 
 // --- Casting ---
 
-export async function publishCast(text: string, parent?: string): Promise<{ hash: string }> {
-  const { data } = await neynarClient.post('/v1/feed/cast', { text, parent });
+export async function publishCast(
+  text: string,
+  parent?: string,
+  embeds?: string[],
+): Promise<{ hash: string }> {
+  const payload: Record<string, unknown> = { text };
+  if (parent) payload.parent = parent;
+  if (embeds && embeds.length > 0) payload.embeds = embeds;
+  const { data } = await neynarClient.post('/v1/feed/cast', payload);
   return data?.cast ?? data;
 }
 
@@ -82,4 +88,20 @@ export async function removeRecast(castHash: string): Promise<void> {
       target: castHash,
     },
   });
+}
+
+// --- Thread ---
+
+export async function fetchCastThread(
+  castHash: string,
+  viewerFid: number,
+  replyDepth: number = 2,
+): Promise<{ conversation: { cast: NeynarCast & { direct_replies?: NeynarCast[] } } }> {
+  const params: Record<string, string | number> = {
+    hash: castHash,
+    viewer_fid: viewerFid,
+    reply_depth: replyDepth,
+  };
+  const { data } = await neynarClient.get('/v1/feed/cast/thread', { params });
+  return data;
 }

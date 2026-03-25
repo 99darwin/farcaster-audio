@@ -9,8 +9,8 @@ import logging
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,11 +32,18 @@ def _neynar_headers() -> dict[str, str]:
     }
 
 
+def _raise_upstream_error(resp: httpx.Response) -> None:
+    """Log the full Neynar response, raise a sanitized error to the client."""
+    logger.error("[feed] Neynar %s → %s: %s", resp.request.url, resp.status_code, resp.text)
+    status = 502 if resp.status_code >= 500 else resp.status_code
+    raise HTTPException(status_code=status, detail="Upstream service error")
+
+
 async def _get_signer_uuid(db: AsyncSession, fid: int) -> str:
     """Look up the user's signer_uuid from the database."""
     result = await db.execute(select(User.signer_uuid).where(User.fid == fid))
     signer_uuid = result.scalar_one_or_none()
-    logger.info("[feed] signer_uuid lookup for fid=%s → %s", fid, signer_uuid[:8] + "..." if signer_uuid else None)
+    logger.info("[feed] signer_uuid lookup for fid=%s: found=%s", fid, bool(signer_uuid))
     if not signer_uuid:
         raise HTTPException(status_code=400, detail="No signer found for user")
     return signer_uuid
@@ -53,6 +60,7 @@ class ReactionRequest(BaseModel):
 class CastRequest(BaseModel):
     text: str = Field(min_length=1, max_length=320)
     parent: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
+    embeds: list[HttpUrl] | None = Field(default=None, max_length=2)
 
 
 # --- Endpoints ---
@@ -60,13 +68,12 @@ class CastRequest(BaseModel):
 
 @router.get("/following")
 async def feed_following(
-    fid: int = Query(...),
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None),
-    _current_user: int = Depends(get_current_user),
+    current_user: int = Depends(get_current_user),
 ):
     """Proxy Neynar feed/following endpoint."""
-    params: dict[str, str | int] = {"fid": fid, "limit": limit, "viewer_fid": fid}
+    params: dict[str, str | int] = {"fid": current_user, "limit": limit, "viewer_fid": current_user}
     if cursor:
         params["cursor"] = cursor
 
@@ -79,7 +86,7 @@ async def feed_following(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        _raise_upstream_error(resp)
 
     return resp.json()
 
@@ -99,6 +106,8 @@ async def create_cast(
     }
     if body.parent:
         payload["parent"] = body.parent
+    if body.embeds:
+        payload["embeds"] = [{"url": str(url)} for url in body.embeds]
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -109,17 +118,44 @@ async def create_cast(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(
-            status_code=resp.status_code,
-            detail=resp.text,
+        _raise_upstream_error(resp)
+
+    return resp.json()
+
+
+@router.get("/cast/thread")
+async def get_cast_thread(
+    hash: str = Query(..., pattern=r"^0x[a-fA-F0-9]+$"),
+    viewer_fid: int = Query(default=0),
+    reply_depth: int = Query(default=2, ge=1, le=5),
+    _current_user: int = Depends(get_current_user),
+):
+    """Proxy Neynar cast conversation endpoint to fetch a thread."""
+    params: dict[str, str | int] = {
+        "identifier": hash,
+        "type": "hash",
+        "reply_depth": reply_depth,
+    }
+    if viewer_fid:
+        params["viewer_fid"] = viewer_fid
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{NEYNAR_BASE}/farcaster/cast/conversation",
+            params=params,
+            headers=_neynar_headers(),
+            timeout=15.0,
         )
+
+    if resp.status_code != 200:
+        _raise_upstream_error(resp)
 
     return resp.json()
 
 
 @router.delete("/cast/{cast_hash}")
 async def delete_cast(
-    cast_hash: str,
+    cast_hash: str = Path(..., pattern=r"^0x[a-fA-F0-9]+$"),
     current_user: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -139,10 +175,7 @@ async def delete_cast(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(
-            status_code=resp.status_code,
-            detail=resp.text,
-        )
+        _raise_upstream_error(resp)
 
     return resp.json()
 
@@ -169,10 +202,7 @@ async def create_reaction(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(
-            status_code=resp.status_code,
-            detail=resp.text,
-        )
+        _raise_upstream_error(resp)
 
     return resp.json()
 
@@ -200,9 +230,6 @@ async def delete_reaction(
         )
 
     if resp.status_code != 200:
-        raise HTTPException(
-            status_code=resp.status_code,
-            detail=resp.text,
-        )
+        _raise_upstream_error(resp)
 
     return resp.json()

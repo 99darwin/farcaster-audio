@@ -1,9 +1,15 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { useState } from 'react';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { Avatar } from '@/components/common/Avatar';
 import { CastActions } from '@/components/feed/CastActions';
+import { CastText } from '@/components/feed/CastText';
+import { ImageViewer } from '@/components/common/ImageViewer';
 import { colors } from '@/constants/theme';
 import type { NeynarCast, NeynarEmbed } from '@/types/neynar';
+
+const TRUNCATE_LENGTH = 280;
 
 interface CastCardProps {
   cast: NeynarCast;
@@ -11,6 +17,8 @@ interface CastCardProps {
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
   onReply: (cast: NeynarCast) => void;
+  onPress?: () => void;
+  expanded?: boolean;
 }
 
 function getRelativeTime(timestamp: string): string {
@@ -33,7 +41,13 @@ function isImageUrl(embed: NeynarEmbed): boolean {
   return /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
 }
 
-function CastImages({ embeds }: { embeds: NeynarEmbed[] }) {
+function CastImages({
+  embeds,
+  onImagePress,
+}: {
+  embeds: NeynarEmbed[];
+  onImagePress: (uri: string) => void;
+}) {
   const images = embeds.filter((e) => e.url && !e.cast && isImageUrl(e));
   if (images.length === 0) return null;
 
@@ -43,12 +57,14 @@ function CastImages({ embeds }: { embeds: NeynarEmbed[] }) {
     const aspectRatio = meta?.width_px && meta?.height_px ? meta.width_px / meta.height_px : 16 / 9;
     return (
       <View style={styles.imageContainer}>
-        <Image
-          source={{ uri: img.url }}
-          style={[styles.singleImage, { aspectRatio }]}
-          contentFit="cover"
-          transition={200}
-        />
+        <Pressable onPress={() => onImagePress(img.url!)}>
+          <Image
+            source={{ uri: img.url }}
+            style={[styles.singleImage, { aspectRatio }]}
+            contentFit="cover"
+            transition={200}
+          />
+        </Pressable>
       </View>
     );
   }
@@ -56,20 +72,21 @@ function CastImages({ embeds }: { embeds: NeynarEmbed[] }) {
   return (
     <View style={styles.imageGrid}>
       {images.slice(0, 4).map((img, i) => (
-        <Image
-          key={img.url ?? i}
-          source={{ uri: img.url }}
-          style={styles.gridImage}
-          contentFit="cover"
-          transition={200}
-        />
+        <Pressable key={img.url ?? i} onPress={() => onImagePress(img.url!)}>
+          <Image
+            source={{ uri: img.url }}
+            style={styles.gridImage}
+            contentFit="cover"
+            transition={200}
+          />
+        </Pressable>
       ))}
     </View>
   );
 }
 
-function QuoteCast({ cast }: { cast: NeynarCast }) {
-  return (
+function QuoteCast({ cast, onPress }: { cast: NeynarCast; onPress?: () => void }) {
+  const content = (
     <View style={styles.quoteContainer}>
       <View style={styles.quoteHeader}>
         {cast.author.pfp_url ? (
@@ -85,18 +102,56 @@ function QuoteCast({ cast }: { cast: NeynarCast }) {
         <Text style={styles.quoteUsername}>@{cast.author.username}</Text>
       </View>
       {cast.text ? (
-        <Text style={styles.quoteText} numberOfLines={3}>
-          {cast.text}
-        </Text>
+        <CastText text={cast.text} style={styles.quoteText} numberOfLines={3} />
       ) : null}
       {cast.embeds && cast.embeds.length > 0 ? (
-        <CastImages embeds={cast.embeds} />
+        <CastImages embeds={cast.embeds} onImagePress={() => {}} />
       ) : null}
     </View>
   );
+
+  if (onPress) {
+    return <Pressable onPress={onPress}>{content}</Pressable>;
+  }
+  return content;
 }
 
-export function CastCard({ cast, myFid, onLike, onRecast, onReply }: CastCardProps) {
+function CastBody({
+  text,
+  expanded,
+}: {
+  text: string;
+  expanded?: boolean;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const shouldTruncate = !expanded && !isExpanded && text.length > TRUNCATE_LENGTH;
+  const displayText = shouldTruncate ? text.slice(0, TRUNCATE_LENGTH) : text;
+
+  return (
+    <Text>
+      <CastText text={displayText} style={styles.text} />
+      {shouldTruncate ? (
+        <Text
+          style={styles.readMore}
+          onPress={() => setIsExpanded(true)}
+        >
+          {'... '}read more
+        </Text>
+      ) : null}
+    </Text>
+  );
+}
+
+export function CastCard({
+  cast,
+  myFid,
+  onLike,
+  onRecast,
+  onReply,
+  onPress,
+  expanded,
+}: CastCardProps) {
+  const router = useRouter();
   const isLiked = cast.viewer_context?.liked ?? cast.reactions.likes.some((l) => l.fid === myFid);
   const isRecasted = cast.viewer_context?.recasted ?? cast.reactions.recasts.some((r) => r.fid === myFid);
   const truncatedText = cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text;
@@ -104,7 +159,9 @@ export function CastCard({ cast, myFid, onLike, onRecast, onReply }: CastCardPro
   const embeds = cast.embeds ?? [];
   const quoteCast = embeds.find((e) => e.cast)?.cast;
 
-  return (
+  const [viewerImage, setViewerImage] = useState<string | null>(null);
+
+  const card = (
     <View
       style={styles.container}
       accessibilityRole="summary"
@@ -124,9 +181,14 @@ export function CastCard({ cast, myFid, onLike, onRecast, onReply }: CastCardPro
           <Text style={styles.dot}>{'\u00B7'}</Text>
           <Text style={styles.timestamp}>{getRelativeTime(cast.timestamp)}</Text>
         </View>
-        <Text style={styles.text}>{cast.text}</Text>
-        <CastImages embeds={embeds} />
-        {quoteCast ? <QuoteCast cast={quoteCast} /> : null}
+        <CastBody text={cast.text} expanded={expanded} />
+        <CastImages embeds={embeds} onImagePress={setViewerImage} />
+        {quoteCast ? (
+          <QuoteCast
+            cast={quoteCast}
+            onPress={() => router.push(`/cast/${quoteCast.hash}`)}
+          />
+        ) : null}
         <CastActions
           likesCount={cast.reactions.likes_count}
           recastsCount={cast.reactions.recasts_count}
@@ -138,8 +200,15 @@ export function CastCard({ cast, myFid, onLike, onRecast, onReply }: CastCardPro
           onReply={() => onReply(cast)}
         />
       </View>
+      <ImageViewer uri={viewerImage} onClose={() => setViewerImage(null)} />
     </View>
   );
+
+  if (onPress) {
+    return <Pressable onPress={onPress}>{card}</Pressable>;
+  }
+
+  return card;
 }
 
 const styles = StyleSheet.create({
@@ -179,6 +248,11 @@ const styles = StyleSheet.create({
   },
   text: {
     color: colors.text.body,
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  readMore: {
+    color: colors.purple,
     fontSize: 15,
     lineHeight: 21,
   },

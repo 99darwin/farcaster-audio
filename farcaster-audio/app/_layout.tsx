@@ -9,6 +9,8 @@ import * as Linking from 'expo-linking';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { SpaceMiniBar } from '@/components/spaces/SpaceMiniBar';
+import { UpdateBanner } from '@/components/common/UpdateBanner';
+import { useOTAUpdate } from '@/hooks/useOTAUpdate';
 import { colors } from '@/constants/theme';
 import Toast from 'react-native-toast-message';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -33,6 +35,7 @@ export default function RootLayout() {
   const setMuted = useSpaceStore((s) => s.setMuted);
   const router = useRouter();
   const segments = useSegments();
+  const { isUpdateAvailable, isRestarting, applyUpdate, dismiss } = useOTAUpdate();
 
   useEffect(() => {
     hydrate();
@@ -106,9 +109,17 @@ export default function RootLayout() {
           <Stack.Screen name="index" options={{ title: 'Home' }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
+          <Stack.Screen name="cast/[hash]" options={{ title: 'Thread' }} />
           <Stack.Screen name="space/[id]" options={{ title: 'Space' }} />
           <Stack.Screen name="space/create" options={{ title: 'Create Space' }} />
         </Stack>
+        {isUpdateAvailable && (
+          <UpdateBanner
+            isRestarting={isRestarting}
+            onUpdate={applyUpdate}
+            onDismiss={dismiss}
+          />
+        )}
         {room && segments[0] !== 'space' && (
           <SpaceMiniBar
             onToggleMute={handleToggleMute}

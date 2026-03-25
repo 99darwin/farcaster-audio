@@ -20,6 +20,7 @@
         ],
         "NSMicrophoneUsageDescription": "Required to speak in audio spaces",
         "NSCameraUsageDescription": "Not used in this app",
+        "NSPhotoLibraryUsageDescription": "Attach photos to your casts",
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": [
@@ -44,7 +45,8 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "@sentry/react-native/expo"
+      "@sentry/react-native/expo",
+      "expo-image-picker"
     ],
     "experiments": {
       "typedRoutes": true
