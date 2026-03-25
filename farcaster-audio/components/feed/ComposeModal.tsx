@@ -107,9 +107,10 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
       setText('');
       setImages([]);
       onClose();
-    } catch (err) {
-      console.error('[Compose] Failed to publish cast:', err);
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to publish cast. Please try again.' });
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || 'Unknown error';
+      console.error('[Compose] Failed to publish cast:', detail, err);
+      Toast.show({ type: 'error', text1: 'Error', text2: `Failed to publish cast: ${detail}` });
     } finally {
       setIsPublishing(false);
     }
