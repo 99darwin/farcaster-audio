@@ -81,12 +81,12 @@ export function useNotifications() {
     }
   }, [user, setRefreshing, setNotifications, setUnreadCount, setError]);
 
-  const markAsRead = useCallback(async () => {
+  const markAsRead = useCallback(() => {
     const current = useNotificationStore.getState().notifications;
     if (current.length === 0) return;
     const latestTimestamp = current[0]?.timestamp;
     if (latestTimestamp) {
-      await saveLastSeenNotificationTimestamp(latestTimestamp);
+      saveLastSeenNotificationTimestamp(latestTimestamp);
     }
     markAllRead();
   }, [markAllRead]);
