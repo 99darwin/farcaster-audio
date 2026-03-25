@@ -68,10 +68,14 @@ async def upload_media(
             detail="Unsupported file type. Allowed: jpeg, png, gif, webp",
         )
 
-    # Stream file in chunks with early abort on size limit
+    # Read file in chunks with early abort on size limit
+    CHUNK_SIZE = 256 * 1024  # 256 KB
     chunks: list[bytes] = []
     total = 0
-    async for chunk in file:
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
         total += len(chunk)
         if total > MAX_FILE_SIZE:
             raise HTTPException(
