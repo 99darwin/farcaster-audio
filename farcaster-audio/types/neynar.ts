@@ -1,3 +1,8 @@
+export interface NeynarUserViewerContext {
+  following: boolean;
+  followed_by: boolean;
+}
+
 export interface NeynarUser {
   fid: number;
   username: string;
@@ -6,6 +11,12 @@ export interface NeynarUser {
   custody_address: string;
   follower_count: number;
   following_count: number;
+  profile?: {
+    bio?: {
+      text?: string;
+    };
+  };
+  viewer_context?: NeynarUserViewerContext;
 }
 
 export interface NeynarCastAuthor {

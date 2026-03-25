@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -7,6 +7,7 @@ import { CastActions } from '@/components/feed/CastActions';
 import { CastText } from '@/components/feed/CastText';
 import { ImageViewer } from '@/components/common/ImageViewer';
 import { colors } from '@/constants/theme';
+import { getUserByUsername } from '@/services/api';
 import type { NeynarCast, NeynarEmbed } from '@/types/neynar';
 
 const TRUNCATE_LENGTH = 280;
@@ -19,6 +20,7 @@ interface CastCardProps {
   onReply: (cast: NeynarCast) => void;
   onPress?: () => void;
   expanded?: boolean;
+  threaded?: boolean;
 }
 
 function getRelativeTime(timestamp: string): string {
@@ -119,9 +121,11 @@ function QuoteCast({ cast, onPress }: { cast: NeynarCast; onPress?: () => void }
 function CastBody({
   text,
   expanded,
+  onMentionPress,
 }: {
   text: string;
   expanded?: boolean;
+  onMentionPress?: (username: string) => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const shouldTruncate = !expanded && !isExpanded && text.length > TRUNCATE_LENGTH;
@@ -129,7 +133,7 @@ function CastBody({
 
   return (
     <Text>
-      <CastText text={displayText} style={styles.text} />
+      <CastText text={displayText} style={styles.text} onMentionPress={onMentionPress} />
       {shouldTruncate ? (
         <Text
           style={styles.readMore}
@@ -150,6 +154,7 @@ export function CastCard({
   onReply,
   onPress,
   expanded,
+  threaded,
 }: CastCardProps) {
   const router = useRouter();
   const isLiked = cast.viewer_context?.liked ?? cast.reactions.likes.some((l) => l.fid === myFid);
@@ -161,27 +166,46 @@ export function CastCard({
 
   const [viewerImage, setViewerImage] = useState<string | null>(null);
 
+  const navigateToProfile = useCallback(
+    (fid: number) => router.push(`/profile/${fid}`),
+    [router],
+  );
+
+  const handleMentionPress = useCallback(
+    async (username: string) => {
+      try {
+        const data = await getUserByUsername(username);
+        const fid = data?.user?.fid;
+        if (fid) navigateToProfile(fid);
+      } catch {}
+    },
+    [navigateToProfile],
+  );
+
   const card = (
     <View
-      style={styles.container}
+      style={[styles.container, threaded && styles.threadedContainer]}
       accessibilityRole="summary"
       accessibilityLabel={`${cast.author.display_name}: ${truncatedText}`}
     >
-      <Avatar
-        pfpUrl={cast.author.pfp_url}
-        displayName={cast.author.display_name}
-        size="md"
-      />
+      {threaded && <View style={styles.threadLine} />}
+      <Pressable onPress={() => navigateToProfile(cast.author.fid)}>
+        <Avatar
+          pfpUrl={cast.author.pfp_url}
+          displayName={cast.author.display_name}
+          size={threaded ? 'sm' : 'md'}
+        />
+      </Pressable>
       <View style={styles.content}>
-        <View style={styles.header}>
+        <Pressable style={styles.header} onPress={() => navigateToProfile(cast.author.fid)}>
           <Text style={styles.displayName} numberOfLines={1}>
             {cast.author.display_name}
           </Text>
           <Text style={styles.username}>@{cast.author.username}</Text>
           <Text style={styles.dot}>{'\u00B7'}</Text>
           <Text style={styles.timestamp}>{getRelativeTime(cast.timestamp)}</Text>
-        </View>
-        <CastBody text={cast.text} expanded={expanded} />
+        </Pressable>
+        <CastBody text={cast.text} expanded={expanded} onMentionPress={handleMentionPress} />
         <CastImages embeds={embeds} onImagePress={setViewerImage} />
         {quoteCast ? (
           <QuoteCast
@@ -277,6 +301,18 @@ const styles = StyleSheet.create({
   gridImage: {
     width: '49%',
     aspectRatio: 1,
+  },
+  // Threaded reply styles
+  threadedContainer: {
+    paddingLeft: 52,
+  },
+  threadLine: {
+    position: 'absolute',
+    left: 35,
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: colors.background.border,
   },
   // Quote cast styles
   quoteContainer: {

@@ -143,6 +143,22 @@ export const banParticipant = (roomId: string, fid: number, body: BanRequest) =>
 export const refreshRoomToken = (roomId: string) =>
   apiClient.post<TokenRefreshResponse>(`/v1/rooms/${roomId}/token`).then((r) => r.data);
 
+// --- Users ---
+export const getUserProfile = (fid: number) =>
+  apiClient.get(`/v1/users/${fid}`).then((r) => r.data);
+
+export const getUserByUsername = (username: string) =>
+  apiClient.get(`/v1/users/by-username/${encodeURIComponent(username)}`).then((r) => r.data);
+
+export const getUserCasts = (fid: number, params?: { limit?: number; cursor?: string }) =>
+  apiClient.get(`/v1/users/${fid}/casts`, { params }).then((r) => r.data);
+
+export const followUser = (fid: number) =>
+  apiClient.post(`/v1/users/${fid}/follow`).then((r) => r.data);
+
+export const unfollowUser = (fid: number) =>
+  apiClient.delete(`/v1/users/${fid}/follow`).then((r) => r.data);
+
 // Error helper
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {

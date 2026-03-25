@@ -9,7 +9,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.config import settings
-from app.routers import auth, feed, participants, rooms, webhooks
+from app.routers import auth, feed, participants, rooms, users, webhooks
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -83,5 +83,6 @@ async def health(request: Request):
 app.include_router(auth.router)
 app.include_router(feed.router)
 app.include_router(rooms.router)
+app.include_router(users.router)
 app.include_router(participants.router)
 app.include_router(webhooks.router)
