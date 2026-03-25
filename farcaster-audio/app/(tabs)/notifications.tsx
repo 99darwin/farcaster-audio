@@ -29,12 +29,12 @@ export default function NotificationsScreen() {
     getLastSeenNotificationTimestamp().then(setLastSeenTs);
   }, []);
 
-  // Mark as read when screen is visible — fire and forget, no useFocusEffect needed
+  // Mark as read whenever notifications are loaded (initial fetch or refresh)
   useEffect(() => {
     if (notifications.length > 0) {
       markAsRead();
     }
-  }, [notifications.length > 0]);
+  }, [notifications, markAsRead]);
 
   const isUnread = useCallback(
     (notification: NeynarNotification) => {
