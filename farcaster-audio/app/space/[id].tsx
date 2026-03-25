@@ -35,6 +35,7 @@ export default function SpaceScreen() {
   } = useSpace();
   const permissions = useSpacePermissions();
   const [isJoining, setIsJoining] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
   const [showHostControls, setShowHostControls] = useState(false);
 
   useEffect(() => {
@@ -55,8 +56,9 @@ export default function SpaceScreen() {
 
   const handleLeave = useCallback(async () => {
     if (!id) return;
+    setIsLeaving(true);
+    router.replace('/');
     await leaveRoom(id);
-    router.back();
   }, [id, leaveRoom, router]);
 
   const handleRaiseHand = useCallback(async () => {
@@ -123,13 +125,13 @@ export default function SpaceScreen() {
     if (!id) return;
     try {
       await api.endRoom(id);
-      router.back();
+      router.replace('/');
     } catch (err) {
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to end space' });
     }
   }, [id, router]);
 
-  if (isJoining || !room) {
+  if (isLeaving || isJoining || !room) {
     return <LoadingSpinner fullScreen />;
   }
 
