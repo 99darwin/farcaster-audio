@@ -73,6 +73,38 @@ export function useSpace() {
         store.setConnected(true);
       });
 
+      // Detect promotion/demotion via LiveKit permission changes
+      room.on(
+        RoomEvent.ParticipantPermissionsChanged,
+        (prevPermissions: any, participant: Participant) => {
+          // Only care about the local participant's permissions changing
+          if (participant !== room.localParticipant) return;
+
+          const canPublish = participant.permissions?.canPublish ?? false;
+          const couldPublish = prevPermissions?.canPublish ?? false;
+          const myFid = useAuthStore.getState().user?.fid;
+          if (!myFid) return;
+
+          if (canPublish && !couldPublish) {
+            // Promoted to speaker — update role and enable mic
+            console.log('[useSpace] Local participant promoted to speaker');
+            store.setMyRole('speaker');
+            store.updateParticipant(myFid, { role: 'speaker', is_muted: false });
+            livekitService.enableMicrophone().then(() => {
+              store.setMuted(false);
+            });
+          } else if (!canPublish && couldPublish) {
+            // Demoted to listener — update role and disable mic
+            console.log('[useSpace] Local participant demoted to listener');
+            store.setMyRole('listener');
+            store.updateParticipant(myFid, { role: 'listener', is_muted: true });
+            livekitService.disableMicrophone().then(() => {
+              store.setMuted(true);
+            });
+          }
+        },
+      );
+
       store.setConnected(true);
     },
     [store],
