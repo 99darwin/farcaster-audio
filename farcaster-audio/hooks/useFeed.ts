@@ -76,8 +76,9 @@ export function useFeed() {
   );
 
   const handlePublishCast = useCallback(
-    async (text: string, parentHash?: string, imageUris?: string[]) => {
-      await publishCast(text, parentHash, imageUris);
+    async (text: string, parentHash?: string, imageUris?: string[], embeds?: string[]) => {
+      const allEmbeds = [...(imageUris ?? []), ...(embeds ?? [])];
+      await publishCast(text, parentHash, allEmbeds.length > 0 ? allEmbeds : undefined);
       await refresh();
     },
     [refresh],

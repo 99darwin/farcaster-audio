@@ -20,6 +20,7 @@ export default function CastThreadScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [composeVisible, setComposeVisible] = useState(false);
   const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
 
   useEffect(() => {
     fetch();
@@ -55,12 +56,20 @@ export default function CastThreadScreen() {
 
   const handleReply = useCallback((cast: NeynarCast) => {
     setReplyTo(cast);
+    setQuoteCastTarget(null);
+    setComposeVisible(true);
+  }, []);
+
+  const handleQuoteCast = useCallback((cast: NeynarCast) => {
+    setQuoteCastTarget(cast);
+    setReplyTo(null);
     setComposeVisible(true);
   }, []);
 
   const handlePublish = useCallback(
-    async (text: string, parentHash?: string) => {
-      await publishCast(text, parentHash);
+    async (text: string, parentHash?: string, imageUris?: string[], embeds?: string[]) => {
+      const allEmbeds = [...(imageUris ?? []), ...(embeds ?? [])];
+      await publishCast(text, parentHash, allEmbeds.length > 0 ? allEmbeds : undefined);
       await fetch();
     },
     [fetch],
@@ -95,6 +104,7 @@ export default function CastThreadScreen() {
               myFid={myFid}
               onLike={handleLike}
               onRecast={handleRecast}
+              onQuoteCast={handleQuoteCast}
               onReply={handleReply}
               expanded
             />
@@ -106,6 +116,7 @@ export default function CastThreadScreen() {
             myFid={myFid}
             onLike={handleLike}
             onRecast={handleRecast}
+            onQuoteCast={handleQuoteCast}
             onReply={handleReply}
             onPress={() => handleCastPress(item.hash)}
             threaded
@@ -131,9 +142,11 @@ export default function CastThreadScreen() {
         onClose={() => {
           setComposeVisible(false);
           setReplyTo(null);
+          setQuoteCastTarget(null);
         }}
         onPublish={handlePublish}
         replyTo={replyTo}
+        quoteCast={quoteCastTarget}
       />
     </View>
   );

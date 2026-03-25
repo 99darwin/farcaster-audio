@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -6,8 +6,8 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
+  Keyboard,
+  Animated,
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
@@ -28,11 +28,12 @@ const MAX_IMAGES_PRO = 4;
 interface ComposeModalProps {
   isVisible: boolean;
   onClose: () => void;
-  onPublish: (text: string, parentHash?: string, imageUris?: string[]) => Promise<void>;
+  onPublish: (text: string, parentHash?: string, imageUris?: string[], embeds?: string[]) => Promise<void>;
   replyTo?: NeynarCast | null;
+  quoteCast?: NeynarCast | null;
 }
 
-export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: ComposeModalProps) {
+export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast }: ComposeModalProps) {
   const user = useAuthStore((s) => s.user);
   const isPro = user?.is_pro ?? false;
   const maxCastLength = isPro ? CAST_LENGTH_PRO : CAST_LENGTH_DEFAULT;
@@ -40,10 +41,32 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [isPublishing, setIsPublishing] = useState(false);
+  const keyboardPadding = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
+      Animated.timing(keyboardPadding, {
+        toValue: e.endCoordinates.height,
+        duration: e.duration,
+        useNativeDriver: false,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', (e) => {
+      Animated.timing(keyboardPadding, {
+        toValue: 0,
+        duration: e.duration,
+        useNativeDriver: false,
+      }).start();
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardPadding]);
 
   const charCount = text.length;
   const isOverLimit = charCount > maxCastLength;
-  const hasContent = text.trim().length > 0 || images.length > 0;
+  const hasContent = text.trim().length > 0 || images.length > 0 || !!quoteCast;
   const canPublish = hasContent && !isOverLimit && !isPublishing;
 
   const handlePickImage = async () => {
@@ -70,7 +93,10 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
     if (!canPublish) return;
     setIsPublishing(true);
     try {
-      await onPublish(text.trim(), replyTo?.hash, images.length > 0 ? images : undefined);
+      const quoteEmbeds = quoteCast
+        ? [`https://warpcast.com/${quoteCast.author.username}/${quoteCast.hash.slice(0, 10)}`]
+        : undefined;
+      await onPublish(text.trim(), replyTo?.hash, images.length > 0 ? images : undefined, quoteEmbeds);
       setText('');
       setImages([]);
       onClose();
@@ -96,10 +122,7 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
       presentationStyle="pageSheet"
       onRequestClose={handleClose}
     >
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <Animated.View style={[styles.container, { paddingBottom: keyboardPadding }]}>
         {/* Header */}
         <View style={styles.header}>
           <Pressable onPress={handleClose} hitSlop={12} disabled={isPublishing}>
@@ -114,7 +137,7 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
               <ActivityIndicator size="small" color={colors.text.primary} />
             ) : (
               <Text style={[styles.publishText, !canPublish && styles.publishTextDisabled]}>
-                {replyTo ? 'Reply' : 'Cast'}
+                {replyTo ? 'Reply' : quoteCast ? 'Quote' : 'Cast'}
               </Text>
             )}
           </Pressable>
@@ -140,7 +163,7 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
           <View style={styles.inputArea}>
             <TextInput
               style={styles.input}
-              placeholder={replyTo ? 'Post your reply' : "What's happening?"}
+              placeholder={quoteCast ? 'Add a comment...' : replyTo ? 'Post your reply' : "What's happening?"}
               placeholderTextColor={colors.text.placeholder}
               multiline
               autoFocus
@@ -149,6 +172,18 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
               onChangeText={setText}
               editable={!isPublishing}
             />
+            {quoteCast && (
+              <View style={styles.quotePreview}>
+                <View style={styles.quotePreviewHeader}>
+                  {quoteCast.author.pfp_url ? (
+                    <Image source={{ uri: quoteCast.author.pfp_url }} style={styles.quotePreviewAvatar} contentFit="cover" />
+                  ) : null}
+                  <Text style={styles.quotePreviewName} numberOfLines={1}>{quoteCast.author.display_name}</Text>
+                  <Text style={styles.quotePreviewUsername}>@{quoteCast.author.username}</Text>
+                </View>
+                <Text style={styles.quotePreviewText} numberOfLines={3}>{quoteCast.text}</Text>
+              </View>
+            )}
             {images.length > 0 && (
               <ScrollView horizontal style={styles.imagePreviews} showsHorizontalScrollIndicator={false}>
                 {images.map((uri, i) => (
@@ -182,7 +217,7 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo }: Compose
             {charCount}/{maxCastLength}
           </Text>
         </View>
-      </KeyboardAvoidingView>
+      </Animated.View>
     </Modal>
   );
 }
@@ -271,6 +306,39 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -6,
     right: -6,
+  },
+  quotePreview: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.background.border,
+    borderRadius: 12,
+    padding: 12,
+  },
+  quotePreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  quotePreviewAvatar: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  quotePreviewName: {
+    color: colors.text.primary,
+    fontWeight: '600',
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  quotePreviewUsername: {
+    color: colors.text.secondary,
+    fontSize: 13,
+  },
+  quotePreviewText: {
+    color: colors.text.body,
+    fontSize: 14,
+    lineHeight: 19,
   },
   footer: {
     flexDirection: 'row',

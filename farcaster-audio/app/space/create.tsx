@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, TextInput, Switch, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { useState, useEffect, useRef } from 'react';
+import { View, Text, TextInput, Switch, StyleSheet, Alert, Keyboard, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import { NativeModules } from 'react-native';
 import { Button } from '@/components/common/Button';
@@ -20,6 +20,28 @@ export default function CreateSpaceScreen() {
   const [title, setTitle] = useState('');
   const [announceCast, setAnnounceCast] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const keyboardPadding = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
+      Animated.timing(keyboardPadding, {
+        toValue: e.endCoordinates.height,
+        duration: e.duration,
+        useNativeDriver: false,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', (e) => {
+      Animated.timing(keyboardPadding, {
+        toValue: 0,
+        duration: e.duration,
+        useNativeDriver: false,
+      }).start();
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardPadding]);
 
   const handleCreate = async () => {
     const trimmedTitle = title.trim();
@@ -79,10 +101,7 @@ export default function CreateSpaceScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <Animated.View style={[styles.container, { paddingBottom: keyboardPadding }]}>
       <View style={styles.content}>
         <Text style={styles.label}>Space Title</Text>
         <TextInput
@@ -124,7 +143,7 @@ export default function CreateSpaceScreen() {
           />
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </Animated.View>
   );
 }
 

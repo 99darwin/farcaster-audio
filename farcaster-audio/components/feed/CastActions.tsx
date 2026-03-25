@@ -1,4 +1,4 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ActionSheetIOS, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, touchTarget } from '@/constants/theme';
 
@@ -17,6 +17,7 @@ interface CastActionsProps {
   isRecasted: boolean;
   onLike: () => void;
   onRecast: () => void;
+  onQuoteCast: () => void;
   onReply: () => void;
 }
 
@@ -28,8 +29,21 @@ export function CastActions({
   isRecasted,
   onLike,
   onRecast,
+  onQuoteCast,
   onReply,
 }: CastActionsProps) {
+  const handleRecastPress = () => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options: ['Cancel', isRecasted ? 'Undo Recast' : 'Recast', 'Quote Cast'],
+        cancelButtonIndex: 0,
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 1) onRecast();
+        if (buttonIndex === 2) onQuoteCast();
+      },
+    );
+  };
   return (
     <View style={styles.container}>
       <Pressable
@@ -47,7 +61,7 @@ export function CastActions({
       </Pressable>
 
       <Pressable
-        onPress={onRecast}
+        onPress={handleRecastPress}
         style={styles.action}
         accessibilityLabel={`Recast, ${formatCount(recastsCount)}`}
         accessibilityRole="button"

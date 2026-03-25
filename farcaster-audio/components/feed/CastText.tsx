@@ -1,7 +1,12 @@
-import { Text, type TextStyle } from 'react-native';
+import { Text, type TextStyle, Linking } from 'react-native';
 import { colors } from '@/constants/theme';
 
-const MENTION_REGEX = /((?<!\w)@[\w][\w.]*[\w]|(?<!\w)@[\w])/g;
+const MENTION_PATTERN = /(?<!\w)@[\w][\w.]*[\w]|(?<!\w)@[\w]/;
+const URL_PATTERN = /https?:\/\/[^\s<)}\]]+/;
+const TOKEN_REGEX = new RegExp(
+  `(${MENTION_PATTERN.source})|(${URL_PATTERN.source})`,
+  'gu',
+);
 
 interface CastTextProps {
   text: string;
@@ -10,27 +15,67 @@ interface CastTextProps {
   onMentionPress?: (username: string) => void;
 }
 
+interface TextSegment {
+  type: 'text' | 'mention' | 'url';
+  value: string;
+}
+
+function tokenize(text: string): TextSegment[] {
+  const segments: TextSegment[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(TOKEN_REGEX)) {
+    const start = match.index!;
+    if (start > lastIndex) {
+      segments.push({ type: 'text', value: text.slice(lastIndex, start) });
+    }
+    if (match[1] !== undefined) {
+      segments.push({ type: 'mention', value: match[1] });
+    } else {
+      segments.push({ type: 'url', value: match[2] });
+    }
+    lastIndex = start + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({ type: 'text', value: text.slice(lastIndex) });
+  }
+
+  return segments;
+}
+
 export function CastText({ text, style, numberOfLines, onMentionPress }: CastTextProps) {
-  const parts = text.split(MENTION_REGEX);
+  const segments = tokenize(text);
 
   return (
     <Text style={style} numberOfLines={numberOfLines}>
-      {parts.map((part, i) => {
-        if (MENTION_REGEX.test(part)) {
-          MENTION_REGEX.lastIndex = 0;
-          const username = part.slice(1);
+      {segments.map((seg, i) => {
+        if (seg.type === 'mention') {
+          const username = seg.value.slice(1);
           return (
             <Text
               key={i}
               style={{ color: colors.purple }}
               onPress={() => onMentionPress?.(username)}
             >
-              {part}
+              {seg.value}
             </Text>
           );
         }
-        MENTION_REGEX.lastIndex = 0;
-        return part;
+
+        if (seg.type === 'url') {
+          return (
+            <Text
+              key={i}
+              style={{ color: colors.purple }}
+              onPress={() => Linking.openURL(seg.value)}
+            >
+              {seg.value}
+            </Text>
+          );
+        }
+
+        return seg.value;
       })}
     </Text>
   );

@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { Avatar } from '@/components/common/Avatar';
 import { CastActions } from '@/components/feed/CastActions';
 import { CastText } from '@/components/feed/CastText';
+import { OgPreview } from '@/components/feed/OgPreview';
 import { ImageViewer } from '@/components/common/ImageViewer';
 import { colors } from '@/constants/theme';
 import { getUserByUsername } from '@/services/api';
@@ -18,6 +19,7 @@ interface CastCardProps {
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   onPress?: () => void;
   expanded?: boolean;
@@ -152,6 +154,7 @@ export function CastCard({
   myFid,
   onLike,
   onRecast,
+  onQuoteCast,
   onReply,
   onPress,
   expanded,
@@ -211,6 +214,11 @@ export function CastCard({
         </Pressable>
         <CastBody text={cast.text} expanded={expanded} onMentionPress={handleMentionPress} />
         <CastImages embeds={embeds} onImagePress={setViewerImage} />
+        {embeds
+          .filter((e) => e.url && !e.cast && !isImageUrl(e))
+          .map((embed) => (
+            <OgPreview key={embed.url} embed={embed} />
+          ))}
         {quoteCast ? (
           <QuoteCast
             cast={quoteCast}
@@ -225,6 +233,7 @@ export function CastCard({
           isRecasted={isRecasted}
           onLike={() => onLike(cast.hash, isLiked)}
           onRecast={() => onRecast(cast.hash, isRecasted)}
+          onQuoteCast={() => onQuoteCast(cast)}
           onReply={() => onReply(cast)}
         />
       </View>

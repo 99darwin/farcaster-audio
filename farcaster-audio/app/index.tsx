@@ -38,20 +38,30 @@ export default function HomeScreen() {
 
   const [isComposeVisible, setIsComposeVisible] = useState(false);
   const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
 
   const openCompose = useCallback(() => {
     setReplyTarget(null);
+    setQuoteCastTarget(null);
     setIsComposeVisible(true);
   }, []);
 
   const openReply = useCallback((cast: NeynarCast) => {
     setReplyTarget(cast);
+    setQuoteCastTarget(null);
+    setIsComposeVisible(true);
+  }, []);
+
+  const openQuoteCast = useCallback((cast: NeynarCast) => {
+    setQuoteCastTarget(cast);
+    setReplyTarget(null);
     setIsComposeVisible(true);
   }, []);
 
   const closeCompose = useCallback(() => {
     setIsComposeVisible(false);
     setReplyTarget(null);
+    setQuoteCastTarget(null);
   }, []);
 
   return (
@@ -80,6 +90,7 @@ export default function HomeScreen() {
         onEndReached={fetchMore}
         onLike={handleLike}
         onRecast={handleRecast}
+        onQuoteCast={openQuoteCast}
         onReply={openReply}
         ListHeaderComponent={<SpacesRail />}
         error={error}
@@ -100,6 +111,7 @@ export default function HomeScreen() {
         onClose={closeCompose}
         onPublish={handlePublishCast}
         replyTo={replyTarget}
+        quoteCast={quoteCastTarget}
       />
     </View>
   );

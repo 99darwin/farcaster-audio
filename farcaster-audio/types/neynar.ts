@@ -48,6 +48,13 @@ export interface NeynarViewerContext {
   recasted: boolean;
 }
 
+export interface NeynarOgMeta {
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: Array<{ url: string; width?: string; height?: string }>;
+  ogUrl?: string;
+}
+
 export interface NeynarEmbed {
   url?: string;
   cast?: NeynarCast;
@@ -57,6 +64,17 @@ export interface NeynarEmbed {
     image?: {
       width_px?: number;
       height_px?: number;
+    };
+    html?: {
+      og?: NeynarOgMeta;
+      favicon?: string;
+      ogImage?: Array<{ url: string; width?: string; height?: string }>;
+    };
+    /** Neynar mini-app / frame metadata */
+    fc_frame?: {
+      image_url?: string;
+      button?: { title?: string; action?: { type?: string; url?: string } };
+      [key: string]: unknown;
     };
   };
 }

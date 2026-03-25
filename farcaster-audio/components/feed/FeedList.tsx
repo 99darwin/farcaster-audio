@@ -89,6 +89,7 @@ interface FeedListProps {
   onEndReached: () => void;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   ListHeaderComponent?: React.ReactElement | null;
   error?: string | null;
@@ -105,6 +106,7 @@ export function FeedList({
   onEndReached,
   onLike,
   onRecast,
+  onQuoteCast,
   onReply,
   ListHeaderComponent,
   error,
@@ -141,6 +143,7 @@ export function FeedList({
           myFid={myFid}
           onLike={onLike}
           onRecast={onRecast}
+          onQuoteCast={onQuoteCast}
           onReply={onReply}
           onPress={() => handleCastPress(item.hash)}
         />

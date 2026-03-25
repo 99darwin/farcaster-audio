@@ -58,7 +58,13 @@ export default function ProfileScreen() {
 
   const handleReply = useCallback(
     (_cast: NeynarCast) => {
-      // Navigate to thread where they can reply
+      router.push(`/cast/${_cast.hash}`);
+    },
+    [router],
+  );
+
+  const handleQuoteCast = useCallback(
+    (_cast: NeynarCast) => {
       router.push(`/cast/${_cast.hash}`);
     },
     [router],
@@ -99,6 +105,7 @@ export default function ProfileScreen() {
             myFid={myFid}
             onLike={handleLike}
             onRecast={handleRecast}
+            onQuoteCast={handleQuoteCast}
             onReply={handleReply}
             onPress={() => handleCastPress(item.hash)}
           />
