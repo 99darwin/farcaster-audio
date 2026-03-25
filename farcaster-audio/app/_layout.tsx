@@ -109,7 +109,7 @@ export default function RootLayout() {
           <Stack.Screen name="space/[id]" options={{ title: 'Space' }} />
           <Stack.Screen name="space/create" options={{ title: 'Create Space' }} />
         </Stack>
-        {room && (
+        {room && segments[0] !== 'space' && (
           <SpaceMiniBar
             onToggleMute={handleToggleMute}
             onLeave={handleLeave}

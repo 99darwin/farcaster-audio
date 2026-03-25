@@ -31,7 +31,7 @@ export function useSpace() {
           is_speaking: false,
           hand_raised: false,
           display_name: participant.name || `User ${fid}`,
-          pfp_url: null,
+          pfp_url: metadata.pfp_url || null,
         });
       });
 

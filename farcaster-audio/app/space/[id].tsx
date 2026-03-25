@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSpace } from '@/hooks/useSpace';
 import { useSpacePermissions } from '@/hooks/useSpacePermissions';
 import { useAuthStore } from '@/stores/authStore';
+import { useSpaceStore } from '@/stores/spaceStore';
 import { SpeakerGrid } from '@/components/spaces/SpeakerGrid';
 import { ListenerList } from '@/components/spaces/ListenerList';
 import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
@@ -61,8 +62,9 @@ export default function SpaceScreen() {
   const handleRaiseHand = useCallback(async () => {
     if (!id) return;
     try {
-      await api.raiseHand(id, { raised: !isHandRaised });
-      // Store update happens via event
+      const newState = !isHandRaised;
+      await api.raiseHand(id, { raised: newState });
+      useSpaceStore.getState().setHandRaised(newState);
     } catch (err) {
       console.error('Failed to raise hand:', err);
     }

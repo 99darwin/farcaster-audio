@@ -37,9 +37,14 @@ class LiveKitService:
         fid: int,
         display_name: str,
         role: str,
+        pfp_url: str | None = None,
     ) -> str:
         """Generate a LiveKit access token for a participant."""
         can_publish = role in ("host", "co_host", "speaker")
+
+        metadata = {"fid": fid, "role": role}
+        if pfp_url:
+            metadata["pfp_url"] = pfp_url
 
         token = api.AccessToken(
             api_key=settings.LIVEKIT_API_KEY,
@@ -47,7 +52,7 @@ class LiveKitService:
         )
         token.with_identity(str(fid))
         token.with_name(display_name)
-        token.with_metadata(json.dumps({"fid": fid, "role": role}))
+        token.with_metadata(json.dumps(metadata))
         token.with_ttl(timedelta(hours=6))
 
         grant = api.VideoGrants(

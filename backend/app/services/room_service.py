@@ -180,6 +180,7 @@ class RoomService:
             fid=fid,
             display_name=host_participant_data["display_name"],
             role="host",
+            pfp_url=host.pfp_url,
         )
 
         speaker_count = await self.redis.get_speaker_count(room_id)
@@ -341,6 +342,7 @@ class RoomService:
                 fid=fid,
                 display_name=existing.get("display_name", str(fid)),
                 role=existing["role"],
+                pfp_url=existing.get("pfp_url"),
             )
             participants_data = await self.redis.get_all_participants(room_id)
             host = await self._get_user(room.host_fid)
@@ -416,6 +418,7 @@ class RoomService:
             fid=fid,
             display_name=display_name,
             role="listener",
+            pfp_url=user.pfp_url,
         )
 
         # Publish join event
@@ -871,6 +874,7 @@ class RoomService:
             fid=fid,
             display_name=display_name,
             role=role,
+            pfp_url=user.pfp_url,
         )
 
         # Token TTL is 6 hours (matches LiveKitService.generate_token)

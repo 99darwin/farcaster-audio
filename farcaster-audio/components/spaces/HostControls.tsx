@@ -1,7 +1,10 @@
+import { useEffect } from 'react';
 import { View, Text, Modal, ScrollView, Pressable, Alert, StyleSheet } from 'react-native';
 import { Avatar } from '@/components/common/Avatar';
 import { Button } from '@/components/common/Button';
+import { useSpaceStore } from '@/stores/spaceStore';
 import { colors } from '@/constants/theme';
+import * as api from '@/services/api';
 import type { Participant } from '@/types/space';
 
 interface HostControlsProps {
@@ -33,6 +36,21 @@ export function HostControls({
   onEndSpace,
   hostFid,
 }: HostControlsProps) {
+  // Refresh participants and hand queue from backend when modal opens
+  useEffect(() => {
+    if (!visible) return;
+    const roomId = useSpaceStore.getState().room?.id;
+    if (!roomId) return;
+    api.getRoom(roomId).then((data) => {
+      const store = useSpaceStore.getState();
+      store.setHandQueue(data.hand_queue ?? []);
+      // Sync participant roles from backend
+      for (const p of data.participants) {
+        store.updateParticipant(p.fid, { role: p.role, pfp_url: p.pfp_url });
+      }
+    }).catch(() => {});
+  }, [visible]);
+
   const handRaisedParticipants = participants.filter((p) => handQueue.includes(p.fid));
 
   const confirmEndSpace = () => {
@@ -98,6 +116,25 @@ export function HostControls({
                 </View>
               ))}
             </View>
+
+            {/* Listeners */}
+            {participants.filter((p) => p.role === 'listener').length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>
+                  Listeners ({participants.filter((p) => p.role === 'listener').length})
+                </Text>
+                {participants.filter((p) => p.role === 'listener').map((p) => (
+                  <View key={p.fid} style={styles.participantRow}>
+                    <Avatar pfpUrl={p.pfp_url} displayName={p.display_name} size="sm" />
+                    <Text style={styles.participantName}>{p.display_name}</Text>
+                    <View style={styles.actions}>
+                      <Button title="Promote" onPress={() => onPromote(p.fid)} size="sm" accessibilityLabel={`Promote ${p.display_name} to speaker`} />
+                      <Button title="Kick" onPress={() => confirmKick(p.fid, p.display_name)} variant="danger" size="sm" accessibilityLabel={`Kick ${p.display_name}`} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {/* Danger Zone */}
             <View style={[styles.section, styles.dangerSection]}>
