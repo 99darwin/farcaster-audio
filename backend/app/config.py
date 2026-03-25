@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = ""
     RECORDING_ENABLED: bool = False
     SENTRY_DSN: str = ""
+    DEMO_LOGIN_ENABLED: bool = False
 
 
 settings = Settings()

@@ -46,11 +46,9 @@ export default function LoginScreen() {
       </View>
       <View style={styles.buttonContainer}>
         <SignInButton />
-        {__DEV__ && (
-          <Pressable onPress={devLogin} style={styles.devButton} disabled={devLoading}>
-            <Text style={styles.devButtonText}>{devLoading ? 'Logging in...' : 'Dev Login'}</Text>
-          </Pressable>
-        )}
+        <Pressable onPress={devLogin} style={styles.devButton} disabled={devLoading}>
+          <Text style={styles.devButtonText}>{devLoading ? 'Logging in...' : 'Demo Login'}</Text>
+        </Pressable>
       </View>
     </View>
   );

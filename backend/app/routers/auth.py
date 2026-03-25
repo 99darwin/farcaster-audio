@@ -32,20 +32,31 @@ async def dev_login(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Dev-only: issue a real JWT for a fake user without Neynar verification."""
-    if settings.ENVIRONMENT != "development":
+    """Demo login: issue a real JWT for a demo user. Controlled by DEMO_LOGIN_ENABLED."""
+    if not settings.DEMO_LOGIN_ENABLED and settings.ENVIRONMENT != "development":
         raise HTTPException(status_code=404, detail="Not found")
 
-    fid = 999999
+    fid = 1
     result = await db.execute(select(User).where(User.fid == fid))
     user = result.scalar_one_or_none()
     if not user:
-        user = User(
-            fid=fid,
-            username="dev-user-999999",
-            display_name="Dev User",
-            signer_uuid="dev-signer",
-        )
+        # Fetch real profile from Neynar for a realistic review experience
+        try:
+            profile = await fetch_user_profile(fid)
+            user = User(
+                fid=fid,
+                username=profile.get("username", "farcaster"),
+                display_name=profile.get("display_name", "Farcaster"),
+                pfp_url=profile.get("pfp_url"),
+                signer_uuid="demo-readonly",
+            )
+        except Exception:
+            user = User(
+                fid=fid,
+                username="farcaster",
+                display_name="Farcaster",
+                signer_uuid="demo-readonly",
+            )
         db.add(user)
         await db.commit()
         await db.refresh(user)
