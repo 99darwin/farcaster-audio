@@ -164,7 +164,8 @@ class RoomService:
 
         # Post announcement cast (fire-and-forget; must not block room creation)
         # In dev/demo mode, use a pre-configured cast hash for testing the chat UI
-        if settings.DEMO_CAST_HASH and settings.DEMO_LOGIN_ENABLED:
+        is_demo_user = host.signer_uuid == "demo-readonly"
+        if settings.DEMO_CAST_HASH and is_demo_user:
             await self.db.execute(
                 update(Room)
                 .where(Room.id == room.id)

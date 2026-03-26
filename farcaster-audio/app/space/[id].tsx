@@ -211,7 +211,8 @@ export default function SpaceScreen() {
         <SpaceChat
           castHash={room.cast_hash!}
           viewerFid={user!.fid}
-          keyboardVerticalOffset={insets.bottom + 72}
+          keyboardVerticalOffset={insets.bottom + 96}
+          bottomInset={insets.bottom + 84}
         />
       )}
 

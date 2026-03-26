@@ -24,9 +24,10 @@ interface SpaceChatProps {
   castHash: string;
   viewerFid: number;
   keyboardVerticalOffset?: number;
+  bottomInset?: number;
 }
 
-export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0 }: SpaceChatProps) {
+export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bottomInset = 0 }: SpaceChatProps) {
   const router = useRouter();
   const { rootCast, replies, isLoading, refreshThread } = useSpaceChat(castHash, viewerFid);
   const [text, setText] = useState('');
@@ -147,7 +148,7 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0 }: S
       />
 
       {/* Compose bar */}
-      <View style={styles.composeBar}>
+      <View style={[styles.composeBar, bottomInset > 0 && { paddingBottom: bottomInset + 8 }]}>
         <TextInput
           style={styles.input}
           value={text}
