@@ -6,9 +6,11 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { SpaceMiniBar } from '@/components/spaces/SpaceMiniBar';
+import { TAB_BAR_TOTAL_HEIGHT } from '@/components/navigation/GlassTabBar';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { useOTAUpdate } from '@/hooks/useOTAUpdate';
 import { useNotificationBadge } from '@/hooks/useNotificationBadge';
@@ -31,6 +33,7 @@ Sentry.init({
 
 export default function RootLayout() {
   const { isAuthenticated, isLoading, hydrate } = useAuthStore();
+  const insets = useSafeAreaInsets();
   const room = useSpaceStore((s) => s.room);
   const leaveSpace = useSpaceStore((s) => s.leaveSpace);
   const setMuted = useSpaceStore((s) => s.setMuted);
@@ -129,7 +132,7 @@ export default function RootLayout() {
           <SpaceMiniBar
             onToggleMute={handleToggleMute}
             onLeave={handleLeave}
-            bottomOffset={segments[0] === '(tabs)' ? 49 : 0}
+            bottomOffset={segments[0] === '(tabs)' ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16 : insets.bottom + 8}
           />
         )}
         <Toast />

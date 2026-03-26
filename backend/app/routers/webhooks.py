@@ -1,7 +1,11 @@
+import hashlib
+import hmac
+import json
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from livekit import api as livekit_api
@@ -10,7 +14,10 @@ from app.config import settings
 from app.dependencies import get_db, get_redis
 from app.models.participant import Participant
 from app.models.room import Room
+from app.services.livekit_service import LiveKitService
 from app.services.redis_service import RedisService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/webhooks", tags=["webhooks"])
 
@@ -32,7 +39,8 @@ async def livekit_webhook(
         )
         receiver = livekit_api.WebhookReceiver(token_verifier)
         event = receiver.receive(body.decode(), auth_header)
-    except (ValueError, Exception):
+    except Exception as exc:
+        logger.warning("LiveKit webhook verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Webhook verification failed",
@@ -144,3 +152,69 @@ async def _handle_egress_ended(event, db: AsyncSession):
         .values(recording_url=file_url, recording=False)
     )
     await db.commit()
+
+
+def _verify_neynar_signature(body: bytes, secret: str, signature: str) -> bool:
+    """Verify Neynar webhook HMAC-SHA512 signature."""
+    expected = hmac.new(
+        secret.encode(),
+        body,
+        hashlib.sha512,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+@router.post("/neynar")
+async def neynar_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Receive Neynar webhook events for cast replies and broadcast via LiveKit data channel."""
+    body = await request.body()
+    signature = request.headers.get("x-neynar-signature", "")
+
+    if not signature:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature")
+
+    payload = json.loads(body)
+    event_type = payload.get("type")
+
+    if event_type != "cast.created":
+        return {"status": "ok"}
+
+    parent_hash = payload.get("data", {}).get("parent_hash")
+    if not parent_hash:
+        return {"status": "ok"}
+
+    # Find the active room whose announcement cast matches this parent_hash
+    result = await db.execute(
+        select(Room).where(Room.cast_hash == parent_hash, Room.status == "active")
+    )
+    room = result.scalar_one_or_none()
+
+    # Uniform 401 for no room, missing secret, or bad signature — prevents oracle
+    if (
+        not room
+        or not room.neynar_webhook_secret
+        or not _verify_neynar_signature(body, room.neynar_webhook_secret, signature)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook signature",
+        )
+
+    # Broadcast a "new_reply" data message to all participants in the LiveKit room
+    room_id = str(room.id)
+    livekit = LiveKitService()
+    try:
+        message = json.dumps({
+            "type": "new_reply",
+            "cast_hash": parent_hash,
+        }).encode()
+        await livekit.send_data(room_id, message, topic="space_chat")
+    except Exception as e:
+        logger.warning("Failed to broadcast new_reply to room %s: %s", room_id, e)
+    finally:
+        await livekit.close()
+
+    return {"status": "ok"}

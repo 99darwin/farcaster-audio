@@ -29,6 +29,10 @@ interface SpaceStore {
   // Actions - discovery
   setActiveLiveSpaces: (spaces: Room[]) => void;
 
+  // Chat — incremented when a new reply data message arrives via LiveKit
+  chatNewReplyTick: number;
+  bumpChatNewReply: () => void;
+
   // Actions - lifecycle
   joinSpace: (room: Room, participants: Participant[], myRole: ParticipantRole) => void;
   leaveSpace: () => void;
@@ -43,6 +47,7 @@ const INITIAL_STATE = {
   isConnected: false,
   isMuted: true,
   isHandRaised: false,
+  chatNewReplyTick: 0,
 };
 
 export const useSpaceStore = create<SpaceStore>((set) => ({
@@ -76,6 +81,9 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
   setConnected: (isConnected) => set({ isConnected }),
   setMuted: (isMuted) => set({ isMuted }),
   setHandRaised: (isHandRaised) => set({ isHandRaised }),
+
+  // Chat
+  bumpChatNewReply: () => set((state) => ({ chatNewReplyTick: state.chatNewReplyTick + 1 })),
 
   // Discovery
   setActiveLiveSpaces: (activeLiveSpaces) => set({ activeLiveSpaces }),

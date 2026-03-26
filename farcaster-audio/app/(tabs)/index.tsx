@@ -1,10 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Pressable, FlatList, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, FlatList, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useScrollToTop } from '@react-navigation/native';
 import { useAuthStore } from '@/stores/authStore';
-import { useSpaceStore } from '@/stores/spaceStore';
+import { useComposeStore } from '@/stores/composeStore';
 import { useFeed } from '@/hooks/useFeed';
 import { useLiveSpaces } from '@/hooks/useLiveSpaces';
 import { SpacesRail } from '@/components/spaces/SpacesRail';
@@ -13,12 +12,9 @@ import { ComposeModal } from '@/components/feed/ComposeModal';
 import { colors } from '@/constants/theme';
 import type { NeynarCast } from '@/types/neynar';
 
-const MINI_BAR_HEIGHT = 50;
-
 export default function HomeScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
-  const room = useSpaceStore((s) => s.room);
 
   const {
     casts,
@@ -47,11 +43,15 @@ export default function HomeScreen() {
   const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
   const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
 
-  const openCompose = useCallback(() => {
-    setReplyTarget(null);
-    setQuoteCastTarget(null);
-    setIsComposeVisible(true);
-  }, []);
+  // Listen for compose requests from the tab bar
+  const composeSignal = useComposeStore((s) => s.composeSignal);
+  useEffect(() => {
+    if (composeSignal > 0) {
+      setReplyTarget(null);
+      setQuoteCastTarget(null);
+      setIsComposeVisible(true);
+    }
+  }, [composeSignal]);
 
   const openReply = useCallback((cast: NeynarCast) => {
     setReplyTarget(cast);
@@ -91,15 +91,6 @@ export default function HomeScreen() {
         onRetry={fetch}
       />
 
-      <Pressable
-        style={[styles.fab, room && styles.fabWithMiniBar]}
-        onPress={openCompose}
-        accessibilityLabel="New cast"
-        accessibilityRole="button"
-      >
-        <Ionicons name="create-outline" size={24} color={colors.text.primary} />
-      </Pressable>
-
       <ComposeModal
         isVisible={isComposeVisible}
         onClose={closeCompose}
@@ -115,24 +106,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background.main,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.purple,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.purple,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  fabWithMiniBar: {
-    bottom: 24 + MINI_BAR_HEIGHT,
   },
 });

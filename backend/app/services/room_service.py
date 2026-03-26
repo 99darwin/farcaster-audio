@@ -163,13 +163,27 @@ class RoomService:
         await self.db.commit()
 
         # Post announcement cast (fire-and-forget; must not block room creation)
-        if announce_cast:
+        # In dev/demo mode, use a pre-configured cast hash for testing the chat UI
+        if settings.DEMO_CAST_HASH and settings.DEMO_LOGIN_ENABLED:
+            await self.db.execute(
+                update(Room)
+                .where(Room.id == room.id)
+                .values(cast_hash=settings.DEMO_CAST_HASH)
+            )
+            await self.db.commit()
+            await self.db.refresh(room)
+        elif announce_cast:
             cast_hash = await self._announce_room(room_id, title, host)
             if cast_hash:
+                webhook_id, webhook_secret = await self._register_cast_webhook(room_id, cast_hash)
                 await self.db.execute(
                     update(Room)
                     .where(Room.id == room.id)
-                    .values(cast_hash=cast_hash)
+                    .values(
+                        cast_hash=cast_hash,
+                        neynar_webhook_id=webhook_id,
+                        neynar_webhook_secret=webhook_secret,
+                    )
                 )
                 await self.db.commit()
                 await self.db.refresh(room)
@@ -283,7 +297,7 @@ class RoomService:
         """
         End an active room. Only hosts and co-hosts may do this.
         """
-        await self._get_room_or_404(room_id)
+        room = await self._get_room_or_404(room_id)
 
         actor_role = await self._get_actor_role(room_id, fid)
         if not permission_service.can_end_room(actor_role):
@@ -297,6 +311,10 @@ class RoomService:
             .values(status="ended", ended_at=now)
         )
         await self.db.commit()
+
+        # Clean up Neynar webhook (best-effort)
+        if room.neynar_webhook_id:
+            await self._delete_cast_webhook(room.neynar_webhook_id)
 
         # Delete LiveKit room (best-effort; don't fail the operation if LiveKit is down)
         try:
@@ -953,7 +971,7 @@ class RoomService:
                     "https://api.neynar.com/v2/farcaster/cast",
                     json={
                         "signer_uuid": user.signer_uuid,
-                        "text": f"Live now: {title}\n\nJoin in Farcaster Audio",
+                        "text": f"Live now: {title}\n\nListen on Juke",
                         "embeds": [{"url": f"https://farcasteraudio.xyz/space/{room_id}"}],
                     },
                     headers={"api_key": settings.NEYNAR_API_KEY},
@@ -964,6 +982,50 @@ class RoomService:
         except Exception as e:
             logger.warning("Failed to announce room: %s", e)
             return None
+
+    async def _register_cast_webhook(
+        self, room_id: str, cast_hash: str
+    ) -> tuple[str | None, str | None]:
+        """Register a Neynar webhook to listen for replies to the announcement cast.
+        Returns (webhook_id, webhook_secret) or (None, None) on failure."""
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.neynar.com/v2/farcaster/webhook",
+                    json={
+                        "name": f"space-replies-{room_id[:8]}",
+                        "url": f"{settings.API_BASE_URL}/v1/webhooks/neynar",
+                        "subscription": {
+                            "cast.created": {
+                                "parent_hashes": [cast_hash],
+                            },
+                        },
+                    },
+                    headers={"x-api-key": settings.NEYNAR_API_KEY},
+                )
+                resp.raise_for_status()
+                webhook = resp.json().get("webhook", {})
+                webhook_id = webhook.get("webhook_id")
+                webhook_secret = webhook.get("secret")
+                logger.info("Registered Neynar webhook %s for room %s", webhook_id, room_id)
+                return webhook_id, webhook_secret
+        except Exception as e:
+            logger.warning("Failed to register Neynar webhook for room %s: %s", room_id, e)
+            return None, None
+
+    async def _delete_cast_webhook(self, webhook_id: str) -> None:
+        """Delete a Neynar webhook. Best-effort; failures are logged."""
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.delete(
+                    f"https://api.neynar.com/v2/farcaster/webhook",
+                    params={"webhook_id": webhook_id},
+                    headers={"x-api-key": settings.NEYNAR_API_KEY},
+                )
+                resp.raise_for_status()
+                logger.info("Deleted Neynar webhook %s", webhook_id)
+        except Exception as e:
+            logger.warning("Failed to delete Neynar webhook %s: %s", webhook_id, e)
 
     # -----------------------------------------------------------------------
     # Private helpers

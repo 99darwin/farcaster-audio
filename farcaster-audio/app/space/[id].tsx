@@ -13,9 +13,11 @@ import { SpeakerGrid } from '@/components/spaces/SpeakerGrid';
 import { ListenerList } from '@/components/spaces/ListenerList';
 import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
 import { HostControls } from '@/components/spaces/HostControls';
+import { SpaceChat } from '@/components/spaces/SpaceChat';
+import { GlassView } from '@/components/common/GlassView';
 import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { colors } from '@/constants/theme';
+import { colors, glass } from '@/constants/theme';
 import * as api from '@/services/api';
 
 export default function SpaceScreen() {
@@ -39,7 +41,9 @@ export default function SpaceScreen() {
   const [isJoining, setIsJoining] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [showHostControls, setShowHostControls] = useState(false);
+  const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants');
   const insets = useSafeAreaInsets();
+  const hasChatTab = !!room?.cast_hash;
 
   useEffect(() => {
     if (!id) return;
@@ -161,14 +165,58 @@ export default function SpaceScreen() {
         )}
       </View>
 
+      {/* Tab bar (only when cast_hash exists) */}
+      {hasChatTab && (
+        <View style={styles.tabBar}>
+          <Pressable
+            style={[styles.tab, activeTab === 'participants' && styles.tabActive]}
+            onPress={() => setActiveTab('participants')}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'participants' }}
+          >
+            <Ionicons
+              name={activeTab === 'participants' ? 'people' : 'people-outline'}
+              size={18}
+              color={activeTab === 'participants' ? colors.text.primary : colors.text.secondary}
+            />
+            <Text style={[styles.tabText, activeTab === 'participants' && styles.tabTextActive]}>
+              Participants
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.tab, activeTab === 'chat' && styles.tabActive]}
+            onPress={() => setActiveTab('chat')}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'chat' }}
+          >
+            <Ionicons
+              name={activeTab === 'chat' ? 'chatbubble' : 'chatbubble-outline'}
+              size={18}
+              color={activeTab === 'chat' ? colors.text.primary : colors.text.secondary}
+            />
+            <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>
+              Chat
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* Content */}
-      <ScrollView style={styles.scrollContent}>
-        <SpeakerGrid speakers={speakers} hostFid={room.host_fid} />
-        <ListenerList listeners={listeners} />
-      </ScrollView>
+      {activeTab === 'participants' || !hasChatTab ? (
+        <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
+          <SpeakerGrid speakers={speakers} hostFid={room.host_fid} />
+          <ListenerList listeners={listeners} />
+        </ScrollView>
+      ) : (
+        <SpaceChat
+          castHash={room.cast_hash!}
+          viewerFid={user!.fid}
+          keyboardVerticalOffset={insets.bottom + 72}
+        />
+      )}
 
       {/* Bottom Controls */}
-      <View style={[styles.controls, { paddingBottom: insets.bottom || 12 }]}>
+      <GlassView style={[styles.controls, { bottom: insets.bottom + 12 }]}>
         {permissions.isListener && (
           <HandRaiseButton isRaised={isHandRaised} onPress={handleRaiseHand} />
         )}
@@ -203,7 +251,7 @@ export default function SpaceScreen() {
         >
           <Ionicons name="exit-outline" size={24} color={colors.text.primary} />
         </Pressable>
-      </View>
+      </GlassView>
 
       {/* Host Controls Modal */}
       <HostControls
@@ -233,29 +281,58 @@ const styles = StyleSheet.create({
   statusText: { color: colors.error, fontSize: 14, fontWeight: '600' },
   listenerCount: { color: colors.text.secondary, fontSize: 14 },
   reconnecting: { color: colors.warning, fontSize: 13, marginTop: 4 },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: glass.overlayColor,
+    borderBottomWidth: 1,
+    borderBottomColor: glass.borderColor,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: colors.text.primary,
+  },
+  tabText: {
+    color: colors.text.secondary,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: colors.text.primary,
+  },
   scrollContent: { flex: 1 },
   controls: {
+    position: 'absolute',
+    alignSelf: 'center',
     flexDirection: 'row',
     justifyContent: 'space-evenly',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-    backgroundColor: colors.background.surface,
+    gap: 12,
+    borderRadius: glass.capsuleRadius,
   },
   controlIcon: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.background.border,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
   controlIconMuted: {
-    backgroundColor: colors.accent,
+    backgroundColor: glass.mutedOverlay,
   },
   controlIconLeave: {
-    backgroundColor: colors.danger,
+    backgroundColor: glass.dangerOverlay,
   },
 });

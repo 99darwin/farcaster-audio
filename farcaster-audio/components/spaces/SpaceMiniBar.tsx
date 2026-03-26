@@ -1,9 +1,9 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSpaceStore } from '@/stores/spaceStore';
-import { colors } from '@/constants/theme';
+import { GlassView } from '@/components/common/GlassView';
+import { colors, glass } from '@/constants/theme';
 
 interface SpaceMiniBarProps {
   onToggleMute: () => void;
@@ -17,59 +17,59 @@ export function SpaceMiniBar({ onToggleMute, onLeave, bottomOffset = 0 }: SpaceM
   const isMuted = useSpaceStore((s) => s.isMuted);
   const isConnected = useSpaceStore((s) => s.isConnected);
 
-  const insets = useSafeAreaInsets();
-
   if (!room) return null;
 
   return (
-    <Pressable
-      style={[styles.container, { bottom: bottomOffset, paddingBottom: insets.bottom || 10 }]}
-      onPress={() => router.push(`/space/${room.id}`)}
-      accessibilityLabel={`Active space: ${room.title}`}
-      accessibilityRole="button"
-    >
-      <View style={styles.leftSection}>
-        <View style={styles.liveDot} />
-        <Text style={styles.title} numberOfLines={1}>{room.title}</Text>
-        {!isConnected && <Text style={styles.reconnecting}>Reconnecting...</Text>}
-      </View>
-      <View style={styles.controls}>
-        <Pressable
-          onPress={onToggleMute}
-          style={styles.controlButton}
-          accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-          accessibilityRole="button"
-        >
-          <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={18} color={colors.text.primary} />
-        </Pressable>
-        <View style={styles.divider} />
-        <Pressable
-          onPress={onLeave}
-          style={styles.controlButton}
-          accessibilityLabel="Leave space"
-          accessibilityRole="button"
-        >
-          <Ionicons name="exit-outline" size={18} color={colors.error} />
-        </Pressable>
-      </View>
-    </Pressable>
+    <GlassView style={[styles.container, { bottom: bottomOffset }]}>
+      <Pressable
+        style={styles.content}
+        onPress={() => router.push(`/space/${room.id}`)}
+        accessibilityLabel={`Active space: ${room.title}`}
+        accessibilityRole="button"
+      >
+        <View style={styles.leftSection}>
+          <View style={styles.liveDot} />
+          <Text style={styles.title} numberOfLines={1}>{room.title}</Text>
+          {!isConnected && <Text style={styles.reconnecting}>Reconnecting...</Text>}
+        </View>
+        <View style={styles.controls}>
+          <Pressable
+            onPress={onToggleMute}
+            style={styles.controlButton}
+            accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            accessibilityRole="button"
+          >
+            <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={18} color={colors.text.primary} />
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable
+            onPress={onLeave}
+            style={styles.controlButton}
+            accessibilityLabel="Leave space"
+            accessibilityRole="button"
+          >
+            <Ionicons name="exit-outline" size={18} color={colors.error} />
+          </Pressable>
+        </View>
+      </Pressable>
+    </GlassView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    marginHorizontal: 12,
+    borderRadius: glass.capsuleRadius,
+  },
+  content: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.background.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.accent,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
   },
   leftSection: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
@@ -77,5 +77,5 @@ const styles = StyleSheet.create({
   reconnecting: { color: colors.warning, fontSize: 12 },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   controlButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8, minWidth: 44, minHeight: 44 },
-  divider: { width: 1, height: 20, backgroundColor: colors.background.subtle },
+  divider: { width: 1, height: 20, backgroundColor: 'rgba(255, 255, 255, 0.15)' },
 });

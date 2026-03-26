@@ -28,7 +28,9 @@ class Room(Base):
     max_listeners: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
     recording: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     recording_url: Mapped[str | None] = mapped_column(Text)
-    cast_hash: Mapped[str | None] = mapped_column(String(66))
+    cast_hash: Mapped[str | None] = mapped_column(String(66), index=True)
+    neynar_webhook_id: Mapped[str | None] = mapped_column(String(64))
+    neynar_webhook_secret: Mapped[str | None] = mapped_column(String(256))
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )

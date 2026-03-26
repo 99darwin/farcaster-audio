@@ -66,10 +66,29 @@ export const touchTarget = {
   min: 44,
 } as const;
 
+export const glass = {
+  blurIntensity: 80,
+  tint: 'dark' as const,
+  overlayColor: 'rgba(26, 26, 46, 0.45)',
+  accentOverlay: 'rgba(133, 93, 205, 0.35)',
+  dangerOverlay: 'rgba(220, 38, 38, 0.4)',
+  mutedOverlay: 'rgba(216, 90, 48, 0.4)',
+  borderColor: 'rgba(255, 255, 255, 0.12)',
+  shadow: {
+    color: '#000',
+    offset: { width: 0, height: 8 },
+    opacity: 0.35,
+    radius: 24,
+  },
+  pillRadius: 28,
+  capsuleRadius: 24,
+} as const;
+
 export const theme = {
   colors,
   spacing,
   radii,
   typography,
   touchTarget,
+  glass,
 } as const;
