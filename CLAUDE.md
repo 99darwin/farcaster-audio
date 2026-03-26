@@ -7,6 +7,7 @@ Farcaster Audio Spaces Client is an iOS app combining the Farcaster social feed 
 ## Architecture Summary
 
 - **Frontend**: Expo SDK 55 bare workflow (React Native, iOS-only MVP)
+- **Landing**: Next.js (App Router) at juke.audio — Tailwind CSS + Framer Motion
 - **Backend**: FastAPI (Python) serving a REST + WebSocket API
 - **Database**: PostgreSQL 16 (via SQLAlchemy + Alembic)
 - **Cache / Pub-Sub**: Redis 7
@@ -18,6 +19,7 @@ Farcaster Audio Spaces Client is an iOS app combining the Farcaster social feed 
 | Layer         | Technology                  | Version   |
 |---------------|-----------------------------|-----------|
 | Mobile        | React Native (Expo)         | SDK 55    |
+| Landing       | Next.js (App Router)        | 15        |
 | Language      | TypeScript                  | strict    |
 | Backend       | FastAPI                     | latest    |
 | Language      | Python                      | 3.12      |
@@ -47,6 +49,9 @@ farcaster-audio-client/
 │   ├── tests/                      # pytest test suite
 │   ├── docker-compose.yml          # Postgres, Redis, API
 │   └── pyproject.toml
+├── landing/                        # Next.js landing page (juke.audio)
+│   ├── app/                        # App Router pages + layout
+│   └── public/                     # OG image, logo assets
 └── farcaster-audio/                # Expo bare workflow app
     ├── app/                        # Expo Router screens
     ├── components/                 # Shared UI components
@@ -71,6 +76,9 @@ cd backend && pytest
 
 # Run database migrations
 cd backend && alembic upgrade head
+
+# Start landing page dev server
+cd landing && npm run dev
 
 # Run frontend tests
 cd farcaster-audio && npx jest
@@ -147,3 +155,8 @@ EXPO_PUBLIC_LIVEKIT_WS_URL
 | `SPEC.md` | Source of truth — full product specification |
 | `backend/app/services/room_service.py` | Core orchestrator: room lifecycle, LiveKit token issuance, participant management |
 | `farcaster-audio/hooks/useSpace.ts` | Central frontend hook — joins/leaves spaces, manages audio state, syncs participants |
+| `landing/app/page.tsx` | Landing page at juke.audio — hero, features, CTA |
+
+## Design Context
+
+See `.impeccable.md` for brand personality, aesthetic direction, color system, and design principles.
