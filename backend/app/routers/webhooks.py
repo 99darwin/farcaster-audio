@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -114,12 +115,32 @@ async def _handle_room_finished(
     """Handle LiveKit room auto-close (empty_timeout reached)."""
     room_name = event.room.name
 
+    # Fetch room before updating so we can clean up the Neynar webhook
+    result = await db.execute(
+        select(Room).where(Room.id == room_name, Room.status == "active")
+    )
+    room = result.scalar_one_or_none()
+
     await db.execute(
         update(Room)
         .where(Room.id == room_name, Room.status == "active")
         .values(status="ended", ended_at=datetime.now(timezone.utc))
     )
     await db.commit()
+
+    # Clean up Neynar webhook (best-effort)
+    if room and room.neynar_webhook_id:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.delete(
+                    "https://api.neynar.com/v2/farcaster/webhook",
+                    params={"webhook_id": room.neynar_webhook_id},
+                    headers={"x-api-key": settings.NEYNAR_API_KEY},
+                )
+                resp.raise_for_status()
+                logger.info("Deleted Neynar webhook %s (room auto-closed)", room.neynar_webhook_id)
+        except Exception as e:
+            logger.warning("Failed to delete Neynar webhook %s: %s", room.neynar_webhook_id, e)
 
     await redis_service.clear_room_state(room_name)
 
