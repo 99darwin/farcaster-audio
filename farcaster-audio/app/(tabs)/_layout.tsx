@@ -1,9 +1,10 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useCallback } from 'react';
+import { Pressable } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/stores/authStore';
-import { useNotificationStore } from '@/stores/notificationStore';
+import { useComposeStore } from '@/stores/composeStore';
 import { Avatar } from '@/components/common/Avatar';
+import { GlassTabBar } from '@/components/navigation/GlassTabBar';
 import { colors } from '@/constants/theme';
 
 function HeaderAvatar() {
@@ -21,81 +22,29 @@ function HeaderAvatar() {
   );
 }
 
-function NotificationIcon({ color, focused }: { color: string; focused: boolean }) {
-  const unreadCount = useNotificationStore((s) => s.unreadCount);
-
-  return (
-    <View>
-      <Ionicons
-        name={focused ? 'notifications' : 'notifications-outline'}
-        size={24}
-        color={color}
-      />
-      {unreadCount > 0 && (
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>
-            {unreadCount >= 20 ? '20+' : unreadCount}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
 export default function TabLayout() {
+  const requestCompose = useComposeStore((s) => s.requestCompose);
+  const handleCompose = useCallback(() => requestCompose(), [requestCompose]);
+
   return (
     <Tabs
+      tabBar={(props) => <GlassTabBar {...props} onCompose={handleCompose} />}
       screenOptions={{
         headerStyle: { backgroundColor: colors.background.surface },
         headerTintColor: colors.text.primary,
-        tabBarStyle: {
-          backgroundColor: colors.background.surface,
-          borderTopColor: colors.background.border,
-        },
-        tabBarActiveTintColor: colors.text.primary,
-        tabBarInactiveTintColor: colors.text.secondary,
+        tabBarStyle: { position: 'absolute' },
         headerRight: () => <HeaderAvatar />,
         headerRightContainerStyle: { paddingRight: 16 },
       }}
     >
       <Tabs.Screen
         name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={24} color={color} />
-          ),
-        }}
+        options={{ title: 'Home' }}
       />
       <Tabs.Screen
         name="notifications"
-        options={{
-          title: 'Notifications',
-          tabBarIcon: ({ color, focused }) => (
-            <NotificationIcon color={color} focused={focused} />
-          ),
-        }}
+        options={{ title: 'Notifications' }}
       />
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  badge: {
-    position: 'absolute',
-    top: -4,
-    right: -8,
-    backgroundColor: colors.accent,
-    borderRadius: 9,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: colors.text.primary,
-    fontSize: 10,
-    fontWeight: '700',
-  },
-});

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { NativeModules, NativeEventEmitter } from 'react-native';
-import { RoomEvent } from 'livekit-client';
+import { RoomEvent, DataPacket_Kind } from 'livekit-client';
 import type { Room, RemoteParticipant, Participant, TrackPublication } from 'livekit-client';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -23,10 +23,16 @@ export function useSpace() {
 
       room.on('participantConnected', (participant: RemoteParticipant) => {
         const fid = parseInt(participant.identity, 10);
-        const metadata = participant.metadata ? JSON.parse(participant.metadata) : {};
+        if (isNaN(fid)) return;
+        let metadata: { role?: string; pfp_url?: string } = {};
+        try {
+          metadata = participant.metadata ? JSON.parse(participant.metadata) : {};
+        } catch {
+          // Ignore malformed metadata
+        }
         store.addParticipant({
           fid,
-          role: metadata.role || 'listener',
+          role: (metadata.role as ParticipantRole) || 'listener',
           is_muted: true,
           is_speaking: false,
           hand_raised: false,
@@ -101,6 +107,22 @@ export function useSpace() {
             livekitService.disableMicrophone().then(() => {
               store.setMuted(true);
             });
+          }
+        },
+      );
+
+      // Handle data messages from server (e.g. new chat reply notifications)
+      room.on(
+        RoomEvent.DataReceived,
+        (payload: Uint8Array, participant?: Participant, kind?: DataPacket_Kind, topic?: string) => {
+          if (topic !== 'space_chat') return;
+          try {
+            const data = JSON.parse(new TextDecoder().decode(payload));
+            if (data.type === 'new_reply') {
+              store.bumpChatNewReply();
+            }
+          } catch {
+            // Ignore malformed data messages
           }
         },
       );

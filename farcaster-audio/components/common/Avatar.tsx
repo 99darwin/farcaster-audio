@@ -26,7 +26,7 @@ const LIVE_RING_COLOR = colors.accent;
 export function Avatar({ pfpUrl, displayName, size = 'md', isLive = false }: AvatarProps) {
   const dimension = SIZES[size];
   const fontSize = FONT_SIZES[size];
-  const initials = displayName
+  const initials = (displayName ?? '?')
     .split(' ')
     .filter(Boolean)
     .map((n) => n[0])

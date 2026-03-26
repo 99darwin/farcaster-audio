@@ -103,6 +103,16 @@ class LiveKitService:
             )
         )
 
+    async def send_data(self, room_id: str, payload: bytes, topic: str = "") -> None:
+        """Broadcast a data message to all participants in a room."""
+        await self.api.room.send_data(
+            api.SendDataRequest(
+                room=room_id,
+                data=payload,
+                topic=topic,
+            )
+        )
+
     async def delete_room(self, room_id: str) -> None:
         """Delete a LiveKit room, disconnecting all participants."""
         await self.api.room.delete_room(
