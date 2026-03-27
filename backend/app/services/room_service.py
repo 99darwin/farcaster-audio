@@ -392,10 +392,11 @@ class RoomService:
             )
 
         display_name = user.display_name or user.username or str(fid)
+        is_host = fid == room.host_fid
         participant_data = {
             "fid": fid,
-            "role": "listener",
-            "is_muted": True,
+            "role": "host" if is_host else "listener",
+            "is_muted": not is_host,
             "hand_raised": False,
             "display_name": display_name,
             "pfp_url": user.pfp_url,
