@@ -5,6 +5,7 @@ export interface UserProfile {
   pfp_url: string | null;
   custody_address: string;
   is_pro: boolean;
+  is_admin: boolean;
 }
 
 export interface AuthState {

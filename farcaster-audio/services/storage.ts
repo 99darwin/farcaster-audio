@@ -39,6 +39,7 @@ export interface StoredUserProfile {
   pfp_url: string | null;
   custody_address: string;
   is_pro: boolean;
+  is_admin: boolean;
 }
 
 export async function saveUserProfile(profile: StoredUserProfile): Promise<void> {
@@ -49,7 +50,7 @@ export async function getUserProfile(): Promise<StoredUserProfile | null> {
   const data = await SecureStore.getItemAsync(KEYS.USER_PROFILE);
   if (!data) return null;
   const parsed = JSON.parse(data);
-  return { ...parsed, is_pro: parsed.is_pro ?? false };
+  return { ...parsed, is_pro: parsed.is_pro ?? false, is_admin: parsed.is_admin ?? false };
 }
 
 export async function clearUserProfile(): Promise<void> {

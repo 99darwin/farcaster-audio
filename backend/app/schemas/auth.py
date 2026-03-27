@@ -8,6 +8,7 @@ class UserResponse(BaseModel):
     pfp_url: str | None = None
     custody_address: str | None = None
     is_pro: bool = False
+    is_admin: bool = False
 
 
 class LoginRequest(BaseModel):

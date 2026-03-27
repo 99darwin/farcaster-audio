@@ -878,6 +878,71 @@ class RoomService:
             expires_at=_iso(expires_at),
         )
 
+    async def admin_end_room(self, room_id: str, admin_fid: int) -> None:
+        """End any active room without permission checks (admin only)."""
+        room = await self._get_room_or_404(room_id)
+
+        if room.status != "active":
+            raise HTTPException(status_code=400, detail="Room is not active")
+
+        now = _utcnow()
+        await self.db.execute(
+            update(Room)
+            .where(Room.id == uuid.UUID(room_id))
+            .values(status="ended", ended_at=now)
+        )
+        await self.db.commit()
+
+        if room.neynar_webhook_id:
+            await self._delete_cast_webhook(room.neynar_webhook_id)
+
+        try:
+            await self.livekit.delete_room(room_id)
+        except Exception:
+            logger.exception("Failed to delete LiveKit room %s during admin_end_room", room_id)
+
+        await self.redis.publish_room_event(
+            room_id,
+            {"event": "room_ended", "room_id": room_id, "ended_by_fid": admin_fid, "admin": True},
+        )
+        await self.redis.clear_room_state(room_id)
+
+        logger.info("Room %s force-ended by admin fid=%s", room_id, admin_fid)
+
+    async def admin_kick_participant(self, room_id: str, target_fid: int, admin_fid: int) -> None:
+        """Kick any participant without permission checks (admin only)."""
+        await self._get_room_or_404(room_id)
+        await self._get_participant_or_403(room_id, target_fid)
+
+        await self._remove_participant_from_room(
+            room_id=room_id,
+            fid=target_fid,
+            event_name="participant_kicked",
+            extra_event_fields={"by_fid": admin_fid, "admin": True},
+        )
+
+        logger.info("fid=%s force-kicked from room %s by admin fid=%s", target_fid, room_id, admin_fid)
+
+    async def list_active_rooms_from_db(self) -> list[RoomResponse]:
+        """Return all active rooms from DB (admin view, no pagination)."""
+        result = await self.db.execute(
+            select(Room).where(Room.status == "active").order_by(Room.started_at.desc())
+        )
+        rooms = result.scalars().all()
+
+        responses = []
+        for room in rooms:
+            host = await self._get_user(room.host_fid)
+            room_id = _room_id_str(room.id)
+            speaker_count = await self.redis.get_speaker_count(room_id)
+            listener_count = await self.redis.get_listener_count(room_id)
+            room_response = await self._build_room_response(
+                room, host, speaker_count, listener_count
+            )
+            responses.append(room_response)
+
+        return responses
+
     async def refresh_token(self, room_id: str, fid: int) -> TokenRefreshResponse:
         """
         Issue a fresh LiveKit token for a participant currently in the room.

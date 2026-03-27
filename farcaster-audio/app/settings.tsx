@@ -46,6 +46,24 @@ export default function SettingsScreen() {
         </Pressable>
       )}
 
+      {user?.is_admin && (
+        <View style={styles.section}>
+          <Pressable
+            style={styles.row}
+            onPress={() => {
+              router.dismiss();
+              router.push('/admin');
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Admin panel"
+          >
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.purple} />
+            <Text style={styles.rowText}>Admin</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.text.secondary} style={{ marginLeft: 'auto' }} />
+          </Pressable>
+        </View>
+      )}
+
       <View style={styles.section}>
         <Pressable style={styles.row} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Log out">
           <Ionicons name="log-out-outline" size={20} color={colors.danger} />
@@ -96,6 +114,10 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing['2xl'],
     paddingVertical: 14,
+  },
+  rowText: {
+    color: colors.text.primary,
+    fontSize: 16,
   },
   rowTextDanger: {
     color: colors.danger,

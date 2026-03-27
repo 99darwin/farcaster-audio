@@ -116,6 +116,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
+          <Stack.Screen name="admin" options={{ title: 'Admin', presentation: 'modal' }} />
           <Stack.Screen name="cast/[hash]" options={{ title: 'Thread' }} />
           <Stack.Screen name="profile/[fid]" options={{ title: 'Profile' }} />
           <Stack.Screen name="space/[id]" options={{ title: 'Space' }} />
