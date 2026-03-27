@@ -1,7 +1,8 @@
 import * as Sentry from '@sentry/react-native';
 import { registerGlobals } from '@livekit/react-native';
 import { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -104,7 +105,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <View style={styles.container}>
+      <GestureHandlerRootView style={styles.container}>
         <Stack
           screenOptions={{
             headerStyle: { backgroundColor: colors.background.surface },
@@ -116,6 +117,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
+          <Stack.Screen name="admin" options={{ title: 'Admin', presentation: 'modal' }} />
           <Stack.Screen name="cast/[hash]" options={{ title: 'Thread' }} />
           <Stack.Screen name="profile/[fid]" options={{ title: 'Profile' }} />
           <Stack.Screen name="space/[id]" options={{ title: 'Space' }} />
@@ -136,7 +138,7 @@ export default function RootLayout() {
           />
         )}
         <Toast />
-      </View>
+      </GestureHandlerRootView>
     </SafeAreaProvider>
   );
 }

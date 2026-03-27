@@ -15,6 +15,8 @@ import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
 import { HostControls } from '@/components/spaces/HostControls';
 import { ParticipantProfileCard } from '@/components/spaces/ParticipantProfileCard';
 import { SpaceChat } from '@/components/spaces/SpaceChat';
+import { EmojiReactionPanel } from '@/components/spaces/EmojiReactionPanel';
+import { EmojiReactionOverlay } from '@/components/spaces/EmojiReactionOverlay';
 import { GlassView } from '@/components/common/GlassView';
 import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -34,9 +36,11 @@ export default function SpaceScreen() {
     isConnected,
     isMuted,
     isHandRaised,
+    reactions,
     joinRoom,
     leaveRoom,
     toggleMute,
+    sendReaction,
     attachListeners,
   } = useSpace();
   const permissions = useSpacePermissions();
@@ -219,6 +223,14 @@ export default function SpaceScreen() {
         />
       )}
 
+      {/* Emoji Reaction Overlay */}
+      <EmojiReactionOverlay reactions={reactions} />
+
+      {/* Emoji Reaction Panel */}
+      <View style={[styles.reactionPanel, { bottom: insets.bottom + 80 }]}>
+        <EmojiReactionPanel onReaction={sendReaction} />
+      </View>
+
       {/* Bottom Controls */}
       <GlassView style={[styles.controls, { bottom: insets.bottom + 12 }]}>
         {permissions.isListener && (
@@ -345,5 +357,9 @@ const styles = StyleSheet.create({
   },
   controlIconLeave: {
     backgroundColor: glass.dangerOverlay,
+  },
+  reactionPanel: {
+    position: 'absolute',
+    alignSelf: 'center',
   },
 });

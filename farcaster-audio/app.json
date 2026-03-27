@@ -46,7 +46,8 @@
       "expo-router",
       "expo-secure-store",
       "@sentry/react-native/expo",
-      "expo-image-picker"
+      "expo-image-picker",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true
