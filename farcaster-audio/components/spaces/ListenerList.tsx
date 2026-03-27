@@ -6,11 +6,12 @@ import type { Participant } from '@/types/space';
 
 interface ListenerListProps {
   listeners: Participant[];
+  onParticipantPress?: (participant: Participant) => void;
 }
 
 const COLLAPSED_COUNT = 14;
 
-export function ListenerList({ listeners }: ListenerListProps) {
+export function ListenerList({ listeners, onParticipantPress }: ListenerListProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const visibleListeners = isExpanded ? listeners : listeners.slice(0, COLLAPSED_COUNT);
 
@@ -19,13 +20,20 @@ export function ListenerList({ listeners }: ListenerListProps) {
       <Text style={styles.title}>Listeners ({listeners.length})</Text>
       <View style={styles.grid}>
         {visibleListeners.map((listener) => (
-          <View key={listener.fid} style={styles.listenerItem} accessibilityLabel={listener.display_name}>
+          <Pressable
+            key={listener.fid}
+            style={styles.listenerItem}
+            accessibilityLabel={listener.display_name}
+            accessibilityRole="button"
+            accessibilityHint="Tap to view profile"
+            onPress={() => onParticipantPress?.(listener)}
+          >
             <Avatar
               pfpUrl={listener.pfp_url}
               displayName={listener.display_name}
               size="sm"
             />
-          </View>
+          </Pressable>
         ))}
       </View>
       {listeners.length > COLLAPSED_COUNT && (

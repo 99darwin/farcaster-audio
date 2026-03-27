@@ -88,20 +88,30 @@ class LiveKitService:
         )
 
     async def update_permissions(
-        self, room_id: str, identity: str, can_publish: bool
+        self, room_id: str, identity: str, can_publish: bool, role: str | None = None
     ) -> None:
-        """Update participant permissions (promote/demote)."""
-        await self.api.room.update_participant(
-            api.UpdateParticipantRequest(
-                room=room_id,
-                identity=identity,
-                permission=api.ParticipantPermission(
-                    can_publish=can_publish,
-                    can_subscribe=True,
-                    can_publish_data=can_publish,
-                ),
-            )
+        """Update participant permissions and metadata (promote/demote)."""
+        request = api.UpdateParticipantRequest(
+            room=room_id,
+            identity=identity,
+            permission=api.ParticipantPermission(
+                can_publish=can_publish,
+                can_subscribe=True,
+                can_publish_data=can_publish,
+            ),
         )
+        if role:
+            participant = await self.api.room.get_participant(
+                api.RoomParticipantIdentity(room=room_id, identity=identity)
+            )
+            current_metadata = {}
+            try:
+                current_metadata = json.loads(participant.metadata) if participant.metadata else {}
+            except (json.JSONDecodeError, TypeError):
+                pass
+            current_metadata["role"] = role
+            request.metadata = json.dumps(current_metadata)
+        await self.api.room.update_participant(request)
 
     async def send_data(self, room_id: str, payload: bytes, topic: str = "") -> None:
         """Broadcast a data message to all participants in a room."""

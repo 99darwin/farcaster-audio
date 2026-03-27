@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/common/Avatar';
 import { colors } from '@/constants/theme';
@@ -8,6 +8,7 @@ import type { Participant } from '@/types/space';
 interface SpeakerGridProps {
   speakers: Participant[];
   hostFid: number;
+  onParticipantPress?: (participant: Participant) => void;
 }
 
 function SpeakingPulse({ isSpeaking }: { isSpeaking: boolean }) {
@@ -49,7 +50,7 @@ function SpeakingPulse({ isSpeaking }: { isSpeaking: boolean }) {
   );
 }
 
-export function SpeakerGrid({ speakers, hostFid }: SpeakerGridProps) {
+export function SpeakerGrid({ speakers, hostFid, onParticipantPress }: SpeakerGridProps) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Speakers</Text>
@@ -58,10 +59,13 @@ export function SpeakerGrid({ speakers, hostFid }: SpeakerGridProps) {
           const role = speaker.fid === hostFid ? 'Host' : 'Speaker';
           const isSpeaking = speaker.is_speaking;
           return (
-            <View
+            <Pressable
               key={speaker.fid}
               style={styles.speakerItem}
               accessibilityLabel={`${speaker.display_name}, ${role}${speaker.is_muted ? ', muted' : ''}`}
+              accessibilityRole="button"
+              accessibilityHint="Tap to view profile"
+              onPress={() => onParticipantPress?.(speaker)}
             >
               <View style={styles.avatarWrapper}>
                 <SpeakingPulse isSpeaking={isSpeaking} />
@@ -82,7 +86,7 @@ export function SpeakerGrid({ speakers, hostFid }: SpeakerGridProps) {
                   <Ionicons name="mic-off" size={14} color={colors.text.primary} />
                 </View>
               )}
-            </View>
+            </Pressable>
           );
         })}
       </View>

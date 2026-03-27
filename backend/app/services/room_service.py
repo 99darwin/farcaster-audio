@@ -617,6 +617,7 @@ class RoomService:
                 room_id=room_id,
                 identity=str(target_fid),
                 can_publish=True,
+                role="speaker",
             )
         except Exception:
             logger.exception(
@@ -688,6 +689,7 @@ class RoomService:
                 room_id=room_id,
                 identity=str(target_fid),
                 can_publish=False,
+                role="listener",
             )
         except Exception:
             logger.exception(

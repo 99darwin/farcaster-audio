@@ -13,12 +13,14 @@ import { SpeakerGrid } from '@/components/spaces/SpeakerGrid';
 import { ListenerList } from '@/components/spaces/ListenerList';
 import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
 import { HostControls } from '@/components/spaces/HostControls';
+import { ParticipantProfileCard } from '@/components/spaces/ParticipantProfileCard';
 import { SpaceChat } from '@/components/spaces/SpaceChat';
 import { GlassView } from '@/components/common/GlassView';
 import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { colors, glass } from '@/constants/theme';
 import * as api from '@/services/api';
+import type { Participant } from '@/types/space';
 
 export default function SpaceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -41,6 +43,7 @@ export default function SpaceScreen() {
   const [isJoining, setIsJoining] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [showHostControls, setShowHostControls] = useState(false);
+  const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
   const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants');
   const insets = useSafeAreaInsets();
   const hasChatTab = !!room?.cast_hash;
@@ -204,8 +207,8 @@ export default function SpaceScreen() {
       {/* Content */}
       {activeTab === 'participants' || !hasChatTab ? (
         <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
-          <SpeakerGrid speakers={speakers} hostFid={room.host_fid} />
-          <ListenerList listeners={listeners} />
+          <SpeakerGrid speakers={speakers} hostFid={room.host_fid} onParticipantPress={setSelectedParticipant} />
+          <ListenerList listeners={listeners} onParticipantPress={setSelectedParticipant} />
         </ScrollView>
       ) : (
         <SpaceChat
@@ -253,6 +256,13 @@ export default function SpaceScreen() {
           <Ionicons name="exit-outline" size={24} color={colors.text.primary} />
         </Pressable>
       </GlassView>
+
+      {/* Participant Profile Card */}
+      <ParticipantProfileCard
+        participant={selectedParticipant}
+        visible={!!selectedParticipant}
+        onClose={() => setSelectedParticipant(null)}
+      />
 
       {/* Host Controls Modal */}
       <HostControls

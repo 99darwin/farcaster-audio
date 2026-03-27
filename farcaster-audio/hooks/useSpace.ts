@@ -79,6 +79,23 @@ export function useSpace() {
         store.setConnected(true);
       });
 
+      // Detect role changes on remote participants via metadata updates
+      room.on(
+        RoomEvent.ParticipantMetadataChanged,
+        (prevMetadata: string | undefined, participant: Participant) => {
+          const fid = parseInt(participant.identity, 10);
+          if (isNaN(fid)) return;
+          try {
+            const metadata = participant.metadata ? JSON.parse(participant.metadata) : {};
+            if (metadata.role) {
+              store.updateParticipant(fid, { role: metadata.role as ParticipantRole });
+            }
+          } catch {
+            // Ignore malformed metadata
+          }
+        },
+      );
+
       // Detect promotion/demotion via LiveKit permission changes
       room.on(
         RoomEvent.ParticipantPermissionsChanged,
