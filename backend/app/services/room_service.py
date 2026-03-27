@@ -415,15 +415,15 @@ class RoomService:
             db_participant = Participant(
                 room_id=room.id,
                 fid=fid,
-                role="listener",
-                is_muted=True,
+                role=participant_data["role"],
+                is_muted=participant_data["is_muted"],
             )
             self.db.add(db_participant)
         else:
             # Re-joining after a previous leave
             db_participant.left_at = None
-            db_participant.role = "listener"
-            db_participant.is_muted = True
+            db_participant.role = participant_data["role"]
+            db_participant.is_muted = participant_data["is_muted"]
             db_participant.hand_raised = False
 
         await self.db.commit()
@@ -433,11 +433,12 @@ class RoomService:
         await self.redis.set_user_active_room(fid, room_id)
 
         # Generate LiveKit token
+        role = participant_data["role"]
         token = self.livekit.generate_token(
             room_id=room_id,
             fid=fid,
             display_name=display_name,
-            role="listener",
+            role=role,
             pfp_url=user.pfp_url,
         )
 
@@ -448,7 +449,7 @@ class RoomService:
                 "event": "participant_joined",
                 "room_id": room_id,
                 "fid": fid,
-                "role": "listener",
+                "role": role,
                 "display_name": display_name,
             },
         )
@@ -477,7 +478,7 @@ class RoomService:
         return JoinResponse(
             livekit_token=token,
             livekit_ws_url=settings.LIVEKIT_WS_URL,
-            role="listener",
+            role=role,
             room=room_response,
             participants=participants,
         )
