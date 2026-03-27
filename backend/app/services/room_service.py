@@ -973,7 +973,7 @@ class RoomService:
                     json={
                         "signer_uuid": user.signer_uuid,
                         "text": f"Live now: {title}\n\nListen on Juke",
-                        "embeds": [{"url": f"https://juke.audio/space/{room_id}"}],
+                        "embeds": [{"url": "https://juke.audio"}],
                     },
                     headers={"api_key": settings.NEYNAR_API_KEY},
                 )
