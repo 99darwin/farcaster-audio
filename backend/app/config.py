@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Look for .env in backend/ dir, then repo root
+
 _backend_dir = Path(__file__).resolve().parent.parent
 _env_candidates = [_backend_dir / ".env", _backend_dir.parent / ".env"]
 _env_file = next((p for p in _env_candidates if p.exists()), ".env")
