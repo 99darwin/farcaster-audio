@@ -74,6 +74,7 @@ async def dev_login(
             display_name=user.display_name or "",
             pfp_url=user.pfp_url,
             custody_address=user.custody_address,
+            is_admin=False,  # demo users never get admin access
         ),
     )
 
@@ -140,6 +141,7 @@ async def login(
             pfp_url=user.pfp_url,
             custody_address=user.custody_address,
             is_pro=is_pro,
+            is_admin=user.is_admin,
         ),
     )
 
@@ -219,5 +221,6 @@ async def refresh(
             pfp_url=user.pfp_url,
             custody_address=user.custody_address,
             is_pro=is_pro,
+            is_admin=user.is_admin,
         ),
     )

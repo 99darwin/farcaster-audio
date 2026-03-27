@@ -161,6 +161,16 @@ export const followUser = (fid: number) =>
 export const unfollowUser = (fid: number) =>
   apiClient.delete(`/v1/users/${fid}/follow`).then((r) => r.data);
 
+// --- Admin ---
+export const adminListRooms = () =>
+  apiClient.get<RoomListResponse>('/v1/admin/rooms').then((r) => r.data);
+
+export const adminEndRoom = (roomId: string) =>
+  apiClient.delete<StatusResponse>(`/v1/admin/rooms/${roomId}`).then((r) => r.data);
+
+export const adminKickParticipant = (roomId: string, fid: number) =>
+  apiClient.delete<StatusResponse>(`/v1/admin/rooms/${roomId}/participants/${fid}`).then((r) => r.data);
+
 // --- Media ---
 export async function uploadImage(uri: string): Promise<string> {
   const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';

@@ -5,7 +5,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
-from app.middleware.auth import get_current_user  # re-export
+from app.middleware.auth import get_admin_user, get_current_user  # re-export
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -19,4 +19,4 @@ async def get_redis(request: Request) -> aioredis.Redis:
     return request.app.state.redis
 
 
-__all__ = ["get_db", "get_redis", "get_current_user"]
+__all__ = ["get_db", "get_redis", "get_current_user", "get_admin_user"]
