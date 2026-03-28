@@ -20,6 +20,7 @@ import { EmojiReactionOverlay } from '@/components/spaces/EmojiReactionOverlay';
 import { GlassView } from '@/components/common/GlassView';
 import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { AvatarPositionProvider } from '@/contexts/AvatarPositionContext';
 import { colors, glass } from '@/constants/theme';
 import * as api from '@/services/api';
 import type { Participant } from '@/types/space';
@@ -156,6 +157,7 @@ export default function SpaceScreen() {
   const listeners = participants.filter((p) => p.role === 'listener');
 
   return (
+    <AvatarPositionProvider>
     <View style={styles.container}>
       {/* Header info */}
       <View style={styles.header}>
@@ -227,7 +229,7 @@ export default function SpaceScreen() {
       <EmojiReactionOverlay reactions={reactions} />
 
       {/* Emoji Reaction Panel */}
-      <View style={[styles.reactionPanel, { bottom: insets.bottom + 80 }]}>
+      <View style={[styles.reactionPanel, { bottom: insets.bottom + 92 }]}>
         <EmojiReactionPanel onReaction={sendReaction} />
       </View>
 
@@ -292,6 +294,7 @@ export default function SpaceScreen() {
         hostFid={room.host_fid}
       />
     </View>
+    </AvatarPositionProvider>
   );
 }
 

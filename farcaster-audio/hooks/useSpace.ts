@@ -17,7 +17,7 @@ export function useSpace() {
   const roomRef = useRef<Room | null>(null);
   const { reconnect, setToken } = useReconnect();
   const reactionIdRef = useRef(0);
-  const [reactions, setReactions] = useState<Array<{ emoji: string; id: number }>>([]);
+  const [reactions, setReactions] = useState<Array<{ key: string; id: number; fid: number }>>([]);
 
   const setupRoomListeners = useCallback(
     (room: Room) => {
@@ -141,9 +141,12 @@ export function useSpace() {
               store.bumpChatNewReply();
             }
 
-            if (topic === 'reactions' && data.type === 'reaction' && data.emoji) {
-              reactionIdRef.current += 1;
-              setReactions((prev) => [...prev.slice(-19), { emoji: data.emoji, id: reactionIdRef.current }]);
+            if (topic === 'reactions' && data.type === 'reaction' && data.key && participant) {
+              const senderFid = parseInt(participant.identity, 10);
+              if (!isNaN(senderFid)) {
+                reactionIdRef.current += 1;
+                setReactions((prev) => [...prev.slice(-19), { key: data.key, id: reactionIdRef.current, fid: senderFid }]);
+              }
             }
           } catch {
             // Ignore malformed data messages
@@ -210,11 +213,13 @@ export function useSpace() {
     if (myFid) store.updateParticipant(myFid, { is_muted: isMuted });
   }, [store]);
 
-  const sendReaction = useCallback(async (emoji: string) => {
-    await livekitService.sendReaction(emoji);
-    // Show locally immediately
-    reactionIdRef.current += 1;
-    setReactions((prev) => [...prev.slice(-19), { emoji, id: reactionIdRef.current }]);
+  const sendReaction = useCallback(async (key: string) => {
+    await livekitService.sendReaction(key);
+    const myFid = useAuthStore.getState().user?.fid;
+    if (myFid) {
+      reactionIdRef.current += 1;
+      setReactions((prev) => [...prev.slice(-19), { key, id: reactionIdRef.current, fid: myFid }]);
+    }
   }, []);
 
   const startSpeaking = useCallback(async () => {

@@ -1,33 +1,25 @@
-import { View, Pressable, Text, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import { colors, glass } from '@/constants/theme';
-
-const REACTIONS = [
-  { emoji: '👏', label: 'Clap' },
-  { emoji: '💯', label: '100' },
-  { emoji: '😂', label: 'Joy' },
-  { emoji: '😭', label: 'Sob' },
-  { emoji: '👍', label: 'Thumbs up' },
-] as const;
-
-export type ReactionEmoji = (typeof REACTIONS)[number]['emoji'];
+import { glass } from '@/constants/theme';
+import { REACTION_EMOJI, emojiImageUrl, type ReactionKey } from '@/constants/emoji';
 
 interface EmojiReactionPanelProps {
-  onReaction: (emoji: ReactionEmoji) => void;
+  onReaction: (key: ReactionKey) => void;
 }
 
 export function EmojiReactionPanel({ onReaction }: EmojiReactionPanelProps) {
-  const handlePress = (emoji: ReactionEmoji) => {
+  const handlePress = (key: ReactionKey) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onReaction(emoji);
+    onReaction(key);
   };
 
   return (
     <View style={styles.container}>
-      {REACTIONS.map(({ emoji, label }) => (
+      {REACTION_EMOJI.map(({ key, label }) => (
         <Pressable
-          key={emoji}
-          onPress={() => handlePress(emoji)}
+          key={key}
+          onPress={() => handlePress(key)}
           accessibilityLabel={label}
           accessibilityRole="button"
           style={({ pressed }) => [
@@ -35,7 +27,12 @@ export function EmojiReactionPanel({ onReaction }: EmojiReactionPanelProps) {
             pressed && styles.emojiButtonPressed,
           ]}
         >
-          <Text style={styles.emoji}>{emoji}</Text>
+          <Image
+            source={{ uri: emojiImageUrl(key) }}
+            style={styles.emojiImage}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+          />
         </Pressable>
       ))}
     </View>
@@ -67,7 +64,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     transform: [{ scale: 1.15 }],
   },
-  emoji: {
-    fontSize: 22,
+  emojiImage: {
+    width: 26,
+    height: 26,
   },
 });

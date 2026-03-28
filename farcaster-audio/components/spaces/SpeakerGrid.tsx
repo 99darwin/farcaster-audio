@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/common/Avatar';
+import { useAvatarPosition } from '@/contexts/AvatarPositionContext';
 import { colors } from '@/constants/theme';
 import type { Participant } from '@/types/space';
 
@@ -51,6 +52,12 @@ function SpeakingPulse({ isSpeaking }: { isSpeaking: boolean }) {
 }
 
 export function SpeakerGrid({ speakers, hostFid, onParticipantPress }: SpeakerGridProps) {
+  const { register } = useAvatarPosition();
+
+  const handleRef = useCallback((fid: number, ref: View | null) => {
+    if (ref) register(fid, ref);
+  }, [register]);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Speakers</Text>
@@ -67,7 +74,10 @@ export function SpeakerGrid({ speakers, hostFid, onParticipantPress }: SpeakerGr
               accessibilityHint="Tap to view profile"
               onPress={() => onParticipantPress?.(speaker)}
             >
-              <View style={styles.avatarWrapper}>
+              <View
+                ref={(ref) => handleRef(speaker.fid, ref)}
+                style={styles.avatarWrapper}
+              >
                 <SpeakingPulse isSpeaking={isSpeaking} />
                 <Avatar
                   pfpUrl={speaker.pfp_url}
