@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Share } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
@@ -22,6 +22,7 @@ import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { AvatarPositionProvider } from '@/contexts/AvatarPositionContext';
 import { colors, glass } from '@/constants/theme';
+import { buildSpaceUrl } from '@/utils/shareLinks';
 import * as api from '@/services/api';
 import type { Participant } from '@/types/space';
 
@@ -263,6 +264,21 @@ export default function SpaceScreen() {
             <Ionicons name="settings-outline" size={24} color={colors.text.primary} />
           </Pressable>
         )}
+        <Pressable
+          onPress={() => {
+            if (!id || !room) return;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            Share.share({
+              message: `Join "${room.title}" on Juke`,
+              url: buildSpaceUrl(id),
+            });
+          }}
+          style={styles.controlIcon}
+          accessibilityLabel="Share space"
+          accessibilityRole="button"
+        >
+          <Ionicons name="share-outline" size={24} color={colors.text.primary} />
+        </Pressable>
         <Pressable
           onPress={handleLeave}
           style={[styles.controlIcon, styles.controlIconLeave]}

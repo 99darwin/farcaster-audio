@@ -14,6 +14,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "xyz.juke.app",
+      "associatedDomains": ["applinks:juke.audio"],
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -22,11 +23,6 @@
         "NSCameraUsageDescription": "Not used in this app",
         "NSPhotoLibraryUsageDescription": "Attach photos to your casts",
         "CFBundleURLTypes": [
-          {
-            "CFBundleURLSchemes": [
-              "juke"
-            ]
-          },
           {
             "CFBundleURLSchemes": [
               "juke"

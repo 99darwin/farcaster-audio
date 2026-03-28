@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["YOUR_APPLE_TEAM_ID.xyz.juke.app"],
+        "components": [
+          { "/": "/space/*", "comment": "Open space links in app" }
+        ]
+      }
+    ]
+  }
+}

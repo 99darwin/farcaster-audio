@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { registerGlobals } from '@livekit/react-native';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -44,6 +44,8 @@ export default function RootLayout() {
 
   useNotificationBadge();
 
+  const pendingDeepLink = useRef<string | null>(null);
+
   useEffect(() => {
     hydrate();
   }, [hydrate]);
@@ -55,6 +57,12 @@ export default function RootLayout() {
       router.replace('/login');
     } else if (isAuthenticated && inAuthGroup) {
       router.replace('/');
+      // Process any deep link that arrived before auth completed
+      if (pendingDeepLink.current) {
+        const url = pendingDeepLink.current;
+        pendingDeepLink.current = null;
+        handleDeepLink(url);
+      }
     }
   }, [isAuthenticated, isLoading, segments, router]);
 
@@ -73,12 +81,15 @@ export default function RootLayout() {
   }, []);
 
   const handleDeepLink = (url: string) => {
-    // Parse: farcaster-audio://space/{id} or https://farcasteraudio.xyz/space/{id}
+    // Parse: juke://space/{id} or https://juke.audio/space/{id}
     const parsed = Linking.parse(url);
     if (parsed.path?.startsWith('space/')) {
       const roomId = parsed.path.replace('space/', '');
-      if (roomId && isAuthenticated) {
+      if (!roomId) return;
+      if (isAuthenticated) {
         router.push(`/space/${roomId}`);
+      } else {
+        pendingDeepLink.current = url;
       }
     }
   };
