@@ -1,7 +1,8 @@
 import * as Sentry from '@sentry/react-native';
 import { registerGlobals } from '@livekit/react-native';
 import { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -104,7 +105,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <View style={styles.container}>
+      <GestureHandlerRootView style={styles.container}>
         <Stack
           screenOptions={{
             headerStyle: { backgroundColor: colors.background.surface },
@@ -137,7 +138,7 @@ export default function RootLayout() {
           />
         )}
         <Toast />
-      </View>
+      </GestureHandlerRootView>
     </SafeAreaProvider>
   );
 }

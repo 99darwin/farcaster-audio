@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -10,14 +10,17 @@ import {
   Animated,
   ActivityIndicator,
   ScrollView,
+  type NativeSyntheticEvent,
+  type TextInputSelectionChangeEventData,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Toast from 'react-native-toast-message';
-import { uploadImage } from '@/services/api';
+import { uploadImage, uploadVideo } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Avatar } from '@/components/common/Avatar';
+import { MentionSuggestions } from '@/components/common/MentionSuggestions';
 import { colors } from '@/constants/theme';
 import type { NeynarCast } from '@/types/neynar';
 
@@ -40,9 +43,30 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
   const maxCastLength = isPro ? CAST_LENGTH_PRO : CAST_LENGTH_DEFAULT;
   const maxImages = isPro ? MAX_IMAGES_PRO : MAX_IMAGES_DEFAULT;
   const [text, setText] = useState('');
-  const [images, setImages] = useState<string[]>([]);
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const [attachments, setAttachments] = useState<Array<{ uri: string; type: 'image' | 'video' }>>([]);
   const [isPublishing, setIsPublishing] = useState(false);
   const keyboardPadding = useRef(new Animated.Value(0)).current;
+
+  const handleSelectionChange = useCallback(
+    (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+      setCursorPosition(e.nativeEvent.selection.end);
+    },
+    [],
+  );
+
+  const handleMentionSelect = useCallback(
+    (username: string, mentionStart: number) => {
+      // Replace @partial with @username and add a trailing space
+      const before = text.slice(0, mentionStart);
+      const after = text.slice(cursorPosition);
+      const inserted = `@${username} `;
+      const newText = before + inserted + after;
+      setText(newText);
+      setCursorPosition(before.length + inserted.length);
+    },
+    [text, cursorPosition],
+  );
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
@@ -65,39 +89,52 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
     };
   }, [keyboardPadding]);
 
+  const hasVideo = attachments.some((a) => a.type === 'video');
   const charCount = text.length;
   const isOverLimit = charCount > maxCastLength;
-  const hasContent = text.trim().length > 0 || images.length > 0 || !!quoteCast;
+  const hasContent = text.trim().length > 0 || attachments.length > 0 || !!quoteCast;
   const canPublish = hasContent && !isOverLimit && !isPublishing;
 
-  const handlePickImage = async () => {
-    if (images.length >= maxImages) return;
+  const handlePickMedia = async () => {
+    if (hasVideo || attachments.length >= maxImages) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ['images', 'videos'],
       quality: 0.8,
-      selectionLimit: maxImages - images.length,
-      allowsMultipleSelection: true,
+      selectionLimit: hasVideo ? 0 : maxImages - attachments.length,
+      allowsMultipleSelection: !hasVideo,
     });
 
     if (!result.canceled) {
-      const uris = result.assets.map((a) => a.uri);
-      setImages((prev) => [...prev, ...uris].slice(0, maxImages));
+      const newAttachments = result.assets.map((a) => ({
+        uri: a.uri,
+        type: (a.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+      }));
+
+      // If a video is selected, only allow that one video
+      const hasNewVideo = newAttachments.some((a) => a.type === 'video');
+      if (hasNewVideo) {
+        setAttachments([newAttachments.find((a) => a.type === 'video')!]);
+      } else {
+        setAttachments((prev) => [...prev, ...newAttachments].slice(0, maxImages));
+      }
     }
   };
 
-  const handleRemoveImage = (index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
+  const handleRemoveAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handlePublish = async () => {
     if (!canPublish) return;
     setIsPublishing(true);
     try {
-      // Upload local images to backend first, then pass hosted URLs as embeds
+      // Upload attachments to backend first, then pass hosted URLs as embeds
       let uploadedUrls: string[] | undefined;
-      if (images.length > 0) {
-        uploadedUrls = await Promise.all(images.map(uploadImage));
+      if (attachments.length > 0) {
+        uploadedUrls = await Promise.all(
+          attachments.map((a) => (a.type === 'video' ? uploadVideo(a.uri) : uploadImage(a.uri))),
+        );
       }
 
       const quote = quoteCast
@@ -105,7 +142,7 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
         : undefined;
       await onPublish(text.trim(), replyTo?.hash, uploadedUrls, quote);
       setText('');
-      setImages([]);
+      setAttachments([]);
       onClose();
     } catch (err: any) {
       const detail = err?.response?.data?.detail || err?.message || 'Unknown error';
@@ -119,7 +156,7 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
   const handleClose = () => {
     if (isPublishing) return;
     setText('');
-    setImages([]);
+    setAttachments([]);
     onClose();
   };
 
@@ -177,7 +214,8 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
               autoFocus
               maxLength={maxCastLength + 50}
               value={text}
-              onChangeText={setText}
+              onChangeText={(t) => { setText(t); setCursorPosition(t.length); }}
+              onSelectionChange={handleSelectionChange}
               editable={!isPublishing}
             />
             {quoteCast && (
@@ -192,14 +230,19 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
                 <Text style={styles.quotePreviewText} numberOfLines={3}>{quoteCast.text}</Text>
               </View>
             )}
-            {images.length > 0 && (
+            {attachments.length > 0 && (
               <ScrollView horizontal style={styles.imagePreviews} showsHorizontalScrollIndicator={false}>
-                {images.map((uri, i) => (
-                  <View key={uri} style={styles.previewWrapper}>
-                    <Image source={{ uri }} style={styles.previewImage} contentFit="cover" />
+                {attachments.map((attachment, i) => (
+                  <View key={attachment.uri} style={styles.previewWrapper}>
+                    <Image source={{ uri: attachment.uri }} style={styles.previewImage} contentFit="cover" />
+                    {attachment.type === 'video' && (
+                      <View style={styles.videoOverlay}>
+                        <Ionicons name="play" size={20} color="#fff" />
+                      </View>
+                    )}
                     <Pressable
                       style={styles.removeImageButton}
-                      onPress={() => handleRemoveImage(i)}
+                      onPress={() => handleRemoveAttachment(i)}
                       hitSlop={8}
                     >
                       <Ionicons name="close-circle" size={20} color="#fff" />
@@ -211,20 +254,26 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
           </View>
         </View>
 
+        <MentionSuggestions
+          text={text}
+          cursorPosition={cursorPosition}
+          onSelect={handleMentionSelect}
+        />
+
         {/* Footer */}
         <View style={styles.footer}>
           <View style={styles.footerLeft}>
             <Pressable
-              onPress={handlePickImage}
-              disabled={isPublishing || images.length >= maxImages}
+              onPress={handlePickMedia}
+              disabled={isPublishing || hasVideo || attachments.length >= maxImages}
               hitSlop={8}
-              style={{ opacity: images.length >= maxImages ? 0.4 : 1 }}
+              style={{ opacity: hasVideo || attachments.length >= maxImages ? 0.4 : 1 }}
             >
               <Ionicons name="image-outline" size={24} color={colors.purple} />
             </Pressable>
-            {images.length > 0 && (
+            {attachments.length > 0 && (
               <Text style={styles.imageHint}>
-                {images.length}/{maxImages}
+                {hasVideo ? 'Video' : `${attachments.length}/${maxImages}`}
               </Text>
             )}
           </View>
@@ -315,6 +364,13 @@ const styles = StyleSheet.create({
   previewImage: {
     width: 60,
     height: 60,
+    borderRadius: 8,
+  },
+  videoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
     borderRadius: 8,
   },
   removeImageButton: {

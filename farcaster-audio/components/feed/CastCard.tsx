@@ -7,7 +7,8 @@ import { Avatar } from '@/components/common/Avatar';
 import { CastActions } from '@/components/feed/CastActions';
 import { CastText } from '@/components/feed/CastText';
 import { OgPreview } from '@/components/feed/OgPreview';
-import { ImageViewer } from '@/components/common/ImageViewer';
+import { MediaViewer } from '@/components/common/ImageViewer';
+import { VideoPlayer } from '@/components/feed/VideoPlayer';
 import { colors } from '@/constants/theme';
 import { getUserByUsername } from '@/services/api';
 import type { NeynarCast, NeynarEmbed } from '@/types/neynar';
@@ -47,15 +48,23 @@ function isImageUrl(embed: NeynarEmbed): boolean {
   return /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
 }
 
+function isVideoUrl(embed: NeynarEmbed): boolean {
+  const contentType = embed.metadata?.content_type ?? '';
+  if (contentType.startsWith('video/')) return true;
+  const url = embed.url ?? '';
+  return /\.(mp4|mov|m3u8|webm)(\?|$)/i.test(url);
+}
+
 function CastImages({
   embeds,
   onImagePress,
 }: {
   embeds: NeynarEmbed[];
-  onImagePress: (uri: string) => void;
+  onImagePress: (images: string[], index: number) => void;
 }) {
   const images = embeds.filter((e) => e.url && !e.cast && isImageUrl(e));
   if (images.length === 0) return null;
+  const imageUrls = images.map((e) => e.url!);
 
   if (images.length === 1) {
     const img = images[0];
@@ -63,7 +72,7 @@ function CastImages({
     const aspectRatio = meta?.width_px && meta?.height_px ? meta.width_px / meta.height_px : 16 / 9;
     return (
       <View style={styles.imageContainer}>
-        <Pressable onPress={() => onImagePress(img.url!)}>
+        <Pressable onPress={() => onImagePress(imageUrls, 0)}>
           <Image
             source={{ uri: img.url }}
             style={[styles.singleImage, { aspectRatio }]}
@@ -78,7 +87,7 @@ function CastImages({
   return (
     <View style={styles.imageGrid}>
       {images.slice(0, 4).map((img, i) => (
-        <Pressable key={img.url ?? i} onPress={() => onImagePress(img.url!)}>
+        <Pressable key={img.url ?? i} onPress={() => onImagePress(imageUrls, i)}>
           <Image
             source={{ uri: img.url }}
             style={styles.gridImage}
@@ -88,6 +97,25 @@ function CastImages({
         </Pressable>
       ))}
     </View>
+  );
+}
+
+function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
+  const videos = embeds.filter((e) => e.url && !e.cast && isVideoUrl(e));
+  if (videos.length === 0) return null;
+
+  const video = videos[0];
+  const ogImages = video.metadata?.html?.ogImage;
+  const thumbnailUrl = ogImages?.[0]?.url ?? undefined;
+  const meta = video.metadata?.image;
+  const aspectRatio = meta?.width_px && meta?.height_px ? meta.width_px / meta.height_px : 16 / 9;
+
+  return (
+    <VideoPlayer
+      url={video.url!}
+      thumbnailUrl={thumbnailUrl}
+      aspectRatio={aspectRatio}
+    />
   );
 }
 
@@ -111,7 +139,7 @@ function QuoteCast({ cast, onPress }: { cast: NeynarCast; onPress?: () => void }
         <CastText text={cast.text} style={styles.quoteText} numberOfLines={3} />
       ) : null}
       {cast.embeds && cast.embeds.length > 0 ? (
-        <CastImages embeds={cast.embeds} onImagePress={() => {}} />
+        <CastImages embeds={cast.embeds} onImagePress={() => { /* noop in quotes */ }} />
       ) : null}
     </View>
   );
@@ -170,7 +198,7 @@ export function CastCard({
   const embeds = cast.embeds ?? [];
   const quoteCast = embeds.find((e) => e.cast)?.cast;
 
-  const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const [viewerState, setViewerState] = useState<{ images: string[]; index: number } | null>(null);
 
   const navigateToProfile = useCallback(
     (fid: number) => router.push(`/profile/${fid}`),
@@ -215,9 +243,10 @@ export function CastCard({
           <Text style={styles.timestamp}>{getRelativeTime(cast.timestamp)}</Text>
         </Pressable>
         <CastBody text={cast.text} expanded={expanded} onMentionPress={handleMentionPress} />
-        <CastImages embeds={embeds} onImagePress={setViewerImage} />
+        <CastImages embeds={embeds} onImagePress={(images, index) => setViewerState({ images, index })} />
+        <CastVideos embeds={embeds} />
         {embeds
-          .filter((e) => e.url && !e.cast && !isImageUrl(e))
+          .filter((e) => e.url && !e.cast && !isImageUrl(e) && !isVideoUrl(e))
           .map((embed) => (
             <OgPreview key={embed.url} embed={embed} />
           ))}
@@ -241,7 +270,12 @@ export function CastCard({
           castHash={cast.hash}
         />
       </View>
-      <ImageViewer uri={viewerImage} onClose={() => setViewerImage(null)} />
+      <MediaViewer
+        images={viewerState?.images ?? []}
+        initialIndex={viewerState?.index ?? 0}
+        visible={viewerState !== null}
+        onClose={() => setViewerState(null)}
+      />
     </View>
   );
 

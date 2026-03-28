@@ -68,6 +68,16 @@ export async function disableMicrophone(): Promise<void> {
   await localParticipant.setMicrophoneEnabled(false);
 }
 
+export async function sendReaction(key: string): Promise<void> {
+  const localParticipant = activeRoom?.localParticipant;
+  if (!localParticipant) return;
+
+  const payload = new TextEncoder().encode(
+    JSON.stringify({ type: 'reaction', key }),
+  );
+  await localParticipant.publishData(payload, { topic: 'reactions', reliable: false });
+}
+
 export function getActiveRoom(): Room | null {
   return activeRoom;
 }

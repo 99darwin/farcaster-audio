@@ -9,6 +9,8 @@ import {
   Platform,
   RefreshControl,
   StyleSheet,
+  type NativeSyntheticEvent,
+  type TextInputSelectionChangeEventData,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -16,6 +18,7 @@ import Toast from 'react-native-toast-message';
 import { useSpaceChat } from '@/hooks/useSpaceChat';
 import { ThreadedReplies } from '@/components/feed/ThreadedReplies';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { MentionSuggestions } from '@/components/common/MentionSuggestions';
 import { publishCast, likeCast, removeLike, recastCast, removeRecast } from '@/services/neynar';
 import { colors, glass } from '@/constants/theme';
 import type { NeynarCast, NeynarCastWithReplies } from '@/types/neynar';
@@ -31,8 +34,28 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bot
   const router = useRouter();
   const { rootCast, replies, isLoading, refreshThread } = useSpaceChat(castHash, viewerFid);
   const [text, setText] = useState('');
+  const [cursorPosition, setCursorPosition] = useState(0);
   const [isSending, setIsSending] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleSelectionChange = useCallback(
+    (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+      setCursorPosition(e.nativeEvent.selection.end);
+    },
+    [],
+  );
+
+  const handleMentionSelect = useCallback(
+    (username: string, mentionStart: number) => {
+      const before = text.slice(0, mentionStart);
+      const after = text.slice(cursorPosition);
+      const inserted = `@${username} `;
+      const newText = before + inserted + after;
+      setText(newText);
+      setCursorPosition(before.length + inserted.length);
+    },
+    [text, cursorPosition],
+  );
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -147,12 +170,19 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bot
         contentContainerStyle={styles.listContent}
       />
 
+      <MentionSuggestions
+        text={text}
+        cursorPosition={cursorPosition}
+        onSelect={handleMentionSelect}
+      />
+
       {/* Compose bar */}
       <View style={[styles.composeBar, bottomInset > 0 && { paddingBottom: bottomInset + 8 }]}>
         <TextInput
           style={styles.input}
           value={text}
-          onChangeText={setText}
+          onChangeText={(t) => { setText(t); setCursorPosition(t.length); }}
+          onSelectionChange={handleSelectionChange}
           placeholder="Reply to this space..."
           placeholderTextColor={colors.text.secondary}
           multiline

@@ -9,16 +9,26 @@ from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/v1/media", tags=["media"])
 
-ALLOWED_CONTENT_TYPES = {
+ALLOWED_IMAGE_TYPES = {
     "image/jpeg",
     "image/png",
     "image/gif",
     "image/webp",
 }
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+ALLOWED_VIDEO_TYPES = {
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+}
+
+ALLOWED_CONTENT_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
+
+MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10 MB
+MAX_VIDEO_SIZE = 50 * 1024 * 1024   # 50 MB
 
 # Magic byte signatures for allowed image types
-_MAGIC_BYTES = {
+_IMAGE_MAGIC_BYTES = {
     b"\xff\xd8\xff": "image/jpeg",
     b"\x89PNG\r\n\x1a\n": "image/png",
     b"GIF87a": "image/gif",
@@ -27,16 +37,27 @@ _MAGIC_BYTES = {
 }
 
 
-def _detect_image_type(data: bytes) -> str | None:
-    """Detect image type from magic bytes. Returns MIME type or None."""
+def _detect_media_type(data: bytes) -> str | None:
+    """Detect media type from magic bytes. Returns MIME type or None."""
     if len(data) < 12:
         return None
-    for magic, mime in _MAGIC_BYTES.items():
+
+    # Check image signatures
+    for magic, mime in _IMAGE_MAGIC_BYTES.items():
         if data[: len(magic)] == magic:
-            # WebP needs additional check: bytes 8-12 should be 'WEBP'
             if magic == b"RIFF" and data[8:12] != b"WEBP":
                 continue
             return mime
+
+    # Check video signatures
+    # MP4/MOV: 'ftyp' at offset 4
+    if data[4:8] == b"ftyp":
+        return "video/mp4"
+
+    # WebM: starts with EBML header 0x1A45DFA3
+    if data[:4] == b"\x1a\x45\xdf\xa3":
+        return "video/webm"
+
     return None
 
 
@@ -54,7 +75,7 @@ async def upload_media(
     file: UploadFile,
     fid: int = Depends(get_current_user),
 ):
-    """Upload an image to Cloudinary. Returns the public URL."""
+    """Upload an image or video to Cloudinary. Returns the public URL."""
     if not settings.CLOUDINARY_CLOUD_NAME:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -65,8 +86,11 @@ async def upload_media(
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported file type. Allowed: jpeg, png, gif, webp",
+            detail="Unsupported file type. Allowed: jpeg, png, gif, webp, mp4, mov, webm",
         )
+
+    is_video_declared = file.content_type in ALLOWED_VIDEO_TYPES
+    max_size = MAX_VIDEO_SIZE if is_video_declared else MAX_IMAGE_SIZE
 
     # Read file in chunks with early abort on size limit
     CHUNK_SIZE = 256 * 1024  # 256 KB
@@ -77,10 +101,11 @@ async def upload_media(
         if not chunk:
             break
         total += len(chunk)
-        if total > MAX_FILE_SIZE:
+        if total > max_size:
+            limit_mb = max_size // (1024 * 1024)
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="File exceeds 10 MB limit",
+                detail=f"File exceeds {limit_mb} MB limit",
             )
         chunks.append(chunk)
     contents = b"".join(chunks)
@@ -92,37 +117,58 @@ async def upload_media(
         )
 
     # Validate actual file content via magic bytes
-    detected_type = _detect_image_type(contents)
+    detected_type = _detect_media_type(contents)
     if detected_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File content does not match a supported image format",
+            detail="File content does not match a supported media format",
+        )
+
+    is_video = detected_type in ALLOWED_VIDEO_TYPES
+
+    # Enforce video size limit even if declared content type was image
+    if is_video and total > MAX_VIDEO_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds {MAX_VIDEO_SIZE // (1024 * 1024)} MB limit",
         )
 
     # Build signed upload params
     timestamp = str(int(time.time()))
+
+    if is_video:
+        transformation = "q_auto,f_auto,w_1280,c_limit"
+        resource_type = "video"
+    else:
+        transformation = "q_auto,f_auto,w_1600,c_limit"
+        resource_type = "image"
+
     params = {
         "timestamp": timestamp,
-        "transformation": "q_auto,f_auto,w_1600,c_limit",
+        "transformation": transformation,
     }
     signature = _generate_signature(params, settings.CLOUDINARY_API_SECRET)
 
     upload_url = (
-        f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/image/upload"
+        f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/{resource_type}/upload"
     )
 
     # Use a generated filename instead of client-supplied one
     ext = detected_type.split("/")[1]
+    if ext == "quicktime":
+        ext = "mov"
     safe_filename = f"cast_{fid}_{timestamp}.{ext}"
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    timeout = 120.0 if is_video else 30.0
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(
             upload_url,
             data={
                 "api_key": settings.CLOUDINARY_API_KEY,
                 "timestamp": timestamp,
                 "signature": signature,
-                "transformation": "q_auto,f_auto,w_1600,c_limit",
+                "transformation": transformation,
             },
             files={"file": (safe_filename, contents, detected_type)},
         )
@@ -130,7 +176,7 @@ async def upload_media(
     if response.status_code != 200:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to upload image to storage provider",
+            detail=f"Failed to upload {resource_type} to storage provider",
         )
 
     data = response.json()

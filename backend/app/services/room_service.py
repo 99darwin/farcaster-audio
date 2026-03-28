@@ -519,6 +519,7 @@ class RoomService:
         # Auto-end room if no active participants remain
         remaining = await self.redis.get_participant_count(room_id)
         if remaining == 0:
+            room = await self._get_room_or_404(room_id)
             now = _utcnow()
             await self.db.execute(
                 update(Room)
@@ -526,6 +527,10 @@ class RoomService:
                 .values(status="ended", ended_at=now)
             )
             await self.db.commit()
+
+            if room.neynar_webhook_id:
+                await self._delete_cast_webhook(room.neynar_webhook_id)
+
             await self.redis.clear_room_state(room_id)
             logger.info("Room %s auto-ended (no participants remaining)", room_id)
 
@@ -1087,9 +1092,10 @@ class RoomService:
         """Delete a Neynar webhook. Best-effort; failures are logged."""
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.delete(
-                    f"https://api.neynar.com/v2/farcaster/webhook",
-                    params={"webhook_id": webhook_id},
+                resp = await client.request(
+                    "DELETE",
+                    "https://api.neynar.com/v2/farcaster/webhook",
+                    json={"webhook_id": webhook_id},
                     headers={"x-api-key": settings.NEYNAR_API_KEY},
                 )
                 resp.raise_for_status()

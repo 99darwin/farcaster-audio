@@ -146,6 +146,12 @@ export const refreshRoomToken = (roomId: string) =>
   apiClient.post<TokenRefreshResponse>(`/v1/rooms/${roomId}/token`).then((r) => r.data);
 
 // --- Users ---
+export const searchUsers = (q: string, limit = 5) =>
+  apiClient.get<{ users: Array<{ fid: number; username: string; display_name: string; pfp_url: string | null }> }>(
+    '/v1/users/search',
+    { params: { q, limit } },
+  ).then((r) => r.data);
+
 export const getUserProfile = (fid: number) =>
   apiClient.get(`/v1/users/${fid}`).then((r) => r.data);
 
@@ -185,6 +191,24 @@ export async function uploadImage(uri: string): Promise<string> {
   const { data } = await apiClient.post<{ url: string }>('/v1/media/upload', formData, {
     headers: { 'Content-Type': undefined },
     timeout: 60000,
+  });
+  return data.url;
+}
+
+export async function uploadVideo(uri: string): Promise<string> {
+  const ext = uri.split('.').pop()?.toLowerCase() ?? 'mp4';
+  const mimeMap: Record<string, string> = { mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm' };
+  const mimeType = mimeMap[ext] ?? 'video/mp4';
+  const formData = new FormData();
+  formData.append('file', {
+    uri,
+    type: mimeType,
+    name: `upload.${ext}`,
+  } as any);
+
+  const { data } = await apiClient.post<{ url: string }>('/v1/media/upload', formData, {
+    headers: { 'Content-Type': undefined },
+    timeout: 120000,
   });
   return data.url;
 }

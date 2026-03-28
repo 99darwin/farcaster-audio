@@ -15,9 +15,12 @@ import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
 import { HostControls } from '@/components/spaces/HostControls';
 import { ParticipantProfileCard } from '@/components/spaces/ParticipantProfileCard';
 import { SpaceChat } from '@/components/spaces/SpaceChat';
+import { EmojiReactionPanel } from '@/components/spaces/EmojiReactionPanel';
+import { EmojiReactionOverlay } from '@/components/spaces/EmojiReactionOverlay';
 import { GlassView } from '@/components/common/GlassView';
 import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { AvatarPositionProvider } from '@/contexts/AvatarPositionContext';
 import { colors, glass } from '@/constants/theme';
 import * as api from '@/services/api';
 import type { Participant } from '@/types/space';
@@ -34,9 +37,11 @@ export default function SpaceScreen() {
     isConnected,
     isMuted,
     isHandRaised,
+    reactions,
     joinRoom,
     leaveRoom,
     toggleMute,
+    sendReaction,
     attachListeners,
   } = useSpace();
   const permissions = useSpacePermissions();
@@ -152,6 +157,7 @@ export default function SpaceScreen() {
   const listeners = participants.filter((p) => p.role === 'listener');
 
   return (
+    <AvatarPositionProvider>
     <View style={styles.container}>
       {/* Header info */}
       <View style={styles.header}>
@@ -219,6 +225,14 @@ export default function SpaceScreen() {
         />
       )}
 
+      {/* Emoji Reaction Overlay */}
+      <EmojiReactionOverlay reactions={reactions} />
+
+      {/* Emoji Reaction Panel */}
+      <View style={[styles.reactionPanel, { bottom: insets.bottom + 92 }]}>
+        <EmojiReactionPanel onReaction={sendReaction} />
+      </View>
+
       {/* Bottom Controls */}
       <GlassView style={[styles.controls, { bottom: insets.bottom + 12 }]}>
         {permissions.isListener && (
@@ -280,6 +294,7 @@ export default function SpaceScreen() {
         hostFid={room.host_fid}
       />
     </View>
+    </AvatarPositionProvider>
   );
 }
 
@@ -345,5 +360,9 @@ const styles = StyleSheet.create({
   },
   controlIconLeave: {
     backgroundColor: glass.dangerOverlay,
+  },
+  reactionPanel: {
+    position: 'absolute',
+    alignSelf: 'center',
   },
 });

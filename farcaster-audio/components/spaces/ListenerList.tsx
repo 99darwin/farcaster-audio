@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Avatar } from '@/components/common/Avatar';
+import { useAvatarPosition } from '@/contexts/AvatarPositionContext';
 import { colors } from '@/constants/theme';
 import type { Participant } from '@/types/space';
 
@@ -13,7 +14,12 @@ const COLLAPSED_COUNT = 14;
 
 export function ListenerList({ listeners, onParticipantPress }: ListenerListProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { register } = useAvatarPosition();
   const visibleListeners = isExpanded ? listeners : listeners.slice(0, COLLAPSED_COUNT);
+
+  const handleRef = useCallback((fid: number, ref: View | null) => {
+    if (ref) register(fid, ref);
+  }, [register]);
 
   return (
     <View style={styles.container}>
@@ -22,6 +28,7 @@ export function ListenerList({ listeners, onParticipantPress }: ListenerListProp
         {visibleListeners.map((listener) => (
           <Pressable
             key={listener.fid}
+            ref={(ref) => handleRef(listener.fid, ref)}
             style={styles.listenerItem}
             accessibilityLabel={listener.display_name}
             accessibilityRole="button"

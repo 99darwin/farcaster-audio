@@ -19,6 +19,39 @@ router = APIRouter(prefix="/v1/users", tags=["users"])
 NEYNAR_BASE = "https://api.neynar.com/v2"
 
 
+@router.get("/search")
+async def search_users(
+    q: str = Query(..., min_length=1, max_length=64),
+    limit: int = Query(default=5, ge=1, le=10),
+    _current_user: int = Depends(get_current_user),
+):
+    """Search for users by username prefix via Neynar."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{NEYNAR_BASE}/farcaster/user/search",
+            params={"q": q, "limit": limit, "viewer_fid": _current_user},
+            headers=_neynar_headers(),
+            timeout=10.0,
+        )
+
+    if resp.status_code != 200:
+        _raise_upstream_error(resp)
+
+    data = resp.json()
+    users = data.get("result", {}).get("users", [])
+    return {
+        "users": [
+            {
+                "fid": u.get("fid"),
+                "username": u.get("username"),
+                "display_name": u.get("display_name"),
+                "pfp_url": u.get("pfp_url"),
+            }
+            for u in users
+        ]
+    }
+
+
 @router.get("/by-username/{username}")
 async def get_user_by_username(
     username: str = Path(..., min_length=1, max_length=64),

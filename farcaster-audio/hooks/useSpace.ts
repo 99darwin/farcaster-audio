@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { NativeModules, NativeEventEmitter } from 'react-native';
 import { RoomEvent, DataPacket_Kind } from 'livekit-client';
 import type { Room, RemoteParticipant, Participant, TrackPublication } from 'livekit-client';
@@ -16,6 +16,8 @@ export function useSpace() {
   const user = useAuthStore((s) => s.user);
   const roomRef = useRef<Room | null>(null);
   const { reconnect, setToken } = useReconnect();
+  const reactionIdRef = useRef(0);
+  const [reactions, setReactions] = useState<Array<{ key: string; id: number; fid: number }>>([]);
 
   const setupRoomListeners = useCallback(
     (room: Room) => {
@@ -128,15 +130,23 @@ export function useSpace() {
         },
       );
 
-      // Handle data messages from server (e.g. new chat reply notifications)
+      // Handle data messages (chat notifications + emoji reactions)
       room.on(
         RoomEvent.DataReceived,
         (payload: Uint8Array, participant?: Participant, kind?: DataPacket_Kind, topic?: string) => {
-          if (topic !== 'space_chat') return;
           try {
             const data = JSON.parse(new TextDecoder().decode(payload));
-            if (data.type === 'new_reply') {
+
+            if (topic === 'space_chat' && data.type === 'new_reply') {
               store.bumpChatNewReply();
+            }
+
+            if (topic === 'reactions' && data.type === 'reaction' && data.key && participant) {
+              const senderFid = parseInt(participant.identity, 10);
+              if (!isNaN(senderFid)) {
+                reactionIdRef.current += 1;
+                setReactions((prev) => [...prev.slice(-19), { key: data.key, id: reactionIdRef.current, fid: senderFid }]);
+              }
             }
           } catch {
             // Ignore malformed data messages
@@ -203,6 +213,15 @@ export function useSpace() {
     if (myFid) store.updateParticipant(myFid, { is_muted: isMuted });
   }, [store]);
 
+  const sendReaction = useCallback(async (key: string) => {
+    await livekitService.sendReaction(key);
+    const myFid = useAuthStore.getState().user?.fid;
+    if (myFid) {
+      reactionIdRef.current += 1;
+      setReactions((prev) => [...prev.slice(-19), { key, id: reactionIdRef.current, fid: myFid }]);
+    }
+  }, []);
+
   const startSpeaking = useCallback(async () => {
     await livekitService.enableMicrophone();
     store.setMuted(false);
@@ -255,11 +274,13 @@ export function useSpace() {
     isConnected: store.isConnected,
     isMuted: store.isMuted,
     isHandRaised: store.isHandRaised,
+    reactions,
     joinRoom,
     leaveRoom,
     connect,
     disconnect,
     toggleMute,
+    sendReaction,
     startSpeaking,
     attachListeners,
   };
