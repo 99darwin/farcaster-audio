@@ -228,10 +228,12 @@ export default function SpaceScreen() {
       {/* Emoji Reaction Overlay */}
       <EmojiReactionOverlay reactions={reactions} />
 
-      {/* Emoji Reaction Panel */}
-      <View style={[styles.reactionPanel, { bottom: insets.bottom + 92 }]}>
-        <EmojiReactionPanel onReaction={sendReaction} />
-      </View>
+      {/* Emoji Reaction Panel — hidden on chat tab to avoid blocking text input */}
+      {(activeTab === 'participants' || !hasChatTab) && (
+        <View style={[styles.reactionPanel, { bottom: insets.bottom + 92 }]}>
+          <EmojiReactionPanel onReaction={sendReaction} />
+        </View>
+      )}
 
       {/* Bottom Controls */}
       <GlassView style={[styles.controls, { bottom: insets.bottom + 12 }]}>
