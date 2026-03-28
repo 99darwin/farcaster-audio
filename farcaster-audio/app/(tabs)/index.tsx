@@ -45,12 +45,14 @@ export default function HomeScreen() {
 
   // Listen for compose requests from the tab bar
   const composeSignal = useComposeStore((s) => s.composeSignal);
+  const composeSignalRef = useRef(composeSignal);
   useEffect(() => {
-    if (composeSignal > 0) {
+    if (composeSignal > composeSignalRef.current) {
       setReplyTarget(null);
       setQuoteCastTarget(null);
       setIsComposeVisible(true);
     }
+    composeSignalRef.current = composeSignal;
   }, [composeSignal]);
 
   const openReply = useCallback((cast: NeynarCast) => {
