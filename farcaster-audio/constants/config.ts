@@ -13,4 +13,7 @@ export const Config = {
   RECONNECT_MAX_ATTEMPTS: 5,
   RECONNECT_BASE_DELAY_MS: 1000,
   TOKEN_REFRESH_BUFFER_SEC: 300,
+
+  WEB_BASE_URL: 'https://juke.audio',
+  TESTFLIGHT_URL: 'https://testflight.apple.com/join/YOUR_TESTFLIGHT_CODE',
 } as const;
