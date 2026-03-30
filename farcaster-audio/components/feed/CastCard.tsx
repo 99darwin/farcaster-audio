@@ -154,10 +154,12 @@ function CastBody({
   text,
   expanded,
   onMentionPress,
+  hiddenUrls,
 }: {
   text: string;
   expanded?: boolean;
   onMentionPress?: (username: string) => void;
+  hiddenUrls?: Set<string>;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const shouldTruncate = !expanded && !isExpanded && text.length > TRUNCATE_LENGTH;
@@ -165,7 +167,7 @@ function CastBody({
 
   return (
     <Text>
-      <CastText text={displayText} style={styles.text} onMentionPress={onMentionPress} />
+      <CastText text={displayText} style={styles.text} onMentionPress={onMentionPress} hiddenUrls={hiddenUrls} />
       {shouldTruncate ? (
         <Text
           style={styles.readMore}
@@ -197,6 +199,26 @@ export function CastCard({
 
   const embeds = cast.embeds ?? [];
   const quoteCast = embeds.find((e) => e.cast)?.cast;
+
+  // Collect URLs that will render as OG preview cards so we can hide them from cast text
+  const renderedEmbedUrls = new Set(
+    embeds
+      .filter((e) => {
+        if (!e.url || e.cast || isImageUrl(e) || isVideoUrl(e)) return false;
+        // X/Twitter always renders a card (even without OG data)
+        const domain = e.url!.match(/^https?:\/\/(?:www\.)?(x\.com|twitter\.com)/);
+        if (domain) return true;
+        const html = e.metadata?.html;
+        const hasImage = !!(
+          e.metadata?.fc_frame?.image_url ||
+          html?.ogImage?.[0]?.url
+        );
+        const hasTitle = !!html?.ogTitle;
+        const hasDescription = !!html?.ogDescription;
+        return hasImage || hasTitle || hasDescription;
+      })
+      .map((e) => e.url!),
+  );
 
   const [viewerState, setViewerState] = useState<{ images: string[]; index: number } | null>(null);
 
@@ -242,7 +264,7 @@ export function CastCard({
           <Text style={styles.dot}>{'\u00B7'}</Text>
           <Text style={styles.timestamp}>{getRelativeTime(cast.timestamp)}</Text>
         </Pressable>
-        <CastBody text={cast.text} expanded={expanded} onMentionPress={handleMentionPress} />
+        <CastBody text={cast.text} expanded={expanded} onMentionPress={handleMentionPress} hiddenUrls={renderedEmbedUrls} />
         <CastImages embeds={embeds} onImagePress={(images, index) => setViewerState({ images, index })} />
         <CastVideos embeds={embeds} />
         {embeds

@@ -65,10 +65,15 @@ export interface NeynarEmbed {
       width_px?: number;
       height_px?: number;
     };
-    html?: {
-      og?: NeynarOgMeta;
+    html?: NeynarOgMeta & {
       favicon?: string;
-      ogImage?: Array<{ url: string; width?: string; height?: string }>;
+      oembed?: {
+        type?: string;
+        html?: string;
+        author_name?: string;
+        author_url?: string;
+        provider_name?: string;
+      };
     };
     /** Neynar mini-app / frame metadata */
     fc_frame?: {

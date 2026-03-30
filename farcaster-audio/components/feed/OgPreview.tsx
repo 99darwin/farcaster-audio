@@ -23,16 +23,15 @@ function getMiniAppUrl(embed: NeynarEmbed): string {
 function getOgImage(embed: NeynarEmbed): string | undefined {
   const frameImage = embed.metadata?.fc_frame?.image_url;
   if (frameImage) return frameImage;
-  const ogImages = embed.metadata?.html?.og?.ogImage ?? embed.metadata?.html?.ogImage;
-  return ogImages?.[0]?.url;
+  return embed.metadata?.html?.ogImage?.[0]?.url;
 }
 
 function getOgTitle(embed: NeynarEmbed): string | undefined {
-  return embed.metadata?.html?.og?.ogTitle;
+  return embed.metadata?.html?.ogTitle;
 }
 
 function getOgDescription(embed: NeynarEmbed): string | undefined {
-  return embed.metadata?.html?.og?.ogDescription;
+  return embed.metadata?.html?.ogDescription;
 }
 
 function getDomain(url: string): string {
@@ -41,6 +40,37 @@ function getDomain(url: string): string {
   } catch {
     return url;
   }
+}
+
+function isTwitterUrl(url: string): boolean {
+  const domain = getDomain(url);
+  return domain === 'x.com' || domain === 'twitter.com';
+}
+
+function getTwitterInfo(embed: NeynarEmbed): { author?: string; text?: string } {
+  const oembed = embed.metadata?.html?.oembed;
+  if (!oembed) return {};
+
+  const author = oembed.author_name;
+
+  // Extract tweet text from the blockquote HTML
+  const blockquoteMatch = oembed.html?.match(/<p[^>]*>([\s\S]*?)<\/p>/);
+  let text: string | undefined;
+  if (blockquoteMatch) {
+    text = blockquoteMatch[1]
+      .replace(/<br\s*\/?>/g, '\n')
+      .replace(/<a[^>]*>(.*?)<\/a>/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\u2026/g, '...')
+      .trim();
+  }
+
+  return { author, text };
 }
 
 interface OgPreviewProps {
@@ -56,18 +86,38 @@ export function OgPreview({ embed }: OgPreviewProps) {
   const description = getOgDescription(embed);
   const miniApp = isMiniApp(embed);
 
-  // No OG data at all — nothing to show (URL is already linkified in text)
-  if (!imageUrl && !title && !description) return null;
-
   const handlePress = () => {
     if (miniApp) {
-      // Deep link into Warpcast/Farcaster app for mini-apps
       const miniAppUrl = getMiniAppUrl(embed);
       Linking.openURL(miniAppUrl);
     } else {
       Linking.openURL(url);
     }
   };
+
+  // X/Twitter: custom card using oembed data (X blocks OG scraping)
+  if (isTwitterUrl(url)) {
+    const { author, text: tweetText } = getTwitterInfo(embed);
+    return (
+      <Pressable onPress={handlePress} style={styles.twitterContainer}>
+        <View style={styles.twitterHeader}>
+          {author ? (
+            <Text style={styles.twitterHandle}>{author}</Text>
+          ) : null}
+          <Text style={styles.twitterLogo}>𝕏</Text>
+        </View>
+        {tweetText ? (
+          <Text style={styles.twitterText} numberOfLines={6}>
+            {tweetText}
+          </Text>
+        ) : null}
+        <Text style={styles.twitterDomain}>View on X</Text>
+      </Pressable>
+    );
+  }
+
+  // No OG data at all — nothing to show (URL is already linkified in text)
+  if (!imageUrl && !title && !description) return null;
 
   // Mini-app: show OG image as a prominent tappable card
   if (miniApp && imageUrl) {
@@ -148,6 +198,40 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: 13,
     lineHeight: 18,
+  },
+  // X/Twitter styles
+  twitterContainer: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.background.border,
+    borderRadius: 12,
+    padding: 12,
+  },
+  twitterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  twitterHandle: {
+    color: colors.text.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  twitterText: {
+    color: colors.text.body,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  twitterLogo: {
+    fontSize: 18,
+    color: colors.text.primary,
+    fontWeight: '700',
+  },
+  twitterDomain: {
+    color: colors.text.secondary,
+    fontSize: 12,
+    marginTop: 8,
   },
   // Mini-app styles
   miniAppContainer: {

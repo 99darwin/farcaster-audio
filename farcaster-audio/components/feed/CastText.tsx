@@ -13,6 +13,7 @@ interface CastTextProps {
   style?: TextStyle;
   numberOfLines?: number;
   onMentionPress?: (username: string) => void;
+  hiddenUrls?: Set<string>;
 }
 
 interface TextSegment {
@@ -44,8 +45,31 @@ function tokenize(text: string): TextSegment[] {
   return segments;
 }
 
-export function CastText({ text, style, numberOfLines, onMentionPress }: CastTextProps) {
-  const segments = tokenize(text);
+function filterHiddenUrls(segments: TextSegment[], hiddenUrls?: Set<string>): TextSegment[] {
+  if (!hiddenUrls || hiddenUrls.size === 0) return segments;
+
+  let filtered = segments.filter(
+    (seg) => !(seg.type === 'url' && hiddenUrls.has(seg.value)),
+  );
+
+  // Trim trailing whitespace from last remaining segment
+  if (filtered.length > 0) {
+    const last = filtered[filtered.length - 1];
+    if (last.type === 'text') {
+      const trimmed = last.value.replace(/\s+$/, '');
+      if (trimmed) {
+        filtered[filtered.length - 1] = { ...last, value: trimmed };
+      } else {
+        filtered = filtered.slice(0, -1);
+      }
+    }
+  }
+
+  return filtered;
+}
+
+export function CastText({ text, style, numberOfLines, onMentionPress, hiddenUrls }: CastTextProps) {
+  const segments = filterHiddenUrls(tokenize(text), hiddenUrls);
 
   return (
     <Text style={style} numberOfLines={numberOfLines}>
