@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     NEYNAR_WEBHOOK_SECRET_CAST: str = ""
     NEYNAR_WEBHOOK_SECRET_REACTION: str = ""
     NEYNAR_WEBHOOK_SECRET_FOLLOW: str = ""
+    NEYNAR_WEBHOOK_ID_CAST: str = ""
+    NEYNAR_WEBHOOK_ID_REACTION: str = ""
+    NEYNAR_WEBHOOK_ID_FOLLOW: str = ""
 
 
 settings = Settings()
