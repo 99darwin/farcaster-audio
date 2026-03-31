@@ -432,28 +432,28 @@ class PushService:
         webhook_url = f"{settings.API_BASE_URL}/v1/webhooks/neynar/notifications"
 
         # Each webhook type uses different subscription filter keys.
-        # - cast.created: use mentioned_fids (replies are filtered server-side
-        #   since there's no parent_author_fids filter in Neynar)
-        # - reaction.created: use target_fids (person whose cast was liked/recasted)
-        # - follow.created: use target_fids (person being followed)
+        # - cast.created: parent_author_fids (replies) + mentioned_fids (mentions)
+        #   These are OR'd by Neynar, so we get both.
+        # - reaction.created: target_fids (person whose cast was liked/recasted)
+        # - follow.created: target_fids (person being followed)
         webhooks = [
             {
                 "webhook_id": settings.NEYNAR_WEBHOOK_ID_CAST,
                 "name": "juke-push-cast",
                 "event_key": "cast.created",
-                "fid_key": "mentioned_fids",
+                "fid_keys": ["parent_author_fids", "mentioned_fids"],
             },
             {
                 "webhook_id": settings.NEYNAR_WEBHOOK_ID_REACTION,
                 "name": "juke-push-reaction",
                 "event_key": "reaction.created",
-                "fid_key": "target_fids",
+                "fid_keys": ["target_fids"],
             },
             {
                 "webhook_id": settings.NEYNAR_WEBHOOK_ID_FOLLOW,
                 "name": "juke-push-follow",
                 "event_key": "follow.created",
-                "fid_key": "target_fids",
+                "fid_keys": ["target_fids"],
             },
         ]
         webhooks = [w for w in webhooks if w["webhook_id"]]
@@ -471,7 +471,8 @@ class PushService:
         try:
             async with httpx.AsyncClient() as client:
                 for wh in webhooks:
-                    subscription = {wh["event_key"]: {wh["fid_key"]: fid_list}}
+                    filters = {key: fid_list for key in wh["fid_keys"]}
+                    subscription = {wh["event_key"]: filters}
                     resp = await client.put(
                         f"{NEYNAR_BASE}/farcaster/webhook",
                         json={
