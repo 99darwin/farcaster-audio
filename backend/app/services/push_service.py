@@ -458,7 +458,12 @@ class PushService:
                         headers={"x-api-key": settings.NEYNAR_API_KEY},
                         timeout=15.0,
                     )
-                    resp.raise_for_status()
+                    if resp.status_code >= 400:
+                        logger.error(
+                            "Neynar webhook sync failed for %s: %s %s",
+                            webhook_id, resp.status_code, resp.text,
+                        )
+                        continue
                     logger.info(
                         "Synced webhook %s with %d target FIDs", webhook_id, len(fid_list)
                     )
