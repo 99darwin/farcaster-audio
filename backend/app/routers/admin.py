@@ -87,14 +87,14 @@ async def setup_push_webhooks(
     """
     webhook_url = f"{settings.API_BASE_URL}/v1/webhooks/neynar/notifications"
     webhooks_to_create = [
-        ("juke-push-cast", {"cast.created": {}}, "NEYNAR_WEBHOOK_SECRET_CAST"),
-        ("juke-push-reaction", {"reaction.created": {}}, "NEYNAR_WEBHOOK_SECRET_REACTION"),
-        ("juke-push-follow", {"follow.created": {}}, "NEYNAR_WEBHOOK_SECRET_FOLLOW"),
+        ("juke-push-cast", {"cast.created": {}}, "NEYNAR_WEBHOOK_SECRET_CAST", "NEYNAR_WEBHOOK_ID_CAST"),
+        ("juke-push-reaction", {"reaction.created": {}}, "NEYNAR_WEBHOOK_SECRET_REACTION", "NEYNAR_WEBHOOK_ID_REACTION"),
+        ("juke-push-follow", {"follow.created": {}}, "NEYNAR_WEBHOOK_SECRET_FOLLOW", "NEYNAR_WEBHOOK_ID_FOLLOW"),
     ]
 
     results = []
     async with httpx.AsyncClient() as client:
-        for name, subscription, env_var in webhooks_to_create:
+        for name, subscription, secret_var, id_var in webhooks_to_create:
             resp = await client.post(
                 f"{NEYNAR_BASE}/farcaster/webhook",
                 json={
@@ -108,7 +108,8 @@ async def setup_push_webhooks(
             resp.raise_for_status()
             webhook = resp.json().get("webhook", {})
             results.append({
-                "env_var": env_var,
+                "secret_var": secret_var,
+                "id_var": id_var,
                 "webhook_id": webhook.get("webhook_id"),
                 "secret": webhook.get("secret"),
                 "event": list(subscription.keys())[0],

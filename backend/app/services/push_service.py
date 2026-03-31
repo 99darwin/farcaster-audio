@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.device_token import DeviceToken
 from app.models.notification_preference import NotificationPreference
 from app.schemas.push import NotificationPreferencesResponse
@@ -20,6 +21,7 @@ from app.schemas.push import NotificationPreferencesResponse
 logger = logging.getLogger(__name__)
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+NEYNAR_BASE = "https://api.neynar.com/v2"
 REDIS_ACTIVE_FIDS_KEY = "push:active_fids"
 REDIS_PREFS_PREFIX = "push:prefs:"
 PREFS_CACHE_TTL = 300  # 5 minutes
@@ -77,6 +79,7 @@ class PushService:
         await self.db.commit()
 
         await self.redis.sadd(REDIS_ACTIVE_FIDS_KEY, str(fid))
+        await self._sync_webhook_fids()
 
     async def unregister_token(self, fid: int, expo_push_token: str) -> None:
         """Deactivate a device token. Remove FID from active set if no tokens remain."""
@@ -98,6 +101,7 @@ class PushService:
         )
         if not result.scalar_one_or_none():
             await self.redis.srem(REDIS_ACTIVE_FIDS_KEY, str(fid))
+            await self._sync_webhook_fids()
 
     async def unregister_all_tokens(self, fid: int) -> None:
         """Deactivate all tokens for a user (e.g., on logout)."""
@@ -108,6 +112,7 @@ class PushService:
         )
         await self.db.commit()
         await self.redis.srem(REDIS_ACTIVE_FIDS_KEY, str(fid))
+        await self._sync_webhook_fids()
 
     # ------------------------------------------------------------------
     # Notification preferences
@@ -169,10 +174,12 @@ class PushService:
 
         # Sync webhook target_fids: remove FID if all types disabled, re-add if any enabled
         has_active_tokens = await self.redis.sismember(REDIS_ACTIVE_FIDS_KEY, str(fid))
+        fids_changed = False
         if has_active_tokens:
             any_enabled = self._any_enabled(prefs)
             if not any_enabled:
                 await self.redis.srem(REDIS_ACTIVE_FIDS_KEY, str(fid))
+                fids_changed = True
         else:
             # Check if user has tokens but was removed due to all-disabled
             token_result = await self.db.execute(
@@ -182,6 +189,10 @@ class PushService:
             )
             if token_result.scalar_one_or_none() and self._any_enabled(prefs):
                 await self.redis.sadd(REDIS_ACTIVE_FIDS_KEY, str(fid))
+                fids_changed = True
+
+        if fids_changed:
+            await self._sync_webhook_fids()
 
         return prefs
 
@@ -411,4 +422,46 @@ class PushService:
             body=f"{inviter_name} invited you to speak in \"{room_title}\"",
             data={"type": "space_invite", "url": f"/space/{room_id}"},
         )
+
+    # ------------------------------------------------------------------
+    # Neynar webhook target_fids sync
+    # ------------------------------------------------------------------
+
+    async def _sync_webhook_fids(self) -> None:
+        """Update all Neynar notification webhooks with the current active FID list."""
+        webhook_ids = [
+            settings.NEYNAR_WEBHOOK_ID_CAST,
+            settings.NEYNAR_WEBHOOK_ID_REACTION,
+            settings.NEYNAR_WEBHOOK_ID_FOLLOW,
+        ]
+        webhook_ids = [wid for wid in webhook_ids if wid]
+        if not webhook_ids:
+            logger.warning("No NEYNAR_WEBHOOK_ID_* env vars set — skipping target_fids sync")
+            return
+
+        # Get all active FIDs from Redis
+        raw_fids = await self.redis.smembers(REDIS_ACTIVE_FIDS_KEY)
+        fid_list = [int(f) for f in raw_fids]
+
+        if not fid_list:
+            logger.info("No active FIDs — clearing webhook target_fids")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                for webhook_id in webhook_ids:
+                    resp = await client.put(
+                        f"{NEYNAR_BASE}/farcaster/webhook",
+                        json={
+                            "webhook_id": webhook_id,
+                            "target_fids": fid_list,
+                        },
+                        headers={"x-api-key": settings.NEYNAR_API_KEY},
+                        timeout=15.0,
+                    )
+                    resp.raise_for_status()
+                    logger.info(
+                        "Synced webhook %s with %d target FIDs", webhook_id, len(fid_list)
+                    )
+        except Exception as e:
+            logger.error("Failed to sync webhook target_fids: %s", e)
 

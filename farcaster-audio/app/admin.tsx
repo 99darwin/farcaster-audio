@@ -157,10 +157,11 @@ export default function AdminScreen() {
             setIsSettingUpWebhooks(true);
             try {
               const data = await api.adminSetupWebhooks();
-              const secrets = data.webhooks
-                .map((w: { env_var: string; secret: string }) => `${w.env_var}=${w.secret}`)
-                .join('\n');
-              Alert.alert('Webhooks Created', secrets);
+              const info = data.webhooks
+                .map((w: { secret_var: string; id_var: string; webhook_id: string; secret: string }) =>
+                  `${w.id_var}=${w.webhook_id}\n${w.secret_var}=${w.secret}`)
+                .join('\n\n');
+              Alert.alert('Webhooks Created', info);
             } catch (error) {
               Toast.show({ type: 'error', text1: 'Failed to setup webhooks', text2: api.getErrorMessage(error) });
             } finally {
