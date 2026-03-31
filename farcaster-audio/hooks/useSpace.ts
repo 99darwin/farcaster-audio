@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NativeModules, NativeEventEmitter } from 'react-native';
-import { RoomEvent, DataPacket_Kind } from 'livekit-client';
+import { RoomEvent, DataPacket_Kind, DisconnectReason } from 'livekit-client';
 import type { Room, RemoteParticipant, Participant, TrackPublication } from 'livekit-client';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -18,6 +18,7 @@ export function useSpace() {
   const { reconnect, setToken } = useReconnect();
   const reactionIdRef = useRef(0);
   const [reactions, setReactions] = useState<Array<{ key: string; id: number; fid: number }>>([]);
+  const onRoomEndedRef = useRef<(() => void) | null>(null);
 
   const setupRoomListeners = useCallback(
     (room: Room) => {
@@ -69,8 +70,17 @@ export function useSpace() {
         }
       });
 
-      room.on('disconnected', () => {
+      room.on('disconnected', (reason?: DisconnectReason) => {
         store.setConnected(false);
+        // Server deleted the room (host ended the space) — auto-leave
+        if (
+          reason === DisconnectReason.SERVER_SHUTDOWN ||
+          reason === DisconnectReason.ROOM_DELETED
+        ) {
+          roomRef.current = null;
+          store.leaveSpace();
+          onRoomEndedRef.current?.();
+        }
       });
 
       room.on('reconnecting', () => {
@@ -266,6 +276,10 @@ export function useSpace() {
     }
   }, [setupRoomListeners]);
 
+  const setOnRoomEnded = useCallback((cb: () => void) => {
+    onRoomEndedRef.current = cb;
+  }, []);
+
   return {
     room: store.room,
     participants: store.participants,
@@ -283,5 +297,6 @@ export function useSpace() {
     sendReaction,
     startSpeaking,
     attachListeners,
+    setOnRoomEnded,
   };
 }

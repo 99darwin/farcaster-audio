@@ -15,6 +15,7 @@ interface GlassTabBarProps extends BottomTabBarProps {
 export function GlassTabBar({ state, navigation, onCompose }: GlassTabBarProps) {
   const insets = useSafeAreaInsets();
   const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const markAllRead = useNotificationStore((s) => s.markAllRead);
 
   const tabs = state.routes.map((route, index) => {
     const isFocused = state.index === index;
@@ -28,6 +29,9 @@ export function GlassTabBar({ state, navigation, onCompose }: GlassTabBarProps) 
       });
       if (!isFocused && !event.defaultPrevented) {
         navigation.navigate(route.name, route.params);
+      }
+      if (route.name === 'notifications') {
+        markAllRead();
       }
     };
 

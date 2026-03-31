@@ -44,6 +44,8 @@ function getRelativeTime(timestamp: string): string {
 function isImageUrl(embed: NeynarEmbed): boolean {
   const contentType = embed.metadata?.content_type ?? '';
   if (contentType.startsWith('image/')) return true;
+  // Neynar populates image dimensions for image embeds even without content_type
+  if (embed.metadata?.image?.width_px) return true;
   const url = embed.url ?? '';
   return /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
 }
@@ -53,6 +55,40 @@ function isVideoUrl(embed: NeynarEmbed): boolean {
   if (contentType.startsWith('video/')) return true;
   const url = embed.url ?? '';
   return /\.(mp4|mov|m3u8|webm)(\?|$)/i.test(url);
+}
+
+function EmbedImage({
+  uri,
+  style,
+  onPress,
+}: {
+  uri: string;
+  style: any;
+  onPress: () => void;
+}) {
+  const [hasError, setHasError] = useState(false);
+
+  if (hasError) {
+    return (
+      <Pressable onPress={onPress}>
+        <View style={[style, styles.imageFallback]}>
+          <Ionicons name="image-outline" size={32} color={colors.text.secondary} />
+        </View>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Pressable onPress={onPress}>
+      <Image
+        source={{ uri }}
+        style={style}
+        contentFit="cover"
+        transition={200}
+        onError={() => setHasError(true)}
+      />
+    </Pressable>
+  );
 }
 
 function CastImages({
@@ -72,14 +108,11 @@ function CastImages({
     const aspectRatio = meta?.width_px && meta?.height_px ? meta.width_px / meta.height_px : 16 / 9;
     return (
       <View style={styles.imageContainer}>
-        <Pressable onPress={() => onImagePress(imageUrls, 0)}>
-          <Image
-            source={{ uri: img.url }}
-            style={[styles.singleImage, { aspectRatio }]}
-            contentFit="cover"
-            transition={200}
-          />
-        </Pressable>
+        <EmbedImage
+          uri={img.url!}
+          style={[styles.singleImage, { aspectRatio }]}
+          onPress={() => onImagePress(imageUrls, 0)}
+        />
       </View>
     );
   }
@@ -87,14 +120,12 @@ function CastImages({
   return (
     <View style={styles.imageGrid}>
       {images.slice(0, 4).map((img, i) => (
-        <Pressable key={img.url ?? i} onPress={() => onImagePress(imageUrls, i)}>
-          <Image
-            source={{ uri: img.url }}
-            style={styles.gridImage}
-            contentFit="cover"
-            transition={200}
-          />
-        </Pressable>
+        <EmbedImage
+          key={img.url ?? i}
+          uri={img.url!}
+          style={styles.gridImage}
+          onPress={() => onImagePress(imageUrls, i)}
+        />
       ))}
     </View>
   );
@@ -372,8 +403,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   gridImage: {
-    width: '49%',
+    flex: 1,
     aspectRatio: 1,
+  },
+  imageFallback: {
+    backgroundColor: colors.background.border,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   // Threaded reply styles
   threadedContainer: {

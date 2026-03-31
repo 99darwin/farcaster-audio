@@ -57,26 +57,42 @@ function ZoomableImage({ uri, width, height, onClose }: { uri: string; width: nu
       }
     });
 
-  const pan = Gesture.Pan()
+  // Vertical-only dismiss pan — active at 1x zoom, fails on horizontal swipes so FlatList can scroll
+  const dismissPan = Gesture.Pan()
+    .activeOffsetY([-20, 20])
+    .failOffsetX([-20, 20])
+    .enabled(true)
     .onUpdate((e) => {
-      if (savedScale.value > 1) {
-        translateX.value = savedTranslateX.value + e.translationX;
-        translateY.value = savedTranslateY.value + e.translationY;
-      } else {
+      if (savedScale.value <= 1) {
         translateY.value = e.translationY;
         opacity.value = Math.max(0.4, 1 - Math.abs(e.translationY) / 400);
       }
     })
     .onEnd((e) => {
+      if (savedScale.value <= 1) {
+        if (Math.abs(e.translationY) > DISMISS_THRESHOLD) {
+          opacity.value = withTiming(0, { duration: 200 });
+          runOnJS(onClose)();
+        } else {
+          translateY.value = withSpring(0, SPRING_CONFIG);
+          opacity.value = withSpring(1, SPRING_CONFIG);
+        }
+      }
+    });
+
+  // Full pan for when zoomed in — allows panning in all directions
+  const zoomPan = Gesture.Pan()
+    .enabled(true)
+    .onUpdate((e) => {
+      if (savedScale.value > 1) {
+        translateX.value = savedTranslateX.value + e.translationX;
+        translateY.value = savedTranslateY.value + e.translationY;
+      }
+    })
+    .onEnd(() => {
       if (savedScale.value > 1) {
         savedTranslateX.value = translateX.value;
         savedTranslateY.value = translateY.value;
-      } else if (Math.abs(e.translationY) > DISMISS_THRESHOLD) {
-        opacity.value = withTiming(0, { duration: 200 });
-        runOnJS(onClose)();
-      } else {
-        translateY.value = withSpring(0, SPRING_CONFIG);
-        opacity.value = withSpring(1, SPRING_CONFIG);
       }
     });
 
@@ -96,7 +112,7 @@ function ZoomableImage({ uri, width, height, onClose }: { uri: string; width: nu
       }
     });
 
-  const composed = Gesture.Simultaneous(pinch, pan);
+  const composed = Gesture.Simultaneous(pinch, Gesture.Race(dismissPan, zoomPan));
   const gesture = Gesture.Exclusive(doubleTap, composed);
 
   const animatedStyle = useAnimatedStyle(() => ({
