@@ -429,14 +429,35 @@ class PushService:
 
     async def _sync_webhook_fids(self) -> None:
         """Update all Neynar notification webhooks with the current active FID list."""
-        webhook_ids = [
-            settings.NEYNAR_WEBHOOK_ID_CAST,
-            settings.NEYNAR_WEBHOOK_ID_REACTION,
-            settings.NEYNAR_WEBHOOK_ID_FOLLOW,
+        webhook_url = f"{settings.API_BASE_URL}/v1/webhooks/neynar/notifications"
+
+        # Each webhook type uses a different subscription filter key
+        webhooks = [
+            {
+                "webhook_id": settings.NEYNAR_WEBHOOK_ID_CAST,
+                "name": "juke-push-cast",
+                "subscription": {"cast.created": {"author_fids": []}},
+                "fid_key": "author_fids",
+                "event_key": "cast.created",
+            },
+            {
+                "webhook_id": settings.NEYNAR_WEBHOOK_ID_REACTION,
+                "name": "juke-push-reaction",
+                "subscription": {"reaction.created": {"fids": []}},
+                "fid_key": "fids",
+                "event_key": "reaction.created",
+            },
+            {
+                "webhook_id": settings.NEYNAR_WEBHOOK_ID_FOLLOW,
+                "name": "juke-push-follow",
+                "subscription": {"follow.created": {"fids": []}},
+                "fid_key": "fids",
+                "event_key": "follow.created",
+            },
         ]
-        webhook_ids = [wid for wid in webhook_ids if wid]
-        if not webhook_ids:
-            logger.warning("No NEYNAR_WEBHOOK_ID_* env vars set — skipping target_fids sync")
+        webhooks = [w for w in webhooks if w["webhook_id"]]
+        if not webhooks:
+            logger.warning("No NEYNAR_WEBHOOK_ID_* env vars set — skipping sync")
             return
 
         # Get all active FIDs from Redis
@@ -444,16 +465,19 @@ class PushService:
         fid_list = [int(f) for f in raw_fids]
 
         if not fid_list:
-            logger.info("No active FIDs — clearing webhook target_fids")
+            logger.info("No active FIDs — clearing webhook filters")
 
         try:
             async with httpx.AsyncClient() as client:
-                for webhook_id in webhook_ids:
+                for wh in webhooks:
+                    subscription = {wh["event_key"]: {wh["fid_key"]: fid_list}}
                     resp = await client.put(
                         f"{NEYNAR_BASE}/farcaster/webhook",
                         json={
-                            "webhook_id": webhook_id,
-                            "target_fids": fid_list,
+                            "webhook_id": wh["webhook_id"],
+                            "name": wh["name"],
+                            "url": webhook_url,
+                            "subscription": subscription,
                         },
                         headers={"x-api-key": settings.NEYNAR_API_KEY},
                         timeout=15.0,
@@ -461,11 +485,12 @@ class PushService:
                     if resp.status_code >= 400:
                         logger.error(
                             "Neynar webhook sync failed for %s: %s %s",
-                            webhook_id, resp.status_code, resp.text,
+                            wh["webhook_id"], resp.status_code, resp.text,
                         )
                         continue
                     logger.info(
-                        "Synced webhook %s with %d target FIDs", webhook_id, len(fid_list)
+                        "Synced webhook %s with %d target FIDs",
+                        wh["webhook_id"], len(fid_list),
                     )
         except Exception as e:
             logger.error("Failed to sync webhook target_fids: %s", e)
