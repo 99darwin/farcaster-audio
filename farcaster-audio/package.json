@@ -12,6 +12,7 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@farcaster/miniapp-host-react-native": "^0.1.19",
     "@livekit/react-native": "^2.9.6",
     "@livekit/react-native-webrtc": "^137.0.2",
     "@neynar/react-native-signin": "^1.3.0",

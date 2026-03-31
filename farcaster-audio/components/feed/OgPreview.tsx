@@ -1,27 +1,94 @@
 import { View, Text, Pressable, Linking, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { colors } from '@/constants/theme';
+import { useMiniAppStore } from '@/stores/miniappStore';
+import { resolveMiniApp } from '@/services/manifest';
 import type { NeynarEmbed } from '@/types/neynar';
+import type { CastEmbedLocationContext } from '@/types/miniapp';
 
-const WARPCAST_MINIAPP_PREFIX = 'https://warpcast.com/~/mini-app/';
-const FARCASTER_MINIAPP_PREFIX = 'https://farcaster.com/~/mini-app/';
+const MINIAPP_URL_PREFIXES = [
+  'https://warpcast.com/~/mini-app/',
+  'https://farcaster.com/~/mini-app/',
+  'https://farcaster.xyz/miniapps/',
+  'https://farcaster.xyz/~/mini-app/',
+];
+
+/** Get frame metadata — Neynar uses both `fc_frame` and `frame` keys */
+function getFrameMeta(embed: NeynarEmbed): Record<string, unknown> | undefined {
+  return embed.metadata?.fc_frame ?? (embed.metadata as any)?.frame;
+}
+
+function isIntermediaryMiniAppUrl(url: string): boolean {
+  return MINIAPP_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
+}
 
 function isMiniApp(embed: NeynarEmbed): boolean {
-  if (embed.metadata?.fc_frame) return true;
+  if (getFrameMeta(embed)) return true;
   const url = embed.url ?? '';
-  return url.startsWith(WARPCAST_MINIAPP_PREFIX) || url.startsWith(FARCASTER_MINIAPP_PREFIX);
+  return isIntermediaryMiniAppUrl(url);
 }
 
 function getMiniAppUrl(embed: NeynarEmbed): string {
-  const frameAction = embed.metadata?.fc_frame?.button?.action;
-  if (frameAction?.type === 'launch_frame' && frameAction.url) {
-    return frameAction.url;
+  const frame = getFrameMeta(embed);
+  if (!frame) return embed.url ?? '';
+
+  // Frames v2 / miniapp: button.action.url is the launch URL
+  const button = frame.button as { action?: { type?: string; url?: string } } | undefined;
+  if (button?.action?.type === 'launch_frame' && button.action.url) {
+    return button.action.url;
   }
+
+  // Neynar may also use `buttons` array
+  const buttons = frame.buttons as Array<{ action_type?: string; target?: string }> | undefined;
+  if (buttons?.length) {
+    const launchButton = buttons.find((b) => b.action_type === 'launch_frame');
+    if (launchButton?.target) return launchButton.target;
+  }
+
+  // Miniapp manifest fields that Neynar may inline
+  if (typeof frame.homeUrl === 'string' && frame.homeUrl) {
+    return frame.homeUrl;
+  }
+  if (typeof frame.home_url === 'string' && frame.home_url) {
+    return frame.home_url;
+  }
+
+  // Some embeds use a top-level url field
+  if (typeof frame.url === 'string' && frame.url) {
+    return frame.url;
+  }
+
+  // For intermediary URLs (farcaster.xyz/miniapps/...), try to derive the
+  // actual miniapp domain from other frame fields like image or splash
   return embed.url ?? '';
 }
 
+/** Extract a domain hint from frame metadata (image URL, splash URL, etc.) */
+function getFrameDomainHint(embed: NeynarEmbed): string | undefined {
+  const frame = getFrameMeta(embed);
+  if (!frame) return undefined;
+
+  // Check image, splashImageUrl, iconUrl for a non-intermediary domain
+  const candidates = [frame.image, frame.splashImageUrl, frame.splash_image_url, frame.iconUrl, frame.icon_url]
+    .filter((v): v is string => typeof v === 'string' && v.startsWith('https://'));
+
+  for (const url of candidates) {
+    try {
+      const host = new URL(url).hostname;
+      // Skip intermediary domains
+      if (host === 'farcaster.xyz' || host === 'warpcast.com' || host === 'farcaster.com') continue;
+      return host;
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
 function getOgImage(embed: NeynarEmbed): string | undefined {
-  const frameImage = embed.metadata?.fc_frame?.image_url;
+  const frame = getFrameMeta(embed);
+  const frameImage = frame?.image_url as string | undefined;
   if (frameImage) return frameImage;
   return embed.metadata?.html?.ogImage?.[0]?.url;
 }
@@ -75,21 +142,53 @@ function getTwitterInfo(embed: NeynarEmbed): { author?: string; text?: string } 
 
 interface OgPreviewProps {
   embed: NeynarEmbed;
+  /** Cast context for miniapp location — pass hash + author for cast_embed context */
+  castContext?: { hash: string; authorFid: number; authorUsername: string; text: string };
 }
 
-export function OgPreview({ embed }: OgPreviewProps) {
+export function OgPreview({ embed, castContext }: OgPreviewProps) {
   const url = embed.url;
   if (!url) return null;
 
+  const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
   const imageUrl = getOgImage(embed);
   const title = getOgTitle(embed);
   const description = getOgDescription(embed);
   const miniApp = isMiniApp(embed);
 
-  const handlePress = () => {
+  const handlePress = async () => {
     if (miniApp) {
       const miniAppUrl = getMiniAppUrl(embed);
-      Linking.openURL(miniAppUrl);
+      try {
+        const domainHint = getFrameDomainHint(embed);
+        const resolved = await resolveMiniApp(miniAppUrl, domainHint);
+        // Guard against invalid resolved URLs (e.g. about:blank from bad manifests)
+        if (!resolved.launchUrl || !resolved.launchUrl.startsWith('https://')) {
+          return;
+        }
+        const location: CastEmbedLocationContext | undefined = castContext ? {
+          type: 'cast_embed',
+          embed: miniAppUrl,
+          cast: {
+            hash: castContext.hash,
+            text: castContext.text,
+            author: {
+              fid: castContext.authorFid,
+              username: castContext.authorUsername,
+            },
+          },
+        } : undefined;
+        openMiniApp({
+          url: resolved.launchUrl,
+          domain: resolved.domain,
+          manifest: resolved.manifest,
+          config: resolved.config,
+          location,
+        });
+      } catch {
+        // Fallback to external URL if resolution fails
+        Linking.openURL(miniAppUrl);
+      }
     } else {
       Linking.openURL(url);
     }
