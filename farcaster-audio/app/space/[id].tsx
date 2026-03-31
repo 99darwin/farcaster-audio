@@ -44,6 +44,7 @@ export default function SpaceScreen() {
     toggleMute,
     sendReaction,
     attachListeners,
+    setOnRoomEnded,
   } = useSpace();
   const permissions = useSpacePermissions();
   const [isJoining, setIsJoining] = useState(false);
@@ -53,6 +54,15 @@ export default function SpaceScreen() {
   const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants');
   const insets = useSafeAreaInsets();
   const hasChatTab = !!room?.cast_hash;
+
+  // When the host ends the space, LiveKit fires a server-initiated disconnect.
+  // Navigate all remaining participants back to the home screen.
+  useEffect(() => {
+    setOnRoomEnded(() => {
+      Toast.show({ type: 'info', text1: 'Space ended', text2: 'The host ended this space' });
+      router.replace('/');
+    });
+  }, [setOnRoomEnded, router]);
 
   useEffect(() => {
     if (!id) return;

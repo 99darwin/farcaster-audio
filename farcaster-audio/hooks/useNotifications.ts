@@ -3,22 +3,7 @@ import { useNotificationStore } from '@/stores/notificationStore';
 import { useAuthStore } from '@/stores/authStore';
 import * as api from '@/services/api';
 import { likeCast, removeLike } from '@/services/neynar';
-import {
-  getLastSeenNotificationTimestamp,
-  saveLastSeenNotificationTimestamp,
-} from '@/services/storage';
-import type { NeynarNotification } from '@/types/neynar';
-
-function computeUnreadCount(
-  notifications: NeynarNotification[],
-  lastSeenTimestamp: string | null,
-): number {
-  if (!lastSeenTimestamp) return notifications.length;
-  const lastSeen = new Date(lastSeenTimestamp).getTime();
-  return notifications.filter(
-    (n) => new Date(n.most_recent_timestamp).getTime() > lastSeen,
-  ).length;
-}
+import { saveLastSeenNotificationTimestamp } from '@/services/storage';
 
 export function useNotifications() {
   // Select stable action references individually — avoids re-render loops
@@ -35,7 +20,6 @@ export function useNotifications() {
   const setLoading = useNotificationStore((s) => s.setLoading);
   const setRefreshing = useNotificationStore((s) => s.setRefreshing);
   const setError = useNotificationStore((s) => s.setError);
-  const setUnreadCount = useNotificationStore((s) => s.setUnreadCount);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
 
   const user = useAuthStore((s) => s.user);
@@ -46,14 +30,10 @@ export function useNotifications() {
     try {
       const data = await api.getNotifications({ limit: 25 });
       setNotifications(data.notifications, data.next.cursor);
-
-      const lastSeen = await getLastSeenNotificationTimestamp();
-      const unread = computeUnreadCount(data.notifications, lastSeen);
-      setUnreadCount(unread);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch notifications');
     }
-  }, [user, setLoading, setNotifications, setUnreadCount, setError]);
+  }, [user, setLoading, setNotifications, setError]);
 
   const fetchMore = useCallback(async () => {
     if (!user || !hasMore || isLoading || !cursor) return;
@@ -72,14 +52,10 @@ export function useNotifications() {
     try {
       const data = await api.getNotifications({ limit: 25 });
       setNotifications(data.notifications, data.next.cursor);
-
-      const lastSeen = await getLastSeenNotificationTimestamp();
-      const unread = computeUnreadCount(data.notifications, lastSeen);
-      setUnreadCount(unread);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh');
     }
-  }, [user, setRefreshing, setNotifications, setUnreadCount, setError]);
+  }, [user, setRefreshing, setNotifications, setError]);
 
   const markAsRead = useCallback(() => {
     const current = useNotificationStore.getState().notifications;

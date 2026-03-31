@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { View, FlatList, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { useNavigation } from 'expo-router';
 import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationItem } from '@/components/notifications/NotificationItem';
 import { getLastSeenNotificationTimestamp } from '@/services/storage';
@@ -19,6 +20,7 @@ export default function NotificationsScreen() {
     handleLike,
   } = useNotifications();
 
+  const navigation = useNavigation();
   const [lastSeenTs, setLastSeenTs] = useState<string | null>(null);
   const hasFetched = useRef(false);
 
@@ -29,12 +31,21 @@ export default function NotificationsScreen() {
     getLastSeenNotificationTimestamp().then(setLastSeenTs);
   }, []);
 
-  // Mark as read whenever notifications are loaded (initial fetch or refresh)
+  // Mark as read when the tab gains focus
   useEffect(() => {
-    if (notifications.length > 0) {
+    const unsubscribe = navigation.addListener('focus', () => {
+      markAsRead();
+    });
+    return unsubscribe;
+  }, [navigation, markAsRead]);
+
+  // Also mark as read after initial data load (focus fires before fetch completes)
+  const hasNotifications = notifications.length > 0;
+  useEffect(() => {
+    if (hasNotifications) {
       markAsRead();
     }
-  }, [notifications, markAsRead]);
+  }, [hasNotifications, markAsRead]);
 
   const isUnread = useCallback(
     (notification: NeynarNotification) => {
