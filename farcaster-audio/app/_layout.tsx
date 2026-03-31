@@ -17,6 +17,7 @@ import { TAB_BAR_TOTAL_HEIGHT } from '@/components/navigation/GlassTabBar';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { useOTAUpdate } from '@/hooks/useOTAUpdate';
 import { useNotificationBadge } from '@/hooks/useNotificationBadge';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { colors } from '@/constants/theme';
 import Toast from 'react-native-toast-message';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -46,6 +47,7 @@ export default function RootLayout() {
   const hydrateAddedMiniApps = useMiniAppStore((s) => s.hydrateAddedMiniApps);
 
   useNotificationBadge();
+  usePushNotifications();
 
   const pendingDeepLink = useRef<string | null>(null);
 
@@ -101,15 +103,23 @@ export default function RootLayout() {
 
   const handleDeepLink = (url: string) => {
     const parsed = Linking.parse(url);
-    // Parse: juke://space/{id} or https://juke.audio/space/{id}
-    if (parsed.path?.startsWith('space/')) {
-      const roomId = parsed.path.replace('space/', '');
-      if (!roomId) return;
-      if (isAuthenticated) {
-        router.push(`/space/${roomId}`);
-      } else {
-        pendingDeepLink.current = url;
-      }
+    const path = parsed.path;
+    if (!path) return;
+
+    if (!isAuthenticated) {
+      pendingDeepLink.current = url;
+      return;
+    }
+
+    if (path.startsWith('space/')) {
+      const roomId = path.replace('space/', '');
+      if (roomId) router.push(`/space/${roomId}`);
+    } else if (path.startsWith('cast/')) {
+      const hash = path.replace('cast/', '');
+      if (hash) router.push(`/cast/${hash}`);
+    } else if (path.startsWith('profile/')) {
+      const fid = path.replace('profile/', '');
+      if (fid) router.push(`/profile/${fid}`);
     }
     // Parse: juke://miniapp?url={encoded_url}
     if (parsed.path === 'miniapp' && parsed.queryParams?.url) {
@@ -168,6 +178,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
+          <Stack.Screen name="notification-settings" options={{ title: 'Notifications', presentation: 'modal' }} />
           <Stack.Screen name="admin" options={{ title: 'Admin', presentation: 'modal' }} />
           <Stack.Screen name="cast/[hash]" options={{ title: 'Thread' }} />
           <Stack.Screen name="profile/[fid]" options={{ title: 'Profile' }} />

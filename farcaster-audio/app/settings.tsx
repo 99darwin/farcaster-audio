@@ -7,6 +7,7 @@ import { Avatar } from '@/components/common/Avatar';
 import { colors, spacing } from '@/constants/theme';
 import * as livekitService from '@/services/livekit';
 import * as api from '@/services/api';
+import { unregisterPushToken } from '@/hooks/usePushNotifications';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -21,6 +22,7 @@ export default function SettingsScreen() {
       await livekitService.disconnectFromRoom();
       leaveSpace();
     }
+    await unregisterPushToken();
     router.dismiss();
     await logout();
   };
@@ -45,6 +47,19 @@ export default function SettingsScreen() {
           <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
         </Pressable>
       )}
+
+      <View style={styles.section}>
+        <Pressable
+          style={styles.row}
+          onPress={() => router.push('/notification-settings')}
+          accessibilityRole="button"
+          accessibilityLabel="Notification settings"
+        >
+          <Ionicons name="notifications-outline" size={20} color={colors.purple} />
+          <Text style={styles.rowText}>Notifications</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.text.secondary} style={{ marginLeft: 'auto' }} />
+        </Pressable>
+      </View>
 
       {user?.is_admin && (
         <View style={styles.section}>

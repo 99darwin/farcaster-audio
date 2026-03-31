@@ -33,6 +33,7 @@ export default function AdminScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [endingRoomId, setEndingRoomId] = useState<string | null>(null);
+  const [isSettingUpWebhooks, setIsSettingUpWebhooks] = useState(false);
 
   const fetchRooms = useCallback(async () => {
     try {
@@ -144,6 +145,33 @@ export default function AdminScreen() {
     );
   }
 
+  const handleSetupWebhooks = () => {
+    Alert.alert(
+      'Setup Push Webhooks',
+      'Register Neynar webhooks for push notifications. This only needs to be done once. The webhook secrets will be shown — copy them into your env vars.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Setup',
+          onPress: async () => {
+            setIsSettingUpWebhooks(true);
+            try {
+              const data = await api.adminSetupWebhooks();
+              const secrets = data.webhooks
+                .map((w: { env_var: string; secret: string }) => `${w.env_var}=${w.secret}`)
+                .join('\n');
+              Alert.alert('Webhooks Created', secrets);
+            } catch (error) {
+              Toast.show({ type: 'error', text1: 'Failed to setup webhooks', text2: api.getErrorMessage(error) });
+            } finally {
+              setIsSettingUpWebhooks(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <View style={styles.container}>
       <FlatList
@@ -162,6 +190,24 @@ export default function AdminScreen() {
           <View style={styles.empty}>
             <Ionicons name="checkmark-circle-outline" size={48} color={colors.text.secondary} />
             <Text style={styles.emptyText}>No active rooms</Text>
+          </View>
+        }
+        ListFooterComponent={
+          <View style={styles.adminActions}>
+            <Pressable
+              style={[styles.webhookButton, isSettingUpWebhooks && styles.endButtonDisabled]}
+              onPress={handleSetupWebhooks}
+              disabled={isSettingUpWebhooks}
+            >
+              {isSettingUpWebhooks ? (
+                <ActivityIndicator size="small" color={colors.purple} />
+              ) : (
+                <>
+                  <Ionicons name="notifications-outline" size={18} color={colors.purple} />
+                  <Text style={styles.webhookButtonText}>Setup Push Webhooks</Text>
+                </>
+              )}
+            </Pressable>
           </View>
         }
       />
@@ -247,5 +293,28 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.text.secondary,
     fontSize: typography.size.body,
+  },
+  adminActions: {
+    padding: spacing.lg,
+    paddingTop: spacing['2xl'],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.background.border,
+    marginTop: spacing.lg,
+  },
+  webhookButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.background.surface,
+    borderRadius: radii.md,
+    paddingVertical: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.background.border,
+  },
+  webhookButtonText: {
+    color: colors.purple,
+    fontSize: typography.size.body,
+    fontWeight: typography.weight.semibold,
   },
 });

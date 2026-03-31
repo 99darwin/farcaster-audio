@@ -239,3 +239,36 @@ async def neynar_webhook(
         await livekit.close()
 
     return {"status": "ok"}
+
+
+@router.post("/neynar/notifications")
+async def neynar_notification_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    """Receive global Neynar webhook events for push notifications (follows, likes, replies, recasts)."""
+    body = await request.body()
+    signature = request.headers.get("x-neynar-signature", "")
+
+    if not signature:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature")
+
+    payload = json.loads(body)
+    event_type = payload.get("type", "")
+
+    # Select the correct secret based on event type
+    secret_map = {
+        "cast.created": settings.NEYNAR_WEBHOOK_SECRET_CAST,
+        "reaction.created": settings.NEYNAR_WEBHOOK_SECRET_REACTION,
+        "follow.created": settings.NEYNAR_WEBHOOK_SECRET_FOLLOW,
+    }
+    webhook_secret = secret_map.get(event_type, "")
+    if not webhook_secret or not _verify_neynar_signature(body, webhook_secret, signature):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
+
+    from app.services.push_service import PushService
+    push_service = PushService(db, redis)
+    await push_service.handle_notification_event(event_type, payload)
+
+    return {"status": "ok"}

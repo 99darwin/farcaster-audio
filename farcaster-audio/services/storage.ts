@@ -57,6 +57,22 @@ export async function clearUserProfile(): Promise<void> {
   await SecureStore.deleteItemAsync(KEYS.USER_PROFILE);
 }
 
+// --- Push Token ---
+
+const PUSH_TOKEN_KEY = 'push_token';
+
+export async function savePushToken(token: string): Promise<void> {
+  await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token);
+}
+
+export async function getPushToken(): Promise<string | null> {
+  return SecureStore.getItemAsync(PUSH_TOKEN_KEY);
+}
+
+export async function clearPushToken(): Promise<void> {
+  await SecureStore.deleteItemAsync(PUSH_TOKEN_KEY);
+}
+
 // --- Notification Timestamp ---
 
 const LAST_SEEN_NOTIFICATION_KEY = 'last_seen_notification_ts';
