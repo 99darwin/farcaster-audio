@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+    NEYNAR_WEBHOOK_SECRET_CAST: str = ""
+    NEYNAR_WEBHOOK_SECRET_REACTION: str = ""
+    NEYNAR_WEBHOOK_SECRET_FOLLOW: str = ""
 
 
 settings = Settings()

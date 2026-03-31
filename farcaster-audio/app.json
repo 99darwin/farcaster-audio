@@ -17,7 +17,8 @@
       "associatedDomains": ["applinks:juke.audio"],
       "infoPlist": {
         "UIBackgroundModes": [
-          "audio"
+          "audio",
+          "remote-notification"
         ],
         "NSMicrophoneUsageDescription": "Required to speak in audio spaces",
         "NSCameraUsageDescription": "Not used in this app",
@@ -43,7 +44,14 @@
       "expo-secure-store",
       "@sentry/react-native/expo",
       "expo-image-picker",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#855DCD"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -177,6 +177,9 @@ export const adminEndRoom = (roomId: string) =>
 export const adminKickParticipant = (roomId: string, fid: number) =>
   apiClient.delete<StatusResponse>(`/v1/admin/rooms/${roomId}/participants/${fid}`).then((r) => r.data);
 
+export const adminSetupWebhooks = () =>
+  apiClient.post('/v1/admin/setup-webhooks').then((r) => r.data);
+
 // --- Media ---
 export async function uploadImage(uri: string): Promise<string> {
   const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
@@ -216,6 +219,19 @@ export async function uploadVideo(uri: string): Promise<string> {
 // --- Notifications ---
 export const getNotifications = (params?: { limit?: number; cursor?: string }) =>
   apiClient.get<import('@/types/neynar').NotificationsResponse>('/v1/notifications', { params }).then((r) => r.data);
+
+// --- Push Notifications ---
+export const registerPushToken = (body: { expo_push_token: string; device_id?: string }) =>
+  apiClient.post('/v1/push/token', body).then((r) => r.data);
+
+export const unregisterPushToken = (body: { expo_push_token: string }) =>
+  apiClient.delete('/v1/push/token', { data: body }).then((r) => r.data);
+
+export const getNotificationPreferences = () =>
+  apiClient.get('/v1/push/preferences').then((r) => r.data);
+
+export const updateNotificationPreferences = (body: Record<string, boolean>) =>
+  apiClient.patch('/v1/push/preferences', body).then((r) => r.data);
 
 // Error helper
 export function getErrorMessage(error: unknown): string {

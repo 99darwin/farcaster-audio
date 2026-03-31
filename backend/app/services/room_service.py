@@ -46,6 +46,7 @@ from app.schemas.room import (
 )
 from app.services import permission_service
 from app.services.livekit_service import LiveKitService
+from app.services.push_service import PushService
 from app.services.redis_service import RedisService
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,13 @@ class RoomService:
         self.db = db
         self.redis = redis
         self.livekit = livekit
+        self._push: PushService | None = None
+
+    @property
+    def push(self) -> PushService:
+        if self._push is None:
+            self._push = PushService(self.db, self.redis.redis)
+        return self._push
 
     # -----------------------------------------------------------------------
     # Public API
@@ -569,6 +577,21 @@ class RoomService:
             },
         )
 
+        # Send push notification to host when someone raises their hand
+        if raised:
+            try:
+                room_state = await self.redis.get_room_state(room_id)
+                host_fid = room_state.get("host_fid") if room_state else None
+                if host_fid and int(host_fid) != fid:
+                    raiser_name = participant.get("display_name") or participant.get("username") or "Someone"
+                    await self.push.notify_hand_raised(
+                        host_fid=int(host_fid),
+                        raiser_name=raiser_name,
+                        room_id=room_id,
+                    )
+            except Exception as e:
+                logger.warning("Failed to send hand-raised push: %s", e)
+
         return RaiseHandResponse(hand_raised=raised, queue_position=queue_position)
 
     async def promote_participant(
@@ -647,6 +670,24 @@ class RoomService:
         )
 
         logger.info("fid=%s promoted to speaker in room %s by fid=%s", target_fid, room_id, actor_fid)
+
+        # Send push notification to the promoted user
+        try:
+            room_state = await self.redis.get_room_state(room_id)
+            room_title = room_state.get("title", "a space") if room_state else "a space"
+            actor_participant = await self.redis.get_participant(room_id, actor_fid)
+            inviter_name = "The host"
+            if actor_participant:
+                inviter_name = actor_participant.get("display_name") or actor_participant.get("username") or "The host"
+            await self.push.notify_invited_to_speak(
+                target_fid=target_fid,
+                inviter_name=inviter_name,
+                room_id=room_id,
+                room_title=room_title,
+            )
+        except Exception as e:
+            logger.warning("Failed to send invite-to-speak push: %s", e)
+
         return PromoteResponse(fid=target_fid, role="speaker")
 
     async def demote_participant(
