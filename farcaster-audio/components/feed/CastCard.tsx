@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useState, useCallback, useRef } from 'react';
+import { View, Text, Pressable, StyleSheet, FlatList, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -101,6 +101,10 @@ function CastImages({
   const images = embeds.filter((e) => e.url && !e.cast && isImageUrl(e));
   if (images.length === 0) return null;
   const imageUrls = images.map((e) => e.url!);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const { width: screenWidth } = useWindowDimensions();
+  // Account for container padding (16) + avatar (40) + gap (12) + right padding (16)
+  const carouselWidth = screenWidth - 16 - 40 - 12 - 16;
 
   if (images.length === 1) {
     const img = images[0];
@@ -118,15 +122,33 @@ function CastImages({
   }
 
   return (
-    <View style={styles.imageGrid}>
-      {images.slice(0, 4).map((img, i) => (
-        <EmbedImage
-          key={img.url ?? i}
-          uri={img.url!}
-          style={styles.gridImage}
-          onPress={() => onImagePress(imageUrls, i)}
-        />
-      ))}
+    <View style={styles.imageContainer}>
+      <FlatList
+        data={images.slice(0, 4)}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          const index = Math.round(e.nativeEvent.contentOffset.x / carouselWidth);
+          setActiveIndex(index);
+        }}
+        keyExtractor={(item) => item.url!}
+        renderItem={({ item, index }) => (
+          <EmbedImage
+            uri={item.url!}
+            style={{ width: carouselWidth, aspectRatio: 4 / 3 }}
+            onPress={() => onImagePress(imageUrls, index)}
+          />
+        )}
+      />
+      <View style={styles.dotRow}>
+        {images.slice(0, 4).map((_, i) => (
+          <View
+            key={i}
+            style={[styles.carouselDot, i === activeIndex && styles.carouselDotActive]}
+          />
+        ))}
+      </View>
     </View>
   );
 }
@@ -240,8 +262,9 @@ export function CastCard({
         const domain = e.url!.match(/^https?:\/\/(?:www\.)?(x\.com|twitter\.com)/);
         if (domain) return true;
         const html = e.metadata?.html;
+        const frame = e.metadata?.fc_frame ?? (e.metadata as any)?.frame;
         const hasImage = !!(
-          e.metadata?.fc_frame?.image_url ||
+          frame?.image_url ||
           html?.ogImage?.[0]?.url
         );
         const hasTitle = !!html?.ogTitle;
@@ -301,7 +324,16 @@ export function CastCard({
         {embeds
           .filter((e) => e.url && !e.cast && !isImageUrl(e) && !isVideoUrl(e))
           .map((embed) => (
-            <OgPreview key={embed.url} embed={embed} />
+            <OgPreview
+              key={embed.url}
+              embed={embed}
+              castContext={{
+                hash: cast.hash,
+                authorFid: cast.author.fid,
+                authorUsername: cast.author.username,
+                text: cast.text,
+              }}
+            />
           ))}
         {quoteCast ? (
           <QuoteCast
@@ -394,17 +426,22 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 12,
   },
-  imageGrid: {
-    marginTop: 8,
+  dotRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 2,
-    borderRadius: 12,
-    overflow: 'hidden',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 8,
   },
-  gridImage: {
-    flex: 1,
-    aspectRatio: 1,
+  carouselDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.text.secondary,
+    opacity: 0.4,
+  },
+  carouselDotActive: {
+    opacity: 1,
+    backgroundColor: colors.purple,
   },
   imageFallback: {
     backgroundColor: colors.background.border,

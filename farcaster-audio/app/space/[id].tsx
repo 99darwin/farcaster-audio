@@ -9,6 +9,7 @@ import { useSpace } from '@/hooks/useSpace';
 import { useSpacePermissions } from '@/hooks/useSpacePermissions';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
+import { useMiniAppStore } from '@/stores/miniappStore';
 import { SpeakerGrid } from '@/components/spaces/SpeakerGrid';
 import { ListenerList } from '@/components/spaces/ListenerList';
 import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
@@ -17,6 +18,7 @@ import { ParticipantProfileCard } from '@/components/spaces/ParticipantProfileCa
 import { SpaceChat } from '@/components/spaces/SpaceChat';
 import { EmojiReactionPanel } from '@/components/spaces/EmojiReactionPanel';
 import { EmojiReactionOverlay } from '@/components/spaces/EmojiReactionOverlay';
+import { MiniAppPicker } from '@/components/miniapp/MiniAppPicker';
 import { GlassView } from '@/components/common/GlassView';
 import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -52,6 +54,9 @@ export default function SpaceScreen() {
   const [showHostControls, setShowHostControls] = useState(false);
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
   const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants');
+  const [isMiniAppPickerVisible, setIsMiniAppPickerVisible] = useState(false);
+  const addedMiniApps = useMiniAppStore((s) => s.addedMiniApps);
+  const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
   const insets = useSafeAreaInsets();
   const hasChatTab = !!room?.cast_hash;
 
@@ -276,6 +281,17 @@ export default function SpaceScreen() {
         )}
         <Pressable
           onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setIsMiniAppPickerVisible(true);
+          }}
+          style={styles.controlIcon}
+          accessibilityLabel="Open mini app"
+          accessibilityRole="button"
+        >
+          <Ionicons name="apps-outline" size={24} color={colors.text.primary} />
+        </Pressable>
+        <Pressable
+          onPress={() => {
             if (!id || !room) return;
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             Share.share({
@@ -320,6 +336,23 @@ export default function SpaceScreen() {
         onBan={handleBan}
         onEndSpace={handleEndSpace}
         hostFid={room.host_fid}
+      />
+
+      {/* Mini App Picker */}
+      <MiniAppPicker
+        visible={isMiniAppPickerVisible}
+        onClose={() => setIsMiniAppPickerVisible(false)}
+        addedMiniApps={addedMiniApps}
+        onSelectMiniApp={(miniApp) => {
+          setIsMiniAppPickerVisible(false);
+          openMiniApp({
+            url: miniApp.config.homeUrl,
+            domain: miniApp.domain,
+            manifest: null,
+            config: miniApp.config,
+            location: { type: 'launcher' },
+          });
+        }}
       />
     </View>
     </AvatarPositionProvider>

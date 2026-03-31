@@ -10,7 +10,9 @@ import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
+import { useMiniAppStore } from '@/stores/miniappStore';
 import { SpaceMiniBar } from '@/components/spaces/SpaceMiniBar';
+import { MiniAppModal, MiniAppMiniBar } from '@/components/miniapp/MiniAppModal';
 import { TAB_BAR_TOTAL_HEIGHT } from '@/components/navigation/GlassTabBar';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { useOTAUpdate } from '@/hooks/useOTAUpdate';
@@ -41,6 +43,7 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const { isUpdateAvailable, isRestarting, applyUpdate, dismiss } = useOTAUpdate();
+  const hydrateAddedMiniApps = useMiniAppStore((s) => s.hydrateAddedMiniApps);
 
   useNotificationBadge();
 
@@ -48,7 +51,8 @@ export default function RootLayout() {
 
   useEffect(() => {
     hydrate();
-  }, [hydrate]);
+    hydrateAddedMiniApps();
+  }, [hydrate, hydrateAddedMiniApps]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -80,14 +84,50 @@ export default function RootLayout() {
     return () => subscription.remove();
   }, []);
 
+  const isValidMiniAppUrl = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:') return false;
+      const host = parsed.hostname;
+      // Reject private/local IPs
+      if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return false;
+      if (host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) return false;
+      if (host.endsWith('.local')) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const handleDeepLink = (url: string) => {
-    // Parse: juke://space/{id} or https://juke.audio/space/{id}
     const parsed = Linking.parse(url);
+    // Parse: juke://space/{id} or https://juke.audio/space/{id}
     if (parsed.path?.startsWith('space/')) {
       const roomId = parsed.path.replace('space/', '');
       if (!roomId) return;
       if (isAuthenticated) {
         router.push(`/space/${roomId}`);
+      } else {
+        pendingDeepLink.current = url;
+      }
+    }
+    // Parse: juke://miniapp?url={encoded_url}
+    if (parsed.path === 'miniapp' && parsed.queryParams?.url) {
+      const miniAppUrl = parsed.queryParams.url as string;
+      // Validate: must be HTTPS, no private IPs
+      if (!isValidMiniAppUrl(miniAppUrl)) return;
+      if (isAuthenticated) {
+        import('@/services/manifest').then(({ resolveMiniApp }) => {
+          resolveMiniApp(miniAppUrl).then((resolved) => {
+            useMiniAppStore.getState().openMiniApp({
+              url: resolved.launchUrl,
+              domain: resolved.domain,
+              manifest: resolved.manifest,
+              config: resolved.config,
+              location: { type: 'launcher' },
+            });
+          });
+        });
       } else {
         pendingDeepLink.current = url;
       }
@@ -148,6 +188,14 @@ export default function RootLayout() {
             bottomOffset={segments[0] === '(tabs)' ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16 : insets.bottom + 8}
           />
         )}
+        <MiniAppMiniBar
+          bottomOffset={
+            room && segments[0] !== 'space'
+              ? (segments[0] === '(tabs)' ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16 : insets.bottom + 8) + 56
+              : segments[0] === '(tabs)' ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16 : insets.bottom + 8
+          }
+        />
+        <MiniAppModal />
         <Toast />
       </GestureHandlerRootView>
     </SafeAreaProvider>
