@@ -431,28 +431,29 @@ class PushService:
         """Update all Neynar notification webhooks with the current active FID list."""
         webhook_url = f"{settings.API_BASE_URL}/v1/webhooks/neynar/notifications"
 
-        # Each webhook type uses a different subscription filter key
+        # Each webhook type uses different subscription filter keys.
+        # - cast.created: use mentioned_fids (replies are filtered server-side
+        #   since there's no parent_author_fids filter in Neynar)
+        # - reaction.created: use target_fids (person whose cast was liked/recasted)
+        # - follow.created: use target_fids (person being followed)
         webhooks = [
             {
                 "webhook_id": settings.NEYNAR_WEBHOOK_ID_CAST,
                 "name": "juke-push-cast",
-                "subscription": {"cast.created": {"author_fids": []}},
-                "fid_key": "author_fids",
                 "event_key": "cast.created",
+                "fid_key": "mentioned_fids",
             },
             {
                 "webhook_id": settings.NEYNAR_WEBHOOK_ID_REACTION,
                 "name": "juke-push-reaction",
-                "subscription": {"reaction.created": {"fids": []}},
-                "fid_key": "fids",
                 "event_key": "reaction.created",
+                "fid_key": "target_fids",
             },
             {
                 "webhook_id": settings.NEYNAR_WEBHOOK_ID_FOLLOW,
                 "name": "juke-push-follow",
-                "subscription": {"follow.created": {"fids": []}},
-                "fid_key": "fids",
                 "event_key": "follow.created",
+                "fid_key": "target_fids",
             },
         ]
         webhooks = [w for w in webhooks if w["webhook_id"]]
