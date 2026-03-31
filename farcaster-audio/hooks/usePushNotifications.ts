@@ -74,15 +74,11 @@ export function usePushNotifications() {
       const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: PROJECT_ID });
       const token = tokenData.data;
 
-      // Only register if token changed
-      if (token !== existingToken) {
-        await api.registerPushToken({ expo_push_token: token });
-        await storage.savePushToken(token);
-        registeredRef.current = true;
-        if (__DEV__) console.log('[Push] Registered token:', token);
-      } else {
-        registeredRef.current = true;
-      }
+      // Always register with backend (upserts + syncs webhook filters)
+      await api.registerPushToken({ expo_push_token: token });
+      await storage.savePushToken(token);
+      registeredRef.current = true;
+      if (__DEV__) console.log('[Push] Registered token:', token);
     } catch (error) {
       if (__DEV__) console.error('[Push] Failed to register:', error);
     }
