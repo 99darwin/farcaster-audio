@@ -12,7 +12,8 @@ const PROJECT_ID = 'YOUR_EAS_PROJECT_ID';
 // Show notifications when app is in foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -21,7 +22,7 @@ Notifications.setNotificationHandler({
 export function usePushNotifications() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const router = useRouter();
-  const notificationResponseListener = useRef<Notifications.Subscription>();
+  const notificationResponseListener = useRef<Notifications.Subscription>(null);
   const registeredRef = useRef(false);
 
   useEffect(() => {
@@ -41,9 +42,7 @@ export function usePushNotifications() {
       });
 
     return () => {
-      if (notificationResponseListener.current) {
-        Notifications.removeNotificationSubscription(notificationResponseListener.current);
-      }
+      notificationResponseListener.current?.remove();
     };
   }, [isAuthenticated]);
 
