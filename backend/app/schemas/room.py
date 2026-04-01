@@ -10,6 +10,22 @@ if TYPE_CHECKING:
     from app.schemas.participant import ParticipantResponse
 
 
+class RsvpUserResponse(BaseModel):
+    fid: int
+    display_name: str
+    pfp_url: str | None = None
+
+
+class RsvpSummary(BaseModel):
+    count: int
+    users: list[RsvpUserResponse] = []
+    is_going: bool = False
+
+
+class RsvpResponse(BaseModel):
+    status: str
+
+
 class RoomCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=256)
     announce_cast: bool = False
@@ -29,6 +45,7 @@ class RoomResponse(BaseModel):
     listener_count: int = 0
     recording: bool = False
     cast_hash: str | None = None
+    rsvp_summary: RsvpSummary | None = None
 
 
 class RoomCreateResponse(BaseModel):

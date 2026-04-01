@@ -15,7 +15,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user, get_db, get_redis
+from app.dependencies import get_current_user, get_db, get_optional_current_user, get_redis
 from app.schemas.common import StatusResponse
 from app.schemas.room import (
     RoomCreate,
@@ -23,6 +23,7 @@ from app.schemas.room import (
     RoomDetailResponse,
     RoomGoLiveResponse,
     RoomListResponse,
+    RsvpResponse,
 )
 from app.services.livekit_service import LiveKitService
 from app.services.redis_service import RedisService
@@ -92,10 +93,31 @@ async def create_room(
 @router.get("/{room_id}", response_model=RoomDetailResponse)
 async def get_room(
     room_id: str,
+    current_fid: int | None = Depends(get_optional_current_user),
     room_service: RoomService = Depends(get_room_service),
 ) -> RoomDetailResponse:
     """Get room details including the live participant list and hand-raise queue."""
-    return await room_service.get_room(room_id=room_id)
+    return await room_service.get_room(room_id=room_id, current_fid=current_fid)
+
+
+@router.post("/{room_id}/rsvp", response_model=RsvpResponse)
+async def rsvp_room(
+    room_id: str,
+    current_user_fid: int = Depends(get_current_user),
+    room_service: RoomService = Depends(get_room_service),
+) -> RsvpResponse:
+    """RSVP to a scheduled room."""
+    return await room_service.register_rsvp(room_id, current_user_fid)
+
+
+@router.delete("/{room_id}/rsvp", response_model=RsvpResponse)
+async def unrsvp_room(
+    room_id: str,
+    current_user_fid: int = Depends(get_current_user),
+    room_service: RoomService = Depends(get_room_service),
+) -> RsvpResponse:
+    """Remove RSVP from a scheduled room."""
+    return await room_service.unregister_rsvp(room_id, current_user_fid)
 
 
 @router.post("/{room_id}/start", response_model=RoomGoLiveResponse)

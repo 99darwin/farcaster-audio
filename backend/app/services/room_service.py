@@ -21,13 +21,16 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import func as sa_func, select, update
+from sqlalchemy import delete, func as sa_func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from app.models.ban import Ban
 from app.models.participant import Participant
 from app.models.room import Room
+from app.models.room_rsvp import RoomRsvp
 from app.models.user import User
 from app.schemas.auth import UserResponse
 from app.schemas.participant import (
@@ -44,6 +47,9 @@ from app.schemas.room import (
     RoomGoLiveResponse,
     RoomListResponse,
     RoomResponse,
+    RsvpResponse,
+    RsvpSummary,
+    RsvpUserResponse,
 )
 from app.services import permission_service
 from app.services.livekit_service import LiveKitService
@@ -336,6 +342,24 @@ class RoomService:
 
         room_response = await self._build_room_response(room, host, 1, 0)
 
+        # Notify RSVP'd users
+        try:
+            rsvp_fids = await self._get_rsvp_fids(room.id)
+            for target_fid in rsvp_fids:
+                if target_fid == fid:
+                    continue
+                try:
+                    await self.push.send_push(
+                        fid=target_fid,
+                        title="Space is Live",
+                        body=f'"{room.title}" is now live \u2014 join now!',
+                        data={"type": "space_live", "url": f"/space/{str(room.id)}"},
+                    )
+                except Exception:
+                    pass  # best-effort
+        except Exception:
+            pass  # don't block go-live
+
         logger.info("Scheduled room %s started by fid=%s", room_id, fid)
         return RoomGoLiveResponse(
             room=room_response,
@@ -343,7 +367,7 @@ class RoomService:
             livekit_ws_url=settings.LIVEKIT_WS_URL,
         )
 
-    async def get_room(self, room_id: str) -> RoomDetailResponse:
+    async def get_room(self, room_id: str, current_fid: int | None = None) -> RoomDetailResponse:
         """
         Fetch room details including live participant list and hand queue from Redis.
         Scheduled rooms return empty participants (no Redis state yet).
@@ -362,7 +386,8 @@ class RoomService:
                 )
                 await self.db.commit()
                 await self.db.refresh(room)
-            room_response = await self._build_room_response(room, host, 0, 0)
+            rsvp_summary = await self._get_rsvp_summary(room.id, current_fid)
+            room_response = await self._build_room_response(room, host, 0, 0, rsvp_summary=rsvp_summary)
             return RoomDetailResponse(room=room_response, participants=[], hand_queue=[])
 
         participants_data = await self.redis.get_all_participants(room_id)
@@ -413,10 +438,23 @@ class RoomService:
         has_more = len(rows) > limit
         page = rows[:limit]
 
+        # Batch-fetch RSVP counts for all rooms on this page
+        count_map: dict[uuid.UUID, int] = {}
+        if page:
+            room_ids = [r.id for r in page]
+            counts = await self.db.execute(
+                select(RoomRsvp.room_id, sa_func.count(RoomRsvp.id))
+                .where(RoomRsvp.room_id.in_(room_ids))
+                .group_by(RoomRsvp.room_id)
+            )
+            count_map = dict(counts.all())
+
         rooms: list[RoomResponse] = []
         for room in page:
             host = await self._get_user(room.host_fid)
-            rooms.append(await self._build_room_response(room, host, 0, 0))
+            rsvp_count = count_map.get(room.id, 0)
+            rsvp_summary = RsvpSummary(count=rsvp_count)
+            rooms.append(await self._build_room_response(room, host, 0, 0, rsvp_summary=rsvp_summary))
 
         next_cursor = str(cursor + limit) if has_more else None
         return RoomListResponse(rooms=rooms, next_cursor=next_cursor)
@@ -469,6 +507,32 @@ class RoomService:
         next_cursor = str(cursor + limit) if has_more else None
 
         return RoomListResponse(rooms=rooms, next_cursor=next_cursor)
+
+    async def register_rsvp(self, room_id: str, fid: int) -> RsvpResponse:
+        """RSVP to a scheduled room. Idempotent (uses INSERT ON CONFLICT DO NOTHING)."""
+        room = await self._get_room_or_404(room_id)
+        if room.status != "scheduled":
+            raise HTTPException(status_code=400, detail="RSVPs are only available for scheduled rooms")
+
+        stmt = (
+            pg_insert(RoomRsvp)
+            .values(room_id=room.id, fid=fid)
+            .on_conflict_do_nothing(constraint="uq_room_rsvps_room_fid")
+        )
+        await self.db.execute(stmt)
+        await self.db.commit()
+        return RsvpResponse(status="going")
+
+    async def unregister_rsvp(self, room_id: str, fid: int) -> RsvpResponse:
+        """Remove an RSVP from a scheduled room."""
+        room = await self._get_room_or_404(room_id)
+        if room.status != "scheduled":
+            raise HTTPException(status_code=400, detail="RSVPs can only be removed from scheduled rooms")
+        await self.db.execute(
+            delete(RoomRsvp).where(RoomRsvp.room_id == room.id, RoomRsvp.fid == fid)
+        )
+        await self.db.commit()
+        return RsvpResponse(status="removed")
 
     async def end_room(self, room_id: str, fid: int) -> None:
         """
@@ -1232,12 +1296,59 @@ class RoomService:
             raise HTTPException(status_code=404, detail=f"User with fid={fid} not found")
         return user
 
+    async def _get_rsvp_summary(
+        self, room_id: uuid.UUID, current_fid: int | None = None
+    ) -> RsvpSummary:
+        """Build an RSVP summary for a room: count, top 5 users, and whether the current user is going."""
+        # Total count
+        count_result = await self.db.execute(
+            select(sa_func.count(RoomRsvp.id)).where(RoomRsvp.room_id == room_id)
+        )
+        count = count_result.scalar() or 0
+
+        # Top 5 users (earliest RSVPs)
+        top_users_result = await self.db.execute(
+            select(RoomRsvp.fid, User.display_name, User.pfp_url)
+            .join(User, RoomRsvp.fid == User.fid)
+            .where(RoomRsvp.room_id == room_id)
+            .order_by(RoomRsvp.created_at)
+            .limit(5)
+        )
+        users = [
+            RsvpUserResponse(
+                fid=row.fid,
+                display_name=row.display_name or str(row.fid),
+                pfp_url=row.pfp_url,
+            )
+            for row in top_users_result.all()
+        ]
+
+        # Check if current user is going
+        is_going = False
+        if current_fid is not None:
+            exists_result = await self.db.execute(
+                select(sa_func.count(RoomRsvp.id)).where(
+                    RoomRsvp.room_id == room_id, RoomRsvp.fid == current_fid
+                )
+            )
+            is_going = (exists_result.scalar() or 0) > 0
+
+        return RsvpSummary(count=count, users=users, is_going=is_going)
+
+    async def _get_rsvp_fids(self, room_id: uuid.UUID) -> list[int]:
+        """Return all FIDs that RSVP'd to a room."""
+        result = await self.db.execute(
+            select(RoomRsvp.fid).where(RoomRsvp.room_id == room_id)
+        )
+        return [row[0] for row in result.all()]
+
     async def _build_room_response(
         self,
         room: Room,
         host: User,
         speaker_count: int,
         listener_count: int,
+        rsvp_summary: RsvpSummary | None = None,
     ) -> RoomResponse:
         """
         Construct a RoomResponse from ORM model + live Redis counts.
@@ -1263,6 +1374,7 @@ class RoomService:
             listener_count=listener_count,
             recording=room.recording,
             cast_hash=room.cast_hash,
+            rsvp_summary=rsvp_summary,
         )
 
     async def _announce_room(self, room_id: str, title: str, user: User) -> str | None:

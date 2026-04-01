@@ -14,6 +14,7 @@ export interface Room {
   listener_count: number;
   recording: boolean;
   cast_hash: string | null;
+  rsvp_summary?: RsvpSummary | null;
 }
 
 export interface Participant {
@@ -32,6 +33,18 @@ export interface SpaceState {
   hand_queue: number[];
   my_role: ParticipantRole;
   is_connected: boolean;
+}
+
+export interface RsvpUser {
+  fid: number;
+  display_name: string;
+  pfp_url: string | null;
+}
+
+export interface RsvpSummary {
+  count: number;
+  users: RsvpUser[];
+  is_going: boolean;
 }
 
 export interface RoomEvent {
