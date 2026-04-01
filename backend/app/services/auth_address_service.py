@@ -78,7 +78,6 @@ def generate_signed_key_request(auth_address: str) -> tuple[str, int]:
     signable = encode_typed_data(
         domain_data=SIGNED_KEY_REQUEST_VALIDATOR_DOMAIN,
         message_types=SIGNED_KEY_REQUEST_TYPES,
-        primary_type="SignedKeyRequest",
         message_data=message,
     )
 
