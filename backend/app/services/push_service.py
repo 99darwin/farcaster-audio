@@ -292,6 +292,7 @@ class PushService:
         self, event_type: str, payload: dict
     ) -> None:
         """Process an incoming Neynar webhook event and send push notifications."""
+        logger.info("handle_notification_event: type=%s", event_type)
         target_fid: int | None = None
         title = ""
         body = ""
@@ -367,7 +368,7 @@ class PushService:
             data = {"type": "follow", "url": f"/profile/{follower_fid}"}
 
         if not target_fid or not notification_type:
-            logger.debug("Skipping event %s: no target_fid or notification_type", event_type)
+            logger.info("Skipping event %s: no target_fid or notification_type", event_type)
             return
 
         # Don't notify yourself
@@ -375,18 +376,18 @@ class PushService:
                     payload.get("data", {}).get("user", {}).get("fid") or \
                     payload.get("data", {}).get("follower", {}).get("fid")
         if actor_fid == target_fid:
-            logger.debug("Skipping self-notification for fid=%s", target_fid)
+            logger.info("Skipping self-notification for fid=%s", target_fid)
             return
 
         # Check if target is an active Juke user
         is_active = await self.redis.sismember(REDIS_ACTIVE_FIDS_KEY, str(target_fid))
         if not is_active:
-            logger.debug("Skipping fid=%s: not in active_fids set", target_fid)
+            logger.info("Skipping fid=%s (target): not in active_fids set", target_fid)
             return
 
         # Check notification preference
         if not await self.is_enabled(target_fid, notification_type):
-            logger.debug("Skipping fid=%s: %s notifications disabled", target_fid, notification_type)
+            logger.info("Skipping fid=%s: %s notifications disabled", target_fid, notification_type)
             return
 
         logger.info("Sending %s push to fid=%s from fid=%s", notification_type, target_fid, actor_fid)
