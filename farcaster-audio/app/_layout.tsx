@@ -1,3 +1,4 @@
+import '@/utils/cryptoPolyfill';
 import * as Sentry from '@sentry/react-native';
 import { registerGlobals } from '@livekit/react-native';
 import { useEffect, useRef } from 'react';
