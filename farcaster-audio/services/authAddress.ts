@@ -111,8 +111,8 @@ export async function signSiwfMessage(
     throw new Error('Invalid FID');
   }
 
-  // Validate nonce format (alphanumeric, 8-64 chars per SIWF spec)
-  if (!options.nonce || !/^[a-zA-Z0-9]{8,64}$/.test(options.nonce)) {
+  // Validate nonce is present and reasonable length
+  if (!options.nonce || options.nonce.length < 8 || options.nonce.length > 256) {
     throw new Error('Invalid nonce format');
   }
 

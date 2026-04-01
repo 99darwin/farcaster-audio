@@ -243,28 +243,28 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
     // --- Auth ---
 
     signIn: async (options: { nonce: string; notBefore?: string; expirationTime?: string; acceptAuthAddress?: boolean }) => {
-      const fid = user?.fid;
-      if (!fid) {
-        return { error: { type: 'rejected_by_user' as const } } as any;
-      }
-
-      // Check if auth address is registered and approved
-      let status = await getAuthAddressStatus(fid);
-
-      if (status !== 'approved') {
-        // Prompt user to set up auth address
-        const proceed = await useMiniAppStore.getState().requestAuthSetup();
-        if (!proceed) {
-          return { error: { type: 'rejected_by_user' as const } } as any;
-        }
-        // Re-check status after setup flow
-        status = await getAuthAddressStatus(fid);
-        if (status !== 'approved') {
-          return { error: { type: 'rejected_by_user' as const } } as any;
-        }
-      }
-
       try {
+        const fid = user?.fid;
+        if (!fid) {
+          return { error: { type: 'rejected_by_user' as const } } as any;
+        }
+
+        // Check if auth address is registered and approved
+        let status = await getAuthAddressStatus(fid);
+
+        if (status !== 'approved') {
+          // Prompt user to set up auth address
+          const proceed = await useMiniAppStore.getState().requestAuthSetup();
+          if (!proceed) {
+            return { error: { type: 'rejected_by_user' as const } } as any;
+          }
+          // Re-check status after setup flow
+          status = await getAuthAddressStatus(fid);
+          if (status !== 'approved') {
+            return { error: { type: 'rejected_by_user' as const } } as any;
+          }
+        }
+
         const { signature, message } = await signSiwfMessage(fid, {
           nonce: options.nonce,
           domain,
@@ -272,7 +272,8 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
           expirationTime: options.expirationTime,
         });
         return { result: { signature, message, authMethod: 'authAddress' as const } } as any;
-      } catch {
+      } catch (err) {
+        console.error('[MiniAppHost] signIn error:', err);
         return { error: { type: 'rejected_by_user' as const } } as any;
       }
     },
