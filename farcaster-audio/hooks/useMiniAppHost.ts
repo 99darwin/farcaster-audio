@@ -307,10 +307,28 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
     },
   }), [context, user, domain, activeMiniApp, closeMiniApp, hideSplash, setPrimaryButton, addToStore, openMiniAppInStore, onComposeCast, router]);
 
+  // Minimal EIP-1193 provider that rejects all requests (no wallet support yet)
+  const noopProvider = useMemo(() => {
+    const listeners = new Map<string, Set<(...args: any[]) => void>>();
+    return {
+      request: async () => {
+        throw { code: 4900, message: 'Wallet not available' };
+      },
+      on: (event: string, fn: (...args: any[]) => void) => {
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event)!.add(fn);
+      },
+      removeListener: (event: string, fn: (...args: any[]) => void) => {
+        listeners.get(event)?.delete(fn);
+      },
+    };
+  }, []);
+
   const { onMessage, emit } = useWebViewRpcAdapter({
     webViewRef,
     domain,
     sdk,
+    ethProvider: noopProvider as any,
     debug: __DEV__,
   });
 
