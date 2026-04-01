@@ -26,9 +26,16 @@ export interface AuthUrlResponse {
 export interface RoomCreateRequest {
   title: string;
   announce_cast?: boolean;
+  scheduled_at?: string;
 }
 
 export interface RoomCreateResponse {
+  room: Room;
+  livekit_token: string | null;
+  livekit_ws_url: string | null;
+}
+
+export interface RoomGoLiveResponse {
   room: Room;
   livekit_token: string;
   livekit_ws_url: string;

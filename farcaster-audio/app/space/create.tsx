@@ -1,17 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, Switch, StyleSheet, Alert, Keyboard, Animated } from 'react-native';
+import { View, Text, TextInput, Switch, StyleSheet, Alert, Keyboard, Animated, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { NativeModules } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Button } from '@/components/common/Button';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useLiveSpaces } from '@/hooks/useLiveSpaces';
 import Toast from 'react-native-toast-message';
 import { colors } from '@/constants/theme';
+import { formatScheduledTime } from '@/utils/formatDate';
 import * as api from '@/services/api';
 import * as livekitService from '@/services/livekit';
 
 const { AudioSessionModule } = NativeModules;
+
+const MIN_SCHEDULE_AHEAD_MS = 5 * 60 * 1000;
 
 export default function CreateSpaceScreen() {
   const router = useRouter();
@@ -19,6 +23,12 @@ export default function CreateSpaceScreen() {
   const { refresh: refreshSpaces } = useLiveSpaces();
   const [title, setTitle] = useState('');
   const [announceCast, setAnnounceCast] = useState(false);
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState(() => {
+    const d = new Date();
+    d.setHours(d.getHours() + 1, 0, 0, 0);
+    return d;
+  });
   const [isCreating, setIsCreating] = useState(false);
   const keyboardPadding = useRef(new Animated.Value(0)).current;
 
@@ -50,6 +60,11 @@ export default function CreateSpaceScreen() {
       return;
     }
 
+    if (isScheduled && scheduledDate.getTime() < Date.now() + MIN_SCHEDULE_AHEAD_MS) {
+      Alert.alert('Error', 'Scheduled time must be at least 5 minutes in the future');
+      return;
+    }
+
     setIsCreating(true);
     try {
       // Clean up any stale space state
@@ -62,9 +77,18 @@ export default function CreateSpaceScreen() {
       const response = await api.createRoom({
         title: trimmedTitle,
         announce_cast: announceCast,
+        ...(isScheduled ? { scheduled_at: scheduledDate.toISOString() } : {}),
       });
 
-      // Build the host as the initial participant
+      if (isScheduled) {
+        // Scheduled — no LiveKit connection, navigate to the space detail
+        Toast.show({ type: 'success', text1: 'Space scheduled!', text2: formatScheduledTime(scheduledDate.toISOString()) });
+        refreshSpaces();
+        router.replace(`/space/${response.room.id}`);
+        return;
+      }
+
+      // Immediate — connect to LiveKit
       const hostParticipant = {
         fid: user!.fid,
         role: 'host' as const,
@@ -75,11 +99,8 @@ export default function CreateSpaceScreen() {
         pfp_url: user!.pfp_url ?? null,
       };
 
-      // Set store state with the host in the participant list
       useSpaceStore.getState().joinSpace(response.room, [hostParticipant], 'host');
-
-      // Connect to LiveKit directly (avoid useSpace hook which triggers reconnect side effects)
-      await livekitService.connectToRoom(response.livekit_ws_url, response.livekit_token);
+      await livekitService.connectToRoom(response.livekit_ws_url!, response.livekit_token!);
       await livekitService.enableMicrophone();
       useSpaceStore.getState().setConnected(true);
       useSpaceStore.getState().setMuted(false);
@@ -88,7 +109,6 @@ export default function CreateSpaceScreen() {
       router.replace(`/space/${response.room.id}`);
     } catch (err) {
       console.error('[CreateSpace] Error:', err);
-      // Clean up partial state on failure
       useSpaceStore.getState().leaveSpace();
       Toast.show({
         type: 'error',
@@ -133,9 +153,45 @@ export default function CreateSpaceScreen() {
           />
         </View>
 
+        <View style={styles.optionRow}>
+          <View style={styles.optionText}>
+            <Text style={styles.optionLabel}>Schedule for later</Text>
+            <Text style={styles.optionDescription}>
+              Set a date and time to go live
+            </Text>
+          </View>
+          <Switch
+            value={isScheduled}
+            onValueChange={setIsScheduled}
+            trackColor={{ false: colors.background.subtle, true: colors.accent }}
+            thumbColor={colors.text.primary}
+            accessibilityLabel="Schedule for later"
+          />
+        </View>
+
+        {isScheduled && (
+          <View style={styles.datePickerContainer}>
+            <DateTimePicker
+              value={scheduledDate}
+              mode="datetime"
+              display="spinner"
+              minimumDate={new Date()}
+              onChange={(_event, date) => {
+                if (date) setScheduledDate(date);
+              }}
+              textColor={colors.text.primary}
+              themeVariant="dark"
+              style={styles.datePicker}
+            />
+            <Text style={styles.scheduledLabel}>
+              {formatScheduledTime(scheduledDate.toISOString())}
+            </Text>
+          </View>
+        )}
+
         <View style={styles.buttonContainer}>
           <Button
-            title="Start Space"
+            title={isScheduled ? 'Schedule Space' : 'Start Space'}
             onPress={handleCreate}
             isLoading={isCreating}
             disabled={!title.trim()}
@@ -182,12 +238,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 32,
+    marginTop: 16,
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.background.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
   },
   optionText: {
     flex: 1,
@@ -201,6 +255,20 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: 13,
     marginTop: 2,
+  },
+  datePickerContainer: {
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  datePicker: {
+    width: '100%',
+    height: 180,
+  },
+  scheduledLabel: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 4,
   },
   buttonContainer: {
     marginTop: 'auto',

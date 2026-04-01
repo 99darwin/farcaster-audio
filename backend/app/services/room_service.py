@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import func as sa_func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -41,6 +41,7 @@ from app.schemas.participant import (
 from app.schemas.room import (
     RoomCreateResponse,
     RoomDetailResponse,
+    RoomGoLiveResponse,
     RoomListResponse,
     RoomResponse,
 )
@@ -98,29 +99,66 @@ class RoomService:
         fid: int,
         title: str,
         announce_cast: bool = False,
+        scheduled_at: datetime | None = None,
     ) -> RoomCreateResponse:
         """
-        Create a new audio room.
+        Create a new audio room (immediate or scheduled).
 
-        Steps:
-          1. Fetch the host user from DB.
-          2. Persist the Room row.
-          3. Create the LiveKit room.
-          4. Seed Redis state.
-          5. Register the host as the first participant (role=host).
-          6. Return room data + LiveKit token + WS URL.
+        If ``scheduled_at`` is provided the room is persisted with
+        status="scheduled" and no LiveKit/Redis resources are allocated until
+        the host explicitly goes live via ``start_scheduled_room``.
         """
         host = await self._get_user(fid)
+
+        is_scheduled = scheduled_at is not None
+
+        # Enforce per-user cap on scheduled rooms
+        if is_scheduled:
+            count_result = await self.db.execute(
+                select(sa_func.count())
+                .select_from(Room)
+                .where(Room.host_fid == fid, Room.status == "scheduled")
+            )
+            scheduled_count = count_result.scalar() or 0
+            if scheduled_count >= 10:
+                raise HTTPException(
+                    status_code=400,
+                    detail="You can have at most 10 scheduled rooms at a time",
+                )
 
         room = Room(
             title=title,
             host_fid=fid,
-            status="active",
+            status="scheduled" if is_scheduled else "active",
+            scheduled_at=scheduled_at,
+            started_at=None if is_scheduled else _utcnow(),
         )
         self.db.add(room)
-        await self.db.flush()  # populate room.id without committing
+        await self.db.flush()
 
         room_id = _room_id_str(room.id)
+
+        # --- Scheduled rooms: persist and return early (no LiveKit/Redis) ---
+        if is_scheduled:
+            await self.db.commit()
+            await self.db.refresh(room)
+
+            # Optionally announce on Farcaster
+            if announce_cast:
+                scheduled_label = scheduled_at.strftime("%b %d at %I:%M %p UTC")  # type: ignore[union-attr]
+                cast_hash = await self._announce_room_scheduled(room_id, title, host, scheduled_label)
+                if cast_hash:
+                    await self.db.execute(
+                        update(Room).where(Room.id == room.id).values(cast_hash=cast_hash)
+                    )
+                    await self.db.commit()
+                    await self.db.refresh(room)
+
+            room_response = await self._build_room_response(room, host, 0, 0)
+            logger.info("Scheduled room %s created by fid=%s for %s", room_id, fid, scheduled_at)
+            return RoomCreateResponse(room=room_response, livekit_token=None, livekit_ws_url=None)
+
+        # --- Immediate rooms: full LiveKit/Redis setup ---
 
         # Create the LiveKit room (best-effort; roll back if it fails)
         try:
@@ -218,12 +256,114 @@ class RoomService:
             livekit_ws_url=settings.LIVEKIT_WS_URL,
         )
 
+    async def start_scheduled_room(self, room_id: str, fid: int) -> RoomGoLiveResponse:
+        """
+        Transition a scheduled room to active. Only the host may call this.
+
+        Creates LiveKit room, seeds Redis, registers host as first participant,
+        and returns a LiveKit token so the host can connect.
+        """
+        room = await self._get_room_or_404(room_id)
+
+        if room.host_fid != fid:
+            raise HTTPException(status_code=403, detail="Only the host can start a scheduled room")
+
+        host = await self._get_user(fid)
+
+        # Atomic transition: claim the room before allocating LiveKit resources
+        # (prevents orphaned LiveKit rooms on concurrent double-start)
+        now = _utcnow()
+        result = await self.db.execute(
+            update(Room)
+            .where(Room.id == room.id, Room.status == "scheduled")
+            .values(status="active", started_at=now, livekit_room_id=room_id)
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=400, detail="Room is not in scheduled state")
+        await self.db.commit()
+        await self.db.refresh(room)
+
+        # Create LiveKit room (roll back DB transition on failure)
+        try:
+            await self.livekit.create_room(room_id=room_id, title=room.title)
+        except Exception as exc:
+            logger.exception("LiveKit room creation failed for scheduled room %s", room_id)
+            await self.db.execute(
+                update(Room)
+                .where(Room.id == room.id)
+                .values(status="scheduled", started_at=None, livekit_room_id=None)
+            )
+            await self.db.commit()
+            raise HTTPException(status_code=502, detail="Failed to create media room") from exc
+
+        # Seed Redis state
+        started_ts = now.timestamp()
+        await self.redis.set_room_state(
+            room_id,
+            {
+                "id": room_id,
+                "title": room.title,
+                "host_fid": fid,
+                "status": "active",
+                "started_at": started_ts,
+            },
+        )
+        await self.redis.add_active_room(room_id, started_ts)
+
+        # Add host as first participant
+        host_participant_data = {
+            "fid": fid,
+            "role": "host",
+            "is_muted": False,
+            "hand_raised": False,
+            "display_name": host.display_name or host.username or str(fid),
+            "pfp_url": host.pfp_url,
+        }
+        await self.redis.set_participant(room_id, fid, host_participant_data)
+        await self.redis.set_user_active_room(fid, room_id)
+
+        participant = Participant(room_id=room.id, fid=fid, role="host", is_muted=False)
+        self.db.add(participant)
+        await self.db.commit()
+
+        token = self.livekit.generate_token(
+            room_id=room_id,
+            fid=fid,
+            display_name=host_participant_data["display_name"],
+            role="host",
+            pfp_url=host.pfp_url,
+        )
+
+        room_response = await self._build_room_response(room, host, 1, 0)
+
+        logger.info("Scheduled room %s started by fid=%s", room_id, fid)
+        return RoomGoLiveResponse(
+            room=room_response,
+            livekit_token=token,
+            livekit_ws_url=settings.LIVEKIT_WS_URL,
+        )
+
     async def get_room(self, room_id: str) -> RoomDetailResponse:
         """
         Fetch room details including live participant list and hand queue from Redis.
+        Scheduled rooms return empty participants (no Redis state yet).
         """
         room = await self._get_room_or_404(room_id)
         host = await self._get_user(room.host_fid)
+
+        # Scheduled rooms have no Redis state — return empty lists.
+        # Auto-expire if the scheduled time has passed by more than 1 hour.
+        if room.status == "scheduled":
+            if room.scheduled_at and room.scheduled_at < _utcnow() - timedelta(hours=1):
+                await self.db.execute(
+                    update(Room)
+                    .where(Room.id == room.id, Room.status == "scheduled")
+                    .values(status="cancelled", ended_at=_utcnow())
+                )
+                await self.db.commit()
+                await self.db.refresh(room)
+            room_response = await self._build_room_response(room, host, 0, 0)
+            return RoomDetailResponse(room=room_response, participants=[], hand_queue=[])
 
         participants_data = await self.redis.get_all_participants(room_id)
         hand_queue = await self.redis.get_hand_queue(room_id)
@@ -252,6 +392,34 @@ class RoomService:
             participants=participants,
             hand_queue=hand_queue,
         )
+
+    async def list_scheduled_rooms(
+        self,
+        limit: int = 20,
+        cursor: int = 0,
+    ) -> RoomListResponse:
+        """Return upcoming scheduled rooms ordered by scheduled_at ASC."""
+        now = _utcnow()
+        query = (
+            select(Room)
+            .where(Room.status == "scheduled", Room.scheduled_at >= now)
+            .order_by(Room.scheduled_at.asc())
+            .offset(cursor)
+            .limit(limit + 1)
+        )
+        result = await self.db.execute(query)
+        rows = list(result.scalars().all())
+
+        has_more = len(rows) > limit
+        page = rows[:limit]
+
+        rooms: list[RoomResponse] = []
+        for room in page:
+            host = await self._get_user(room.host_fid)
+            rooms.append(await self._build_room_response(room, host, 0, 0))
+
+        next_cursor = str(cursor + limit) if has_more else None
+        return RoomListResponse(rooms=rooms, next_cursor=next_cursor)
 
     async def list_active_rooms(
         self,
@@ -304,10 +472,27 @@ class RoomService:
 
     async def end_room(self, room_id: str, fid: int) -> None:
         """
-        End an active room. Only hosts and co-hosts may do this.
+        End an active room or cancel a scheduled room.
+
+        Scheduled rooms have no Redis/LiveKit state, so only a DB update is needed.
+        Active rooms require full teardown (LiveKit, Redis, webhooks).
         """
         room = await self._get_room_or_404(room_id)
 
+        # Scheduled rooms: host can cancel directly (no Redis state to check)
+        if room.status == "scheduled":
+            if room.host_fid != fid:
+                raise HTTPException(status_code=403, detail="Only the host can cancel a scheduled room")
+            await self.db.execute(
+                update(Room)
+                .where(Room.id == room.id)
+                .values(status="cancelled", ended_at=_utcnow())
+            )
+            await self.db.commit()
+            logger.info("Scheduled room %s cancelled by fid=%s", room_id, fid)
+            return
+
+        # Active rooms: require host/co-host role from Redis
         actor_role = await self._get_actor_role(room_id, fid)
         if not permission_service.can_end_room(actor_role):
             raise HTTPException(status_code=403, detail="Only hosts and co-hosts can end the room")
@@ -1073,6 +1258,7 @@ class RoomService:
             status=room.status,
             started_at=room.started_at.isoformat() if room.started_at else "",
             ended_at=_iso(room.ended_at),
+            scheduled_at=_iso(room.scheduled_at),
             speaker_count=speaker_count,
             listener_count=listener_count,
             recording=room.recording,
@@ -1097,6 +1283,28 @@ class RoomService:
                 return data.get("cast", {}).get("hash")
         except Exception as e:
             logger.warning("Failed to announce room: %s", e)
+            return None
+
+    async def _announce_room_scheduled(
+        self, room_id: str, title: str, user: User, scheduled_label: str
+    ) -> str | None:
+        """Post announcement cast for a scheduled space. Returns cast_hash or None."""
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.neynar.com/v2/farcaster/cast",
+                    json={
+                        "signer_uuid": user.signer_uuid,
+                        "text": f"Upcoming space: {title}\n\nStarts {scheduled_label}\n\nJoin on Juke",
+                        "embeds": [{"url": f"https://juke.audio/space/{room_id}"}],
+                    },
+                    headers={"api_key": settings.NEYNAR_API_KEY},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("cast", {}).get("hash")
+        except Exception as e:
+            logger.warning("Failed to announce scheduled room: %s", e)
             return None
 
     async def _register_cast_webhook(
