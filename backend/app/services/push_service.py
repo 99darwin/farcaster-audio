@@ -337,7 +337,9 @@ class PushService:
 
         elif event_type == "reaction.created":
             reaction_data = payload.get("data", {})
+            logger.info("reaction.created keys: %s", list(reaction_data.keys()))
             reaction_type = reaction_data.get("reaction_type")
+            logger.info("reaction_type=%s, cast keys=%s", reaction_type, list(reaction_data.get("cast", {}).keys()) if reaction_data.get("cast") else "NO_CAST")
             cast = reaction_data.get("cast", {})
             target_fid = cast.get("author", {}).get("fid")
             reactor = reaction_data.get("user", {})
