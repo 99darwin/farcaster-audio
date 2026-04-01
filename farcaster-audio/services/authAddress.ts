@@ -5,6 +5,7 @@
  * via the backend + Neynar, and uses it to sign SIWF messages.
  */
 
+import '@/utils/cryptoPolyfill';
 import * as SecureStore from 'expo-secure-store';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';

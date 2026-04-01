@@ -20,6 +20,7 @@
     "axios": "^1.7.0",
     "expo": "~55.0.0",
     "expo-blur": "~55.0.10",
+    "expo-crypto": "~55.0.10",
     "expo-device": "^55.0.10",
     "expo-haptics": "^55.0.9",
     "expo-image": "~55.0.0",
