@@ -8,6 +8,7 @@ import type WebView from 'react-native-webview';
 import type { MiniAppHost, MiniAppHostCapability, SetPrimaryButtonOptions, MiniAppContext } from '@/types/miniapp';
 import { useAuthStore } from '@/stores/authStore';
 import { useMiniAppStore } from '@/stores/miniappStore';
+import { getAuthAddressStatus, signSiwfMessage } from '@/services/authAddress';
 
 // Juke's Farcaster FID — replace with actual value when registered
 const JUKE_CLIENT_FID = 0;
@@ -17,6 +18,7 @@ const SUPPORTED_CAPABILITIES: MiniAppHostCapability[] = [
   'actions.openUrl',
   'actions.close',
   'actions.setPrimaryButton',
+  'actions.signIn',
   'actions.addMiniApp',
   'actions.viewCast',
   'actions.viewProfile',
@@ -238,10 +240,41 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
 
     getChains: async () => [],
 
-    // --- Unsupported — return graceful errors so miniapps can degrade ---
+    // --- Auth ---
 
-    signIn: async () => {
-      return { error: { type: 'rejected_by_user' as const } } as any;
+    signIn: async (options: { nonce: string; notBefore?: string; expirationTime?: string; acceptAuthAddress?: boolean }) => {
+      const fid = user?.fid;
+      if (!fid) {
+        return { error: { type: 'rejected_by_user' as const } } as any;
+      }
+
+      // Check if auth address is registered and approved
+      let status = await getAuthAddressStatus(fid);
+
+      if (status !== 'approved') {
+        // Prompt user to set up auth address
+        const proceed = await useMiniAppStore.getState().requestAuthSetup();
+        if (!proceed) {
+          return { error: { type: 'rejected_by_user' as const } } as any;
+        }
+        // Re-check status after setup flow
+        status = await getAuthAddressStatus(fid);
+        if (status !== 'approved') {
+          return { error: { type: 'rejected_by_user' as const } } as any;
+        }
+      }
+
+      try {
+        const { signature, message } = await signSiwfMessage(fid, {
+          nonce: options.nonce,
+          domain,
+          notBefore: options.notBefore,
+          expirationTime: options.expirationTime,
+        });
+        return { result: { signature, message, authMethod: 'authAddress' as const } } as any;
+      } catch {
+        return { error: { type: 'rejected_by_user' as const } } as any;
+      }
     },
 
     signManifest: async () => {
@@ -275,7 +308,7 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
     updateBackState: async () => {
       // No-op for now — could wire to Android back button in future
     },
-  }), [context, user, domain, activeMiniApp, closeMiniApp, hideSplash, setPrimaryButton, addToStore, isMiniAppAdded, openMiniAppInStore, onComposeCast, router]);
+  }), [context, user, domain, activeMiniApp, closeMiniApp, hideSplash, setPrimaryButton, addToStore, openMiniAppInStore, onComposeCast, router]);
 
   const { onMessage, emit } = useWebViewRpcAdapter({
     webViewRef,
