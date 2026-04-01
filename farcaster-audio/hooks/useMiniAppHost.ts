@@ -279,27 +279,27 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
     },
 
     ethProviderRequest: async () => {
-      return { error: { type: 'rejected_by_user' as const } } as any;
+      throw Object.assign(new Error('Wallet not available'), { code: 4900 });
     },
 
     eip6963RequestProvider: () => {
-      // No-op — no wallet provider
+      // No wallet providers to announce
     },
 
     viewToken: async () => {
-      return { error: { type: 'rejected_by_user' as const } } as any;
+      throw Object.assign(new Error('Not supported'), { code: 4900 });
     },
 
     sendToken: async () => {
-      return { error: { type: 'rejected_by_user' as const } } as any;
+      throw Object.assign(new Error('Not supported'), { code: 4900 });
     },
 
     swapToken: async () => {
-      return { error: { type: 'rejected_by_user' as const } } as any;
+      throw Object.assign(new Error('Not supported'), { code: 4900 });
     },
 
     requestCameraAndMicrophoneAccess: async () => {
-      return { error: { type: 'rejected_by_user' as const } } as any;
+      throw Object.assign(new Error('Not supported'), { code: 4900 });
     },
 
     updateBackState: async () => {
