@@ -26,7 +26,10 @@ export function usePushNotifications() {
   const registeredRef = useRef(false);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      registeredRef.current = false;
+      return;
+    }
     if (registeredRef.current) return;
 
     registerForPushNotifications();
