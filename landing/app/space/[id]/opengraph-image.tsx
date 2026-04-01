@@ -40,7 +40,23 @@ function formatScheduledTime(iso: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+    timeZone: "UTC",
+  }) + " UTC";
+}
+
+function getRelativeTime(iso: string): string {
+  const now = Date.now();
+  const target = new Date(iso).getTime();
+  const diffMs = target - now;
+  if (diffMs <= 0) return 'starting soon';
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours > 24) {
+    const days = Math.floor(hours / 24);
+    return `in ${days}d ${hours % 24}h`;
+  }
+  if (hours > 0) return `in ${hours}h ${minutes}m`;
+  return `in ${minutes}m`;
 }
 
 export default async function Image({
@@ -168,8 +184,9 @@ export default async function Image({
           <div
             style={{
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
-              gap: 10,
+              gap: 4,
               backgroundColor: "rgba(133, 93, 205, 0.15)",
               borderRadius: 24,
               paddingLeft: 20,
@@ -188,6 +205,17 @@ export default async function Image({
               }}
             >
               {formatScheduledTime(scheduledAt)}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                fontSize: 20,
+                fontWeight: 400,
+                color: "#855DCD",
+                opacity: 0.7,
+              }}
+            >
+              {getRelativeTime(scheduledAt)}
             </div>
           </div>
         )}

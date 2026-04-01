@@ -6,17 +6,23 @@ const POLL_INTERVAL_MS = 15_000;
 
 export function useLiveSpaces() {
   const setActiveLiveSpaces = useSpaceStore((s) => s.setActiveLiveSpaces);
+  const setScheduledSpaces = useSpaceStore((s) => s.setScheduledSpaces);
   const activeLiveSpaces = useSpaceStore((s) => s.activeLiveSpaces);
+  const scheduledSpaces = useSpaceStore((s) => s.scheduledSpaces);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchSpaces = useCallback(async () => {
     try {
-      const { rooms } = await api.listRooms({ status: 'active', limit: 20 });
-      setActiveLiveSpaces(rooms);
+      const [activeRes, scheduledRes] = await Promise.all([
+        api.listRooms({ status: 'active', limit: 20 }),
+        api.listRooms({ status: 'scheduled', limit: 20 }),
+      ]);
+      setActiveLiveSpaces(activeRes.rooms);
+      setScheduledSpaces(scheduledRes.rooms);
     } catch (err) {
       console.error('Failed to fetch live spaces:', err);
     }
-  }, [setActiveLiveSpaces]);
+  }, [setActiveLiveSpaces, setScheduledSpaces]);
 
   useEffect(() => {
     fetchSpaces();
@@ -26,5 +32,5 @@ export function useLiveSpaces() {
     };
   }, [fetchSpaces]);
 
-  return { activeLiveSpaces, refresh: fetchSpaces };
+  return { activeLiveSpaces, scheduledSpaces, refresh: fetchSpaces };
 }

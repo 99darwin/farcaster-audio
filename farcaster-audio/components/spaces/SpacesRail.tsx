@@ -7,6 +7,10 @@ import { colors } from '@/constants/theme';
 export function SpacesRail() {
   const router = useRouter();
   const activeLiveSpaces = useSpaceStore((s) => s.activeLiveSpaces);
+  const scheduledSpaces = useSpaceStore((s) => s.scheduledSpaces);
+
+  const hasActive = activeLiveSpaces.length > 0;
+  const hasScheduled = scheduledSpaces.length > 0;
 
   return (
     <View style={styles.container}>
@@ -15,6 +19,15 @@ export function SpacesRail() {
           <SpaceAvatar
             key={room.id}
             room={room}
+            onPress={() => router.push(`/space/${room.id}`)}
+          />
+        ))}
+        {hasActive && hasScheduled && <View style={styles.divider} />}
+        {scheduledSpaces.map((room) => (
+          <SpaceAvatar
+            key={room.id}
+            room={room}
+            isScheduled
             onPress={() => router.push(`/space/${room.id}`)}
           />
         ))}
@@ -38,6 +51,13 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     alignItems: 'flex-start',
+  },
+  divider: {
+    width: 1,
+    height: 48,
+    backgroundColor: colors.background.border,
+    marginHorizontal: 8,
+    alignSelf: 'center',
   },
   createButton: {
     alignItems: 'center',
