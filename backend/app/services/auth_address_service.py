@@ -120,7 +120,7 @@ async def check_auth_address_status(auth_address: str) -> dict:
     """Check the registration status of an auth address via Neynar."""
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
         resp = await client.get(
-            "https://api.neynar.com/v2/farcaster/auth_address",
+            "https://api.neynar.com/v2/farcaster/auth_address/developer_managed/",
             params={"address": auth_address},
             headers={"x-api-key": settings.NEYNAR_API_KEY},
         )
