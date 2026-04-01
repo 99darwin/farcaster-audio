@@ -33,6 +33,8 @@ interface MiniAppStore {
   addedMiniApps: AddedMiniApp[];
   isSplashVisible: boolean;
   primaryButton: PrimaryButtonState | null;
+  showAuthSetup: boolean;
+  authSetupResolve: ((proceed: boolean) => void) | null;
 
   // Actions
   openMiniApp: (miniApp: ActiveMiniApp) => void;
@@ -45,6 +47,8 @@ interface MiniAppStore {
   removeMiniApp: (domain: string) => Promise<void>;
   isMiniAppAdded: (domain: string) => boolean;
   hydrateAddedMiniApps: () => Promise<void>;
+  requestAuthSetup: () => Promise<boolean>;
+  dismissAuthSetup: (proceed: boolean) => void;
 }
 
 export const useMiniAppStore = create<MiniAppStore>((set, get) => ({
@@ -53,6 +57,8 @@ export const useMiniAppStore = create<MiniAppStore>((set, get) => ({
   addedMiniApps: [],
   isSplashVisible: true,
   primaryButton: null,
+  showAuthSetup: false,
+  authSetupResolve: null,
 
   openMiniApp: (miniApp) => {
     set({ activeMiniApp: miniApp, isMinimized: false, isSplashVisible: true, primaryButton: null });
@@ -101,6 +107,18 @@ export const useMiniAppStore = create<MiniAppStore>((set, get) => ({
 
   isMiniAppAdded: (domain) => {
     return get().addedMiniApps.some((a) => a.domain === domain);
+  },
+
+  requestAuthSetup: () => {
+    return new Promise<boolean>((resolve) => {
+      set({ showAuthSetup: true, authSetupResolve: resolve });
+    });
+  },
+
+  dismissAuthSetup: (proceed: boolean) => {
+    const resolver = get().authSetupResolve;
+    set({ showAuthSetup: false, authSetupResolve: null });
+    resolver?.(proceed);
   },
 
   hydrateAddedMiniApps: async () => {

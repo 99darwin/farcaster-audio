@@ -91,3 +91,20 @@ export interface StatusResponse {
 export interface ErrorResponse {
   detail: string;
 }
+
+// Auth Address
+export interface RegisterAuthAddressRequest {
+  auth_address: string;
+}
+
+export interface RegisterAuthAddressResponse {
+  auth_address: string;
+  status: string;
+  approval_url: string | null;
+}
+
+export interface AuthAddressStatusResponse {
+  auth_address: string;
+  status: string;
+  fid: number | null;
+}

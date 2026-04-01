@@ -29,3 +29,19 @@ class RefreshRequest(BaseModel):
 
 class AuthUrlResponse(BaseModel):
     authorization_url: str
+
+
+class RegisterAuthAddressRequest(BaseModel):
+    auth_address: str
+
+
+class RegisterAuthAddressResponse(BaseModel):
+    auth_address: str
+    status: str
+    approval_url: str | None = None
+
+
+class AuthAddressStatusResponse(BaseModel):
+    auth_address: str
+    status: str
+    fid: int | None = None

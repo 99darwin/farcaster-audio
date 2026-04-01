@@ -22,6 +22,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useMiniAppHost } from '@/hooks/useMiniAppHost';
 import { useMiniAppStore } from '@/stores/miniappStore';
+import { AuthAddressSetup } from '@/components/miniapp/AuthAddressSetup';
 import { GlassView } from '@/components/common/GlassView';
 import { colors, glass, typography } from '@/constants/theme';
 import type { MiniAppConfig } from '@/types/miniapp';
@@ -84,6 +85,7 @@ export function MiniAppModal() {
         onMinimize={minimizeMiniApp}
         insets={insets}
       />
+      <AuthAddressSetup />
     </Animated.View>
   );
 }

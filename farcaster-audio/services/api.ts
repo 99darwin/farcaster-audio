@@ -18,6 +18,8 @@ import type {
   BanResponse,
   TokenRefreshResponse,
   StatusResponse,
+  RegisterAuthAddressResponse,
+  AuthAddressStatusResponse,
 } from '@/types/api';
 
 const apiClient: AxiosInstance = axios.create({
@@ -215,6 +217,13 @@ export async function uploadVideo(uri: string): Promise<string> {
   });
   return data.url;
 }
+
+// --- Auth Address ---
+export const registerAuthAddress = (authAddress: string) =>
+  apiClient.post<RegisterAuthAddressResponse>('/v1/auth/auth-address', { auth_address: authAddress }).then((r) => r.data);
+
+export const getAuthAddressStatus = (address: string) =>
+  apiClient.get<AuthAddressStatusResponse>('/v1/auth/auth-address/status', { params: { address } }).then((r) => r.data);
 
 // --- Notifications ---
 export const getNotifications = (params?: { limit?: number; cursor?: string }) =>

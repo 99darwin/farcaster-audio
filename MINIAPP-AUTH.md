@@ -2,15 +2,16 @@
 
 ## Current State (as of 2026-03-31)
 
-Juke has a working Tier 1 miniapp host implementation:
+Juke has a working miniapp host implementation with signIn() support:
 - WebView host with RPC bridge (`@farcaster/miniapp-host-react-native` v0.1.19)
 - Social actions: viewProfile, viewCast, composeCast, openMiniApp, addMiniApp
+- **signIn() via auth address** — generates secp256k1 keypair on device, registers via Neynar, signs SIWF messages
 - Haptics, splash screen, primary button, capability negotiation
 - Full-screen modal with slide animation, minimized state with glass mini bar
 - Cast embed detection (handles `fc_frame` + `frame` keys, intermediary URLs)
 - Miniapp persistence via `expo-secure-store`
 
-**What's missing**: `signIn()` returns a graceful `rejected_by_user` error instead of a real SIWF credential. Miniapps that require authentication are non-functional.
+**What's needed to activate**: Users must register their auth address (one-time setup). Until approved, `signIn()` returns a graceful rejection. After approval, SIWF signing works fully.
 
 ## The Problem
 
@@ -130,11 +131,63 @@ Miniapp uses JWT as session token
 
 | File | Role |
 |------|------|
-| `hooks/useMiniAppHost.ts` | Host implementation — `signIn` currently returns graceful error |
+| `hooks/useMiniAppHost.ts` | Host implementation — signIn via auth address |
+| `services/authAddress.ts` | Auth address key management + SIWF signing |
 | `stores/miniappStore.ts` | Active miniapp state, added miniapps persistence |
 | `components/miniapp/MiniAppModal.tsx` | WebView host UI |
 | `services/manifest.ts` | Manifest fetching + resolution |
 | `types/miniapp.ts` | Type re-exports from `@farcaster/miniapp-core` |
+| `backend/app/services/auth_address_service.py` | EIP-712 signing + Neynar registration |
+| `backend/app/routers/auth.py` | Auth address registration + status endpoints |
+
+## Implementation (completed)
+
+### Backend
+
+**New env vars** (add to `.env`):
+- `FARCASTER_APP_MNEMONIC` — mnemonic for Juke's Farcaster account (signs EIP-712 key requests)
+- `FARCASTER_APP_FID` — Juke's registered Farcaster FID
+
+**New dependency**: `eth-account>=0.13.0`
+
+**New endpoints**:
+- `POST /v1/auth/auth-address` — takes `{ auth_address }`, signs EIP-712 key request with app mnemonic, registers with Neynar (sponsored). Returns `{ auth_address, status, approval_url }`.
+- `GET /v1/auth/auth-address/status?address=0x...` — checks registration status with Neynar.
+
+**New service**: `backend/app/services/auth_address_service.py`
+
+### Frontend
+
+**New dependency**: `viem` (secp256k1 key generation + SIWF message signing)
+
+**New service**: `farcaster-audio/services/authAddress.ts`
+- `getOrCreateAuthAddress(fid)` — generates/retrieves keypair from `expo-secure-store`
+- `registerAuthAddress(fid)` — calls backend to register with Neynar, returns approval URL
+- `getAuthAddressStatus(fid)` — checks if approved (cached in secure store)
+- `signSiwfMessage(fid, options)` — builds SIWE message + signs with stored key
+
+**Updated**: `hooks/useMiniAppHost.ts`
+- `signIn()` now checks auth address status and signs SIWF messages when approved
+- `actions.signIn` added to `SUPPORTED_CAPABILITIES`
+
+### User flow
+
+1. User opens a miniapp that calls `signIn()` for the first time
+2. If no auth address registered → graceful rejection (miniapp shows "sign in required")
+3. User triggers auth address setup (TODO: UI for this — settings screen or prompt)
+4. App generates secp256k1 keypair, stores private key in `expo-secure-store`
+5. App calls `POST /v1/auth/auth-address` with the address
+6. Backend signs EIP-712 request with app mnemonic, registers with Neynar (sponsored)
+7. User opens `approval_url` (Warpcast deeplink) to approve the auth address onchain
+8. Once approved, `signIn()` works — signs SIWF messages locally
+
+### TODO
+
+- [ ] UI for auth address registration (settings screen button or first-signIn prompt)
+- [ ] Poll for approval status after user opens Warpcast deeplink
+- [ ] Set `FARCASTER_APP_MNEMONIC` and `FARCASTER_APP_FID` in production env
+- [ ] Register Juke's Farcaster account if not already done
+- [ ] Test full flow end-to-end with a real miniapp
 
 ## Contact
 

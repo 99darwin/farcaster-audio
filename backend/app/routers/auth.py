@@ -1,9 +1,14 @@
+import logging
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 import redis.asyncio as aioredis
+
+logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.dependencies import get_db, get_redis
@@ -13,6 +18,9 @@ from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
     RefreshRequest,
+    RegisterAuthAddressRequest,
+    RegisterAuthAddressResponse,
+    AuthAddressStatusResponse,
     UserResponse,
 )
 from app.services.auth_service import (
@@ -23,6 +31,12 @@ from app.services.auth_service import (
     verify_neynar_signer,
     verify_refresh_token,
 )
+from app.services.auth_address_service import (
+    generate_signed_key_request,
+    register_auth_address_with_neynar,
+    check_auth_address_status,
+)
+from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
@@ -223,4 +237,113 @@ async def refresh(
             is_pro=is_pro,
             is_admin=user.is_admin,
         ),
+    )
+
+
+@router.post("/auth-address", response_model=RegisterAuthAddressResponse)
+async def register_auth_address(
+    body: RegisterAuthAddressRequest,
+    fid: int = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Register an auth address for miniapp signIn (SIWF).
+
+    The client generates a secp256k1 keypair and sends the address here.
+    We sign the EIP-712 key request with the app's Farcaster account and
+    register it with Neynar, which returns an approval URL for the user.
+    """
+    # Rate limit: max 3 registrations per hour per user
+    rate_key = f"auth_addr_rate:{fid}"
+    attempts = await redis.incr(rate_key)
+    if attempts == 1:
+        await redis.expire(rate_key, 3600)  # 1 hour window
+    if attempts > 3:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many registration attempts. Try again later.",
+        )
+
+    if not re.match(r'^0x[0-9a-fA-F]{40}$', body.auth_address):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Ethereum address",
+        )
+
+    try:
+        signature, deadline = generate_signed_key_request(body.auth_address)
+    except ValueError as exc:
+        logger.error("Auth address signing failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Auth address signing unavailable",
+        )
+
+    try:
+        result = await register_auth_address_with_neynar(
+            auth_address=body.auth_address,
+            signature=signature,
+            deadline=deadline,
+        )
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "Neynar auth address registration failed for fid=%s address=%s: %s",
+            fid, body.auth_address, exc.response.text,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Auth address registration failed",
+        )
+
+    # Store address -> FID mapping so status checks can verify ownership
+    await redis.set(f"auth_addr:{result['address']}", str(fid))
+
+    return RegisterAuthAddressResponse(
+        auth_address=result["address"],
+        status=result.get("status", "pending_approval"),
+        approval_url=result.get("auth_address_approval_url"),
+    )
+
+
+@router.get("/auth-address/status", response_model=AuthAddressStatusResponse)
+async def get_auth_address_status(
+    address: str,
+    fid: int = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Check whether an auth address has been approved."""
+    if not re.match(r'^0x[0-9a-fA-F]{40}$', address):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Ethereum address",
+        )
+
+    # Verify the requesting user owns this auth address
+    owner_fid = await redis.get(f"auth_addr:{address}")
+    if owner_fid is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Unknown auth address",
+        )
+    if int(owner_fid) != fid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Auth address does not belong to this user",
+        )
+
+    try:
+        result = await check_auth_address_status(address)
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "Neynar auth address status check failed for fid=%s address=%s: %s",
+            fid, address, exc.response.text,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to check auth address status",
+        )
+
+    return AuthAddressStatusResponse(
+        auth_address=result.get("address", address),
+        status=result.get("status", "unknown"),
+        fid=result.get("fid"),
     )
