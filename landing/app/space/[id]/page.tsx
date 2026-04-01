@@ -42,7 +42,23 @@ function formatScheduledTime(iso: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+    timeZone: "UTC",
+  }) + " UTC";
+}
+
+function getRelativeTime(iso: string): string {
+  const now = Date.now();
+  const target = new Date(iso).getTime();
+  const diffMs = target - now;
+  if (diffMs <= 0) return 'starting soon';
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours > 24) {
+    const days = Math.floor(hours / 24);
+    return `in ${days}d ${hours % 24}h`;
+  }
+  if (hours > 0) return `in ${hours}h ${minutes}m`;
+  return `in ${minutes}m`;
 }
 
 export async function generateMetadata({
@@ -64,7 +80,7 @@ export async function generateMetadata({
   const isScheduled = room.status === "scheduled";
 
   const description = isScheduled
-    ? `Hosted by ${room.host.display_name} · Starts ${room.scheduled_at ? formatScheduledTime(room.scheduled_at) : "soon"}`
+    ? `Hosted by ${room.host.display_name} · Starts ${room.scheduled_at ? formatScheduledTime(room.scheduled_at) + " · " + getRelativeTime(room.scheduled_at) : "soon"}`
     : `Hosted by ${room.host.display_name} · ${room.speaker_count + room.listener_count} listening on Juke`;
 
   return {
@@ -175,7 +191,9 @@ export default async function SpacePage({
             {room.host.display_name}
           </span>
           {isScheduled && room.scheduled_at ? (
-            <> · Starts {formatScheduledTime(room.scheduled_at)}</>
+            <> · Starts {formatScheduledTime(room.scheduled_at)}{" "}
+              <span className="text-juke-text-on-dark-tertiary">· {getRelativeTime(room.scheduled_at)}</span>
+            </>
           ) : (
             <> · {count} {count === 1 ? "person" : "people"} listening</>
           )}

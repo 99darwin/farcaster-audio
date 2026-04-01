@@ -13,6 +13,7 @@ interface SpaceStore {
 
   // Live spaces for discovery rail
   activeLiveSpaces: Room[];
+  scheduledSpaces: Room[];
 
   // Actions - space state
   setRoom: (room: Room) => void;
@@ -28,6 +29,7 @@ interface SpaceStore {
 
   // Actions - discovery
   setActiveLiveSpaces: (spaces: Room[]) => void;
+  setScheduledSpaces: (spaces: Room[]) => void;
 
   // Chat — incremented when a new reply data message arrives via LiveKit
   chatNewReplyTick: number;
@@ -53,6 +55,7 @@ const INITIAL_STATE = {
 export const useSpaceStore = create<SpaceStore>((set) => ({
   ...INITIAL_STATE,
   activeLiveSpaces: [],
+  scheduledSpaces: [],
 
   // Space state actions
   setRoom: (room) => set({ room }),
@@ -87,6 +90,7 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
 
   // Discovery
   setActiveLiveSpaces: (activeLiveSpaces) => set({ activeLiveSpaces }),
+  setScheduledSpaces: (scheduledSpaces) => set({ scheduledSpaces }),
 
   // Lifecycle
   joinSpace: (room, participants, myRole) =>
@@ -102,5 +106,5 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
 
   leaveSpace: () => set(INITIAL_STATE),
 
-  reset: () => set({ ...INITIAL_STATE, activeLiveSpaces: [] }),
+  reset: () => set({ ...INITIAL_STATE, activeLiveSpaces: [], scheduledSpaces: [] }),
 }));

@@ -6,23 +6,30 @@ import type { Room } from '@/types/space';
 interface SpaceAvatarProps {
   room: Room;
   onPress: () => void;
+  isScheduled?: boolean;
 }
 
-export function SpaceAvatar({ room, onPress }: SpaceAvatarProps) {
+export function SpaceAvatar({ room, onPress, isScheduled = false }: SpaceAvatarProps) {
   return (
-    <Pressable onPress={onPress} style={styles.container} accessibilityLabel={`${room.title}, ${room.listener_count + room.speaker_count} people`}>
+    <Pressable onPress={onPress} style={styles.container} accessibilityLabel={`${room.title}, ${isScheduled ? 'scheduled' : `${room.listener_count + room.speaker_count} people`}`}>
       <Avatar
         pfpUrl={room.host.pfp_url}
         displayName={room.host.display_name}
         size="lg"
-        isLive
+        isLive={!isScheduled}
       />
       <Text style={styles.name} numberOfLines={1}>
         {room.host.display_name.split(' ')[0]}
       </Text>
-      <View style={styles.listenerBadge}>
-        <Text style={styles.listenerCount}>{room.listener_count + room.speaker_count}</Text>
-      </View>
+      {isScheduled ? (
+        <View style={styles.scheduledBadge}>
+          <Text style={styles.scheduledIcon}>🗓</Text>
+        </View>
+      ) : (
+        <View style={styles.listenerBadge}>
+          <Text style={styles.listenerCount}>{room.listener_count + room.speaker_count}</Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -36,4 +43,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4, paddingVertical: 1, minWidth: 16, alignItems: 'center',
   },
   listenerCount: { color: colors.text.primary, fontSize: 10, fontWeight: '700' },
+  scheduledBadge: {
+    position: 'absolute', top: -2, right: 2,
+    backgroundColor: 'rgba(133, 93, 205, 0.2)', borderRadius: 8,
+    paddingHorizontal: 3, paddingVertical: 1, minWidth: 16, alignItems: 'center',
+  },
+  scheduledIcon: { fontSize: 10 },
 });
