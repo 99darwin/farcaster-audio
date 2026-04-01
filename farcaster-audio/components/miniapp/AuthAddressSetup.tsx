@@ -102,7 +102,7 @@ export function AuthAddressSetup() {
               This mini app needs to verify your identity. We'll create a secure signing key on your device and register it with your Farcaster account.
             </Text>
             <Text style={styles.subtitle}>
-              You'll need to approve once in Warpcast.
+              You'll need to approve once in Farcaster.
             </Text>
             <Pressable onPress={handleSetup} style={styles.primaryBtn}>
               <Text style={styles.primaryBtnText}>Set Up</Text>
@@ -128,12 +128,12 @@ export function AuthAddressSetup() {
             <View style={styles.iconContainer}>
               <Ionicons name="open-outline" size={32} color={colors.purple} />
             </View>
-            <Text style={styles.title}>Approve in Warpcast</Text>
+            <Text style={styles.title}>Approve in Farcaster</Text>
             <Text style={styles.description}>
-              Tap the button below to open Warpcast and approve the signing key. This is a one-time step.
+              Tap the button below to open Farcaster and approve the signing key. This is a one-time step.
             </Text>
             <Pressable onPress={handleOpenApproval} style={styles.primaryBtn}>
-              <Text style={styles.primaryBtnText}>Open Warpcast</Text>
+              <Text style={styles.primaryBtnText}>Open Farcaster</Text>
             </Pressable>
             <Pressable onPress={handleCancel} style={styles.secondaryBtn}>
               <Text style={styles.secondaryBtnText}>Cancel</Text>
@@ -146,7 +146,7 @@ export function AuthAddressSetup() {
             <ActivityIndicator size="large" color={colors.purple} />
             <Text style={styles.title}>Waiting for Approval</Text>
             <Text style={styles.description}>
-              Complete the approval in Warpcast, then come back here. This will update automatically.
+              Complete the approval in Farcaster, then come back here. This will update automatically.
             </Text>
           </>
         )}
