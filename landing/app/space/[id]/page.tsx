@@ -19,6 +19,10 @@ type RoomData = {
     speaker_count: number;
     listener_count: number;
     scheduled_at: string | null;
+    rsvp_summary?: {
+      count: number;
+      users: Array<{ fid: number; display_name: string; pfp_url: string | null }>;
+    } | null;
   };
 };
 
@@ -198,6 +202,37 @@ export default async function SpacePage({
             <> · {count} {count === 1 ? "person" : "people"} listening</>
           )}
         </p>
+
+        {/* RSVP avatars */}
+        {isScheduled && room.rsvp_summary && room.rsvp_summary.count > 0 && (
+          <div className="mb-8 flex items-center justify-center gap-2" role="group" aria-label={`${room.rsvp_summary.count} people going to this space`}>
+            <div className="flex -space-x-2">
+              {room.rsvp_summary.users.slice(0, 5).map((user) => (
+                user.pfp_url ? (
+                  <Image
+                    key={user.fid}
+                    src={user.pfp_url}
+                    alt={user.display_name}
+                    width={28}
+                    height={28}
+                    className="rounded-full ring-2 ring-juke-navy"
+                    unoptimized
+                  />
+                ) : (
+                  <div
+                    key={user.fid}
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-juke-surface ring-2 ring-juke-navy text-xs font-bold text-juke-text-on-dark"
+                  >
+                    {user.display_name[0]?.toUpperCase()}
+                  </div>
+                )
+              ))}
+            </div>
+            <span className="text-sm text-juke-text-on-dark-secondary">
+              {room.rsvp_summary.count} going
+            </span>
+          </div>
+        )}
 
         {/* CTAs */}
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">

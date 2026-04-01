@@ -21,6 +21,7 @@ import type {
   StatusResponse,
   RegisterAuthAddressResponse,
   AuthAddressStatusResponse,
+  RsvpResponse,
 } from '@/types/api';
 
 const apiClient: AxiosInstance = axios.create({
@@ -122,6 +123,13 @@ export const startRoom = (roomId: string) =>
 
 export const endRoom = (roomId: string) =>
   apiClient.delete<StatusResponse>(`/v1/rooms/${roomId}`).then((r) => r.data);
+
+// --- RSVP ---
+export const rsvpRoom = (roomId: string) =>
+  apiClient.post<RsvpResponse>(`/v1/rooms/${roomId}/rsvp`).then((r) => r.data);
+
+export const unrsvpRoom = (roomId: string) =>
+  apiClient.delete<RsvpResponse>(`/v1/rooms/${roomId}/rsvp`).then((r) => r.data);
 
 // --- Participants ---
 export const joinRoom = (roomId: string) =>

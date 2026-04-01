@@ -40,6 +40,31 @@ async def get_current_user(
         )
 
 
+optional_security = HTTPBearer(auto_error=False)
+
+
+async def get_optional_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
+) -> int | None:
+    """Extract and verify JWT if present. Returns FID or None."""
+    if credentials is None:
+        return None
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(
+            token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+        )
+        fid: int | None = payload.get("fid")
+        if fid is None:
+            return None
+        exp = payload.get("exp")
+        if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
+            return None
+        return fid
+    except JWTError:
+        return None
+
+
 async def _get_db_session():
     """Inline DB session dependency to avoid circular imports."""
     from app.database import async_session

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Share, Image } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Share, Image, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
@@ -19,6 +19,7 @@ import { SpaceChat } from '@/components/spaces/SpaceChat';
 import { EmojiReactionPanel } from '@/components/spaces/EmojiReactionPanel';
 import { EmojiReactionOverlay } from '@/components/spaces/EmojiReactionOverlay';
 import { MiniAppPicker } from '@/components/miniapp/MiniAppPicker';
+import { RsvpAvatarRow } from '@/components/spaces/RsvpAvatarRow';
 import { GlassView } from '@/components/common/GlassView';
 import { Button } from '@/components/common/Button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -37,6 +38,11 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
   const user = useAuthStore((s) => s.user);
   const insets = useSafeAreaInsets();
   const [isStarting, setIsStarting] = useState(false);
+  const [isGoing, setIsGoing] = useState(room.rsvp_summary?.is_going ?? false);
+  const [rsvpCount, setRsvpCount] = useState(room.rsvp_summary?.count ?? 0);
+  const [rsvpUsers, setRsvpUsers] = useState(room.rsvp_summary?.users ?? []);
+  const [isTogglingRsvp, setIsTogglingRsvp] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const isHost = user?.fid === room.host_fid;
 
   const handleGoLive = async () => {
@@ -72,6 +78,53 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
     }
   };
 
+  const handleToggleRsvp = async () => {
+    setIsTogglingRsvp(true);
+    const wasGoing = isGoing;
+    // Optimistic update
+    setIsGoing(!wasGoing);
+    setRsvpCount((c) => wasGoing ? c - 1 : c + 1);
+    try {
+      if (wasGoing) {
+        await api.unrsvpRoom(id);
+      } else {
+        await api.rsvpRoom(id);
+      }
+    } catch (err) {
+      // Rollback
+      setIsGoing(wasGoing);
+      setRsvpCount((c) => wasGoing ? c + 1 : c - 1);
+      Toast.show({ type: 'error', text1: 'Error', text2: api.getErrorMessage(err) });
+    } finally {
+      setIsTogglingRsvp(false);
+    }
+  };
+
+  const handleCancel = () => {
+    Alert.alert(
+      'Cancel Space',
+      'Are you sure you want to cancel this scheduled space?',
+      [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Cancel Space',
+          style: 'destructive',
+          onPress: async () => {
+            setIsCancelling(true);
+            try {
+              await api.endRoom(id);
+              Toast.show({ type: 'info', text1: 'Space cancelled' });
+              router.back();
+            } catch (err) {
+              Toast.show({ type: 'error', text1: 'Error', text2: api.getErrorMessage(err) });
+              setIsCancelling(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.scheduledContent}>
@@ -103,6 +156,10 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
           </View>
         )}
 
+        {rsvpCount > 0 && (
+          <RsvpAvatarRow users={rsvpUsers} count={rsvpCount} />
+        )}
+
         {isHost ? (
           <View style={styles.scheduledActions}>
             <Button
@@ -111,11 +168,39 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
               isLoading={isStarting}
               size="lg"
             />
+            <Pressable
+              onPress={handleCancel}
+              disabled={isCancelling}
+              style={styles.cancelBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel this scheduled space"
+            >
+              <Text style={styles.cancelBtnText}>
+                {isCancelling ? 'Cancelling...' : 'Cancel Space'}
+              </Text>
+            </Pressable>
           </View>
         ) : (
-          <Text style={styles.scheduledWaiting}>
-            Waiting for host to start...
-          </Text>
+          <View style={styles.scheduledActions}>
+            <Pressable
+              onPress={handleToggleRsvp}
+              disabled={isTogglingRsvp}
+              style={[styles.rsvpBtn, isGoing && styles.rsvpBtnActive]}
+              accessibilityRole="button"
+              accessibilityLabel={isGoing ? 'Remove RSVP' : 'RSVP to this space'}
+              accessibilityState={{ selected: isGoing }}
+            >
+              <View style={styles.rsvpBtnContent}>
+                <Text style={[styles.rsvpBtnText, isGoing && styles.rsvpBtnTextActive]}>
+                  {isGoing ? 'Going' : "I'm Going"}
+                </Text>
+                {isGoing && <Ionicons name="checkmark" size={16} color="#fff" />}
+              </View>
+            </Pressable>
+            <Text style={styles.scheduledWaiting}>
+              Waiting for host to start...
+            </Text>
+          </View>
         )}
 
         <Pressable
@@ -649,5 +734,42 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: 16,
     fontWeight: '500',
+  },
+  cancelBtn: {
+    marginTop: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  cancelBtnText: {
+    color: colors.error,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  rsvpBtn: {
+    borderWidth: 1.5,
+    borderColor: colors.accent,
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  rsvpBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  rsvpBtnActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  rsvpBtnText: {
+    color: colors.accent,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  rsvpBtnTextActive: {
+    color: '#fff',
   },
 });

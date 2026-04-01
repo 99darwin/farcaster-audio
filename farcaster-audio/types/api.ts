@@ -99,6 +99,10 @@ export interface ErrorResponse {
   detail: string;
 }
 
+export interface RsvpResponse {
+  status: string;
+}
+
 // Auth Address
 export interface RegisterAuthAddressRequest {
   auth_address: string;
