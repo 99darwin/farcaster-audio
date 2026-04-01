@@ -269,6 +269,7 @@ class PushService:
                 )
                 resp.raise_for_status()
                 result_data = resp.json().get("data", [])
+                logger.info("Expo push tickets for fid=%s: %s", fid, result_data)
 
                 # Handle invalid tokens
                 for i, ticket in enumerate(result_data):
