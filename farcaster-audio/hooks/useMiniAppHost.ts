@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useWebViewRpcAdapter } from '@farcaster/miniapp-host-react-native';
 import type WebView from 'react-native-webview';
+import { SignIn, AddMiniApp, SignManifest } from '@farcaster/miniapp-core/dist/actions';
 import type { MiniAppHost, MiniAppHostCapability, SetPrimaryButtonOptions, MiniAppContext } from '@/types/miniapp';
 import { useAuthStore } from '@/stores/authStore';
 import { useMiniAppStore } from '@/stores/miniappStore';
@@ -192,20 +193,20 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
     addMiniApp: async () => {
       const config = activeMiniApp?.config;
       if (!config) {
-        return { error: { type: 'invalid_domain_manifest' as const } } as any;
+        throw new AddMiniApp.InvalidDomainManifest();
       }
       await addToStore(domain, config);
-      return { result: {} } as any;
+      return {};
     },
 
     // Legacy alias
     addFrame: async () => {
       const config = activeMiniApp?.config;
       if (!config) {
-        return { error: { type: 'invalid_domain_manifest' as const } } as any;
+        throw new AddMiniApp.InvalidDomainManifest();
       }
       await addToStore(domain, config);
-      return { result: {} } as any;
+      return {};
     },
 
     // --- Haptics ---
@@ -243,43 +244,38 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
     // --- Auth ---
 
     signIn: async (options: { nonce: string; notBefore?: string; expirationTime?: string; acceptAuthAddress?: boolean }) => {
-      try {
-        const fid = user?.fid;
-        if (!fid) {
-          return { error: { type: 'rejected_by_user' as const } } as any;
-        }
-
-        // Check if auth address is registered and approved
-        let status = await getAuthAddressStatus(fid);
-
-        if (status !== 'approved') {
-          // Prompt user to set up auth address
-          const proceed = await useMiniAppStore.getState().requestAuthSetup();
-          if (!proceed) {
-            return { error: { type: 'rejected_by_user' as const } } as any;
-          }
-          // Re-check status after setup flow
-          status = await getAuthAddressStatus(fid);
-          if (status !== 'approved') {
-            return { error: { type: 'rejected_by_user' as const } } as any;
-          }
-        }
-
-        const { signature, message } = await signSiwfMessage(fid, {
-          nonce: options.nonce,
-          domain,
-          notBefore: options.notBefore,
-          expirationTime: options.expirationTime,
-        });
-        return { result: { signature, message, authMethod: 'authAddress' as const } } as any;
-      } catch (err) {
-        console.error('[MiniAppHost] signIn error:', err);
-        return { error: { type: 'rejected_by_user' as const } } as any;
+      const fid = user?.fid;
+      if (!fid) {
+        throw new SignIn.RejectedByUser();
       }
+
+      // Check if auth address is registered and approved
+      let status = await getAuthAddressStatus(fid);
+
+      if (status !== 'approved') {
+        // Prompt user to set up auth address
+        const proceed = await useMiniAppStore.getState().requestAuthSetup();
+        if (!proceed) {
+          throw new SignIn.RejectedByUser();
+        }
+        // Re-check status after setup flow
+        status = await getAuthAddressStatus(fid);
+        if (status !== 'approved') {
+          throw new SignIn.RejectedByUser();
+        }
+      }
+
+      const { signature, message } = await signSiwfMessage(fid, {
+        nonce: options.nonce,
+        domain,
+        notBefore: options.notBefore,
+        expirationTime: options.expirationTime,
+      });
+      return { signature, message, authMethod: 'authAddress' as const };
     },
 
     signManifest: async () => {
-      return { error: { type: 'rejected_by_user' as const } } as any;
+      throw new SignManifest.RejectedByUser();
     },
 
     ethProviderRequest: async () => {
