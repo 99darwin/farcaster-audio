@@ -337,21 +337,21 @@ class PushService:
 
         elif event_type == "reaction.created":
             reaction_data = payload.get("data", {})
-            logger.info("reaction.created keys: %s", list(reaction_data.keys()))
             reaction_type = reaction_data.get("reaction_type")
-            logger.info("reaction_type=%s, cast keys=%s", reaction_type, list(reaction_data.get("cast", {}).keys()) if reaction_data.get("cast") else "NO_CAST")
             cast = reaction_data.get("cast", {})
-            target_fid = cast.get("author", {}).get("fid")
+            cast_author = cast.get("author")
+            logger.info("reaction cast.author type=%s value=%s", type(cast_author).__name__, cast_author)
+            target_fid = cast_author.get("fid") if isinstance(cast_author, dict) else cast_author
             reactor = reaction_data.get("user", {})
             reactor_name = reactor.get("display_name") or reactor.get("username", "Someone")
             cast_hash = cast.get("hash", "")
 
-            if reaction_type == "like":
+            if reaction_type in ("like", 1):
                 notification_type = "likes"
                 title = "New Like"
                 body = f"{reactor_name} liked your cast"
                 data = {"type": "like", "url": f"/cast/{cast_hash}"}
-            elif reaction_type == "recast":
+            elif reaction_type in ("recast", 2):
                 notification_type = "recasts"
                 title = "New Recast"
                 body = f"{reactor_name} recasted your cast"
