@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Share } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Share, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
@@ -25,8 +25,126 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { AvatarPositionProvider } from '@/contexts/AvatarPositionContext';
 import { colors, glass } from '@/constants/theme';
 import { buildSpaceUrl } from '@/utils/shareLinks';
+import { formatScheduledTime } from '@/utils/formatDate';
 import * as api from '@/services/api';
-import type { Participant } from '@/types/space';
+import * as livekitService from '@/services/livekit';
+import type { Participant, Room } from '@/types/space';
+
+// ─── Scheduled space view (no LiveKit, no participants) ───
+
+function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const insets = useSafeAreaInsets();
+  const [isStarting, setIsStarting] = useState(false);
+  const isHost = user?.fid === room.host_fid;
+
+  const handleGoLive = async () => {
+    setIsStarting(true);
+    try {
+      const response = await api.startRoom(id);
+
+      const hostParticipant: Participant = {
+        fid: user!.fid,
+        role: 'host',
+        is_muted: false,
+        is_speaking: false,
+        hand_raised: false,
+        display_name: user!.display_name || user!.username || `User ${user!.fid}`,
+        pfp_url: user!.pfp_url ?? null,
+      };
+
+      useSpaceStore.getState().joinSpace(response.room, [hostParticipant], 'host');
+      await livekitService.connectToRoom(response.livekit_ws_url, response.livekit_token);
+      await livekitService.enableMicrophone();
+      useSpaceStore.getState().setConnected(true);
+      useSpaceStore.getState().setMuted(false);
+
+      // Force re-render by replacing with same route — the room status in store
+      // is now "active", so the parent component will render the live view
+      router.replace(`/space/${id}`);
+    } catch (err) {
+      console.error('[ScheduledSpace] Go live error:', err);
+      useSpaceStore.getState().leaveSpace();
+      Toast.show({ type: 'error', text1: 'Error', text2: api.getErrorMessage(err) });
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.scheduledContent}>
+        {/* Host avatar */}
+        <View style={styles.scheduledAvatarWrap}>
+          {room.host.pfp_url ? (
+            <Image source={{ uri: room.host.pfp_url }} style={styles.scheduledAvatar} />
+          ) : (
+            <View style={styles.scheduledAvatar}>
+              <Text style={styles.scheduledAvatarText}>
+                {(room.host.display_name || '?')[0].toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <Text style={styles.scheduledTitle}>{room.title}</Text>
+
+        <Text style={styles.scheduledHost}>
+          Hosted by {room.host.display_name || room.host.username}
+        </Text>
+
+        {room.scheduled_at && (
+          <View style={styles.scheduledTimeBadge}>
+            <Ionicons name="calendar-outline" size={16} color={colors.accent} />
+            <Text style={styles.scheduledTimeText}>
+              {formatScheduledTime(room.scheduled_at)}
+            </Text>
+          </View>
+        )}
+
+        {isHost ? (
+          <View style={styles.scheduledActions}>
+            <Button
+              title="Go Live"
+              onPress={handleGoLive}
+              isLoading={isStarting}
+              size="lg"
+            />
+          </View>
+        ) : (
+          <Text style={styles.scheduledWaiting}>
+            Waiting for host to start...
+          </Text>
+        )}
+
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            Share.share({
+              message: `"${room.title}" on Juke — ${room.scheduled_at ? formatScheduledTime(room.scheduled_at) : ''}`,
+              url: buildSpaceUrl(id),
+            });
+          }}
+          style={styles.scheduledShareBtn}
+          accessibilityLabel="Share space"
+        >
+          <Ionicons name="share-outline" size={20} color={colors.text.secondary} />
+          <Text style={styles.scheduledShareText}>Share</Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        onPress={() => router.back()}
+        style={[styles.scheduledBackBtn, { bottom: insets.bottom + 24 }]}
+      >
+        <Text style={styles.scheduledBackText}>Back</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ─── Main space screen ───
 
 export default function SpaceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -57,6 +175,7 @@ export default function SpaceScreen() {
   const [isMiniAppPickerVisible, setIsMiniAppPickerVisible] = useState(false);
   const addedMiniApps = useMiniAppStore((s) => s.addedMiniApps);
   const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
+  const [scheduledRoom, setScheduledRoom] = useState<Room | null>(null);
   const insets = useSafeAreaInsets();
   const hasChatTab = !!room?.cast_hash;
 
@@ -76,10 +195,24 @@ export default function SpaceScreen() {
       attachListeners();
       return;
     }
+
+    // Fetch room info first to check if it's scheduled
     setIsJoining(true);
-    joinRoom(id)
+    api.getRoom(id)
+      .then((detail) => {
+        if (detail.room.status === 'scheduled') {
+          setScheduledRoom(detail.room);
+          setIsJoining(false);
+          return;
+        }
+        // Active room — join normally
+        return joinRoom(id).catch((err) => {
+          Toast.show({ type: 'error', text1: 'Error', text2: err.response?.data?.detail || 'Failed to join space' });
+          router.back();
+        });
+      })
       .catch((err) => {
-        Toast.show({ type: 'error', text1: 'Error', text2: err.response?.data?.detail || 'Failed to join space' });
+        Toast.show({ type: 'error', text1: 'Error', text2: api.getErrorMessage(err) });
         router.back();
       })
       .finally(() => setIsJoining(false));
@@ -162,6 +295,11 @@ export default function SpaceScreen() {
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to end space' });
     }
   }, [id, router, leaveRoom]);
+
+  // Show scheduled space view
+  if (scheduledRoom && id) {
+    return <ScheduledSpaceScreen room={scheduledRoom} id={id} />;
+  }
 
   if (isLeaving || isJoining || !room) {
     return <LoadingSpinner fullScreen />;
@@ -425,5 +563,91 @@ const styles = StyleSheet.create({
   reactionPanel: {
     position: 'absolute',
     alignSelf: 'center',
+  },
+  // Scheduled space styles
+  scheduledContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  scheduledAvatarWrap: {
+    marginBottom: 24,
+  },
+  scheduledAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.background.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.background.border,
+  },
+  scheduledAvatarText: {
+    color: colors.text.primary,
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  scheduledTitle: {
+    color: colors.text.primary,
+    fontSize: 26,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  scheduledHost: {
+    color: colors.text.secondary,
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  scheduledTimeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(216, 90, 48, 0.12)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginBottom: 32,
+  },
+  scheduledTimeText: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  scheduledActions: {
+    width: '100%',
+    marginBottom: 16,
+  },
+  scheduledWaiting: {
+    color: colors.text.secondary,
+    fontSize: 15,
+    marginBottom: 16,
+  },
+  scheduledShareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    minHeight: 44,
+  },
+  scheduledShareText: {
+    color: colors.text.secondary,
+    fontSize: 15,
+  },
+  scheduledBackBtn: {
+    position: 'absolute',
+    alignSelf: 'center',
+    minHeight: 44,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scheduledBackText: {
+    color: colors.text.secondary,
+    fontSize: 16,
+    fontWeight: '500',
   },
 });

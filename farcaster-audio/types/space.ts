@@ -1,4 +1,4 @@
-export type RoomStatus = 'active' | 'ended' | 'cancelled';
+export type RoomStatus = 'active' | 'ended' | 'cancelled' | 'scheduled';
 export type ParticipantRole = 'host' | 'co_host' | 'speaker' | 'listener';
 
 export interface Room {
@@ -9,6 +9,7 @@ export interface Room {
   status: RoomStatus;
   started_at: string;
   ended_at: string | null;
+  scheduled_at: string | null;
   speaker_count: number;
   listener_count: number;
   recording: boolean;

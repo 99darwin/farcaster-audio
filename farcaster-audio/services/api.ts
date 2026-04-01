@@ -8,6 +8,7 @@ import type {
   RefreshRequest,
   RoomCreateRequest,
   RoomCreateResponse,
+  RoomGoLiveResponse,
   RoomListResponse,
   RoomDetailResponse,
   JoinResponse,
@@ -115,6 +116,9 @@ export const createRoom = (body: RoomCreateRequest) =>
 
 export const getRoom = (roomId: string) =>
   apiClient.get<RoomDetailResponse>(`/v1/rooms/${roomId}`).then((r) => r.data);
+
+export const startRoom = (roomId: string) =>
+  apiClient.post<RoomGoLiveResponse>(`/v1/rooms/${roomId}/start`).then((r) => r.data);
 
 export const endRoom = (roomId: string) =>
   apiClient.delete<StatusResponse>(`/v1/rooms/${roomId}`).then((r) => r.data);

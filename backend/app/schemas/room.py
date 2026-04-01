@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class RoomCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=256)
     announce_cast: bool = False
+    scheduled_at: str | None = None  # ISO 8601 datetime string
 
 
 class RoomResponse(BaseModel):
@@ -23,6 +24,7 @@ class RoomResponse(BaseModel):
     status: str
     started_at: str
     ended_at: str | None = None
+    scheduled_at: str | None = None
     speaker_count: int = 0
     listener_count: int = 0
     recording: bool = False
@@ -30,6 +32,12 @@ class RoomResponse(BaseModel):
 
 
 class RoomCreateResponse(BaseModel):
+    room: RoomResponse
+    livekit_token: str | None = None
+    livekit_ws_url: str | None = None
+
+
+class RoomGoLiveResponse(BaseModel):
     room: RoomResponse
     livekit_token: str
     livekit_ws_url: str

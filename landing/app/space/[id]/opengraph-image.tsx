@@ -17,6 +17,7 @@ type RoomData = {
     };
     speaker_count: number;
     listener_count: number;
+    scheduled_at: string | null;
   };
 };
 
@@ -32,6 +33,16 @@ async function fetchRoom(id: string): Promise<RoomData | null> {
   }
 }
 
+function formatScheduledTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export default async function Image({
   params,
 }: {
@@ -42,13 +53,18 @@ export default async function Image({
 
   const title = data?.room.title ?? "Audio Space";
   const hostName = data?.room.host.display_name ?? "";
-  const isLive = data?.room.status === "live";
+  const isLive = data?.room.status === "active";
+  const isScheduled = data?.room.status === "scheduled";
+  const scheduledAt = data?.room.scheduled_at;
 
   // Diamond/chevron waveform pattern
   const waveformHeights = [
     16, 28, 40, 52, 64, 76, 88, 100, 108, 116, 124, 130, 134, 130, 124, 116,
     108, 100, 88, 76, 64, 52, 40, 28, 16,
   ];
+
+  // Dim waveform for scheduled spaces
+  const waveOpacity = isScheduled ? 0.35 : 1;
 
   return new ImageResponse(
     (
@@ -75,8 +91,9 @@ export default async function Image({
             width: 800,
             height: 400,
             borderRadius: "50%",
-            background:
-              "radial-gradient(ellipse at center, rgba(216,90,48,0.08) 0%, transparent 70%)",
+            background: isScheduled
+              ? "radial-gradient(ellipse at center, rgba(133,93,205,0.08) 0%, transparent 70%)"
+              : "radial-gradient(ellipse at center, rgba(216,90,48,0.08) 0%, transparent 70%)",
             display: "flex",
           }}
         />
@@ -96,7 +113,7 @@ export default async function Image({
           JUKE
         </div>
 
-        {/* Live indicator + title */}
+        {/* Status indicator + title */}
         <div
           style={{
             display: "flex",
@@ -139,10 +156,39 @@ export default async function Image({
               fontSize: 28,
               color: "#a0a0c0",
               fontWeight: 400,
-              marginBottom: 48,
+              marginBottom: isScheduled ? 16 : 48,
             }}
           >
             Hosted by {hostName}
+          </div>
+        )}
+
+        {/* Scheduled date/time badge */}
+        {isScheduled && scheduledAt && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              backgroundColor: "rgba(133, 93, 205, 0.15)",
+              borderRadius: 24,
+              paddingLeft: 20,
+              paddingRight: 20,
+              paddingTop: 10,
+              paddingBottom: 10,
+              marginBottom: 48,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                fontSize: 26,
+                fontWeight: 600,
+                color: "#855DCD",
+              }}
+            >
+              {formatScheduledTime(scheduledAt)}
+            </div>
           </div>
         )}
 
@@ -154,10 +200,14 @@ export default async function Image({
             alignItems: "center",
             gap: 6,
             height: 80,
+            opacity: waveOpacity,
           }}
         >
           {waveformHeights.map((h, i) => {
             const scaled = Math.round(h * 0.6);
+            const barColor = isScheduled
+              ? `rgba(133, 93, 205, ${0.4 + (h / 134) * 0.5})`
+              : `rgba(216, 90, 48, ${0.4 + (h / 134) * 0.5})`;
             return (
               <div
                 key={i}
@@ -165,7 +215,7 @@ export default async function Image({
                   width: 8,
                   height: scaled,
                   borderRadius: 4,
-                  background: `rgba(216, 90, 48, ${0.4 + (h / 134) * 0.5})`,
+                  background: barColor,
                 }}
               />
             );

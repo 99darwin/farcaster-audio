@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 
 const API_BASE_URL =
   "https://your-api-host.example.com";
@@ -17,6 +18,7 @@ type RoomData = {
     };
     speaker_count: number;
     listener_count: number;
+    scheduled_at: string | null;
   };
 };
 
@@ -30,6 +32,17 @@ async function fetchRoom(id: string): Promise<RoomData | null> {
   } catch {
     return null;
   }
+}
+
+function formatScheduledTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 export async function generateMetadata({
@@ -48,8 +61,11 @@ export async function generateMetadata({
   }
 
   const { room } = data;
-  const count = room.speaker_count + room.listener_count;
-  const description = `Hosted by ${room.host.display_name} · ${count} listening on Juke`;
+  const isScheduled = room.status === "scheduled";
+
+  const description = isScheduled
+    ? `Hosted by ${room.host.display_name} · Starts ${room.scheduled_at ? formatScheduledTime(room.scheduled_at) : "soon"}`
+    : `Hosted by ${room.host.display_name} · ${room.speaker_count + room.listener_count} listening on Juke`;
 
   return {
     title: `${room.title} — Juke`,
@@ -100,19 +116,21 @@ export default async function SpacePage({
 
   const { room } = data;
   const count = room.speaker_count + room.listener_count;
-  const isLive = room.status === "live";
+  const isLive = room.status === "active";
+  const isScheduled = room.status === "scheduled";
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-juke-navy px-6">
       <div className="w-full max-w-md text-center">
         {/* Host avatar */}
         {room.host.pfp_url && (
-          <img
-            src={room.host.pfp_url}
+          <Image
+            src={room.host.pfp_url!}
             alt={room.host.display_name}
             width={72}
             height={72}
             className="mx-auto mb-6 rounded-full ring-2 ring-juke-border"
+            unoptimized
           />
         )}
 
@@ -123,19 +141,44 @@ export default async function SpacePage({
             <span className="text-sm font-semibold text-juke-orange">Live</span>
           </div>
         )}
+        {isScheduled && (
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-juke-purple/20 px-3 py-1.5">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-juke-purple"
+            >
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            <span className="text-sm font-semibold text-juke-purple">Scheduled</span>
+          </div>
+        )}
 
         {/* Title */}
         <h1 className="text-3xl font-bold text-juke-text-on-dark mb-2 sm:text-4xl">
           {room.title}
         </h1>
 
-        {/* Host + listeners */}
+        {/* Host + listeners / scheduled time */}
         <p className="text-juke-text-on-dark-secondary mb-10">
           Hosted by{" "}
           <span className="font-semibold text-juke-text-on-dark">
             {room.host.display_name}
-          </span>{" "}
-          · {count} {count === 1 ? "person" : "people"} listening
+          </span>
+          {isScheduled && room.scheduled_at ? (
+            <> · Starts {formatScheduledTime(room.scheduled_at)}</>
+          ) : (
+            <> · {count} {count === 1 ? "person" : "people"} listening</>
+          )}
         </p>
 
         {/* CTAs */}
