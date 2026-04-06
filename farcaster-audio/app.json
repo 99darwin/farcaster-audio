@@ -51,6 +51,15 @@
           "icon": "./assets/icon.png",
           "color": "#855DCD"
         }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/PressStart2P-Regular.ttf",
+            "./assets/fonts/DSEG7Classic-Bold.ttf"
+          ]
+        }
       ]
     ],
     "experiments": {

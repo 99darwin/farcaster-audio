@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useMiniAppStore } from '@/stores/miniappStore';
+import { usePrefsStore } from '@/stores/prefsStore';
 import { SpaceMiniBar } from '@/components/spaces/SpaceMiniBar';
 import { MiniAppModal, MiniAppMiniBar } from '@/components/miniapp/MiniAppModal';
 import { TAB_BAR_TOTAL_HEIGHT } from '@/components/navigation/GlassTabBar';
@@ -46,6 +47,7 @@ export default function RootLayout() {
   const segments = useSegments();
   const { isUpdateAvailable, isRestarting, applyUpdate, dismiss } = useOTAUpdate();
   const hydrateAddedMiniApps = useMiniAppStore((s) => s.hydrateAddedMiniApps);
+  const loadPrefs = usePrefsStore((s) => s.loadPrefs);
 
   useNotificationBadge();
   usePushNotifications();
@@ -55,7 +57,8 @@ export default function RootLayout() {
   useEffect(() => {
     hydrate();
     hydrateAddedMiniApps();
-  }, [hydrate, hydrateAddedMiniApps]);
+    loadPrefs();
+  }, [hydrate, hydrateAddedMiniApps, loadPrefs]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -183,7 +186,7 @@ export default function RootLayout() {
           <Stack.Screen name="admin" options={{ title: 'Admin', presentation: 'modal' }} />
           <Stack.Screen name="cast/[hash]" options={{ title: 'Thread' }} />
           <Stack.Screen name="profile/[fid]" options={{ title: 'Profile' }} />
-          <Stack.Screen name="space/[id]" options={{ title: 'Space' }} />
+          <Stack.Screen name="space/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="space/create" options={{ title: 'Create Space' }} />
         </Stack>
         {isUpdateAvailable && (

@@ -10,6 +10,8 @@ import { useSpacePermissions } from '@/hooks/useSpacePermissions';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
 import { useMiniAppStore } from '@/stores/miniappStore';
+import { usePrefsStore } from '@/stores/prefsStore';
+import { WinampPlayer } from '@/components/winamp/WinampPlayer';
 import { SpeakerGrid } from '@/components/spaces/SpeakerGrid';
 import { ListenerList } from '@/components/spaces/ListenerList';
 import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
@@ -126,7 +128,7 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.scheduledContent}>
         {/* Host avatar */}
         <View style={styles.scheduledAvatarWrap}>
@@ -261,6 +263,7 @@ export default function SpaceScreen() {
   const addedMiniApps = useMiniAppStore((s) => s.addedMiniApps);
   const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
   const [scheduledRoom, setScheduledRoom] = useState<Room | null>(null);
+  const winampMode = usePrefsStore((s) => s.winampMode);
   const insets = useSafeAreaInsets();
   const hasChatTab = !!room?.cast_hash;
 
@@ -395,25 +398,98 @@ export default function SpaceScreen() {
   );
   const listeners = participants.filter((p) => p.role === 'listener');
 
+  // ─── Shared modals (used by both views) ───
+  const modals = (
+    <>
+      <EmojiReactionOverlay reactions={reactions} />
+      <ParticipantProfileCard
+        participant={selectedParticipant}
+        visible={!!selectedParticipant}
+        onClose={() => setSelectedParticipant(null)}
+      />
+      <HostControls
+        visible={showHostControls}
+        onClose={() => setShowHostControls(false)}
+        speakers={speakers}
+        handQueue={handQueue}
+        participants={participants}
+        onPromote={handlePromote}
+        onDemote={handleDemote}
+        onMute={handleMute}
+        onKick={handleKick}
+        onBan={handleBan}
+        onEndSpace={handleEndSpace}
+        hostFid={room.host_fid}
+      />
+      <MiniAppPicker
+        visible={isMiniAppPickerVisible}
+        onClose={() => setIsMiniAppPickerVisible(false)}
+        addedMiniApps={addedMiniApps}
+        onSelectMiniApp={(miniApp) => {
+          setIsMiniAppPickerVisible(false);
+          openMiniApp({
+            url: miniApp.config.homeUrl,
+            domain: miniApp.domain,
+            manifest: null,
+            config: miniApp.config,
+            location: { type: 'launcher' },
+          });
+        }}
+      />
+    </>
+  );
+
+  // ─── Winamp mode ───
+  if (winampMode) {
+    return (
+      <AvatarPositionProvider>
+        <WinampPlayer
+          room={room}
+          participants={participants}
+          speakers={speakers}
+          listeners={listeners}
+          myRole={myRole}
+          isMuted={isMuted}
+          isConnected={isConnected}
+          isHandRaised={isHandRaised}
+          permissions={permissions}
+          reactions={reactions}
+          onToggleMute={toggleMute}
+          onLeave={handleLeave}
+          onRaiseHand={handleRaiseHand}
+          onSendReaction={sendReaction}
+          onParticipantPress={setSelectedParticipant}
+          onOpenHostControls={() => setShowHostControls(true)}
+          onShare={() => Share.share({ message: `Join "${room.title}" on Juke`, url: buildSpaceUrl(id) })}
+        />
+        {modals}
+      </AvatarPositionProvider>
+    );
+  }
+
+  // ─── Standard mode ───
   return (
     <AvatarPositionProvider>
-    <View style={styles.container}>
-      {/* Header info */}
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>{room.title}</Text>
-        <View style={styles.statusRow}>
-          <View style={styles.liveDot} />
-          <Text style={styles.statusText}>Live</Text>
-          <Text style={styles.listenerCount}>
-            {participants.length} {participants.length === 1 ? 'person' : 'people'}
-          </Text>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Go back">
+          <Ionicons name="chevron-back" size={24} color={colors.text.primary} />
+        </Pressable>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>{room.title}</Text>
+          <View style={styles.statusRow}>
+            <View style={styles.liveDot} />
+            <Text style={styles.statusText}>Live</Text>
+            <Text style={styles.listenerCount}>
+              {participants.length} {participants.length === 1 ? 'person' : 'people'}
+            </Text>
+          </View>
+          {!isConnected && (
+            <Text style={styles.reconnecting}>Reconnecting...</Text>
+          )}
         </View>
-        {!isConnected && (
-          <Text style={styles.reconnecting}>Reconnecting...</Text>
-        )}
       </View>
 
-      {/* Tab bar (only when cast_hash exists) */}
       {hasChatTab && (
         <View style={styles.tabBar}>
           <Pressable
@@ -449,7 +525,6 @@ export default function SpaceScreen() {
         </View>
       )}
 
-      {/* Content */}
       {activeTab === 'participants' || !hasChatTab ? (
         <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
           <SpeakerGrid speakers={speakers} hostFid={room.host_fid} onParticipantPress={setSelectedParticipant} />
@@ -464,17 +539,12 @@ export default function SpaceScreen() {
         />
       )}
 
-      {/* Emoji Reaction Overlay */}
-      <EmojiReactionOverlay reactions={reactions} />
-
-      {/* Emoji Reaction Panel — hidden on chat tab to avoid blocking text input */}
       {(activeTab === 'participants' || !hasChatTab) && (
         <View style={[styles.reactionPanel, { bottom: insets.bottom + 92 }]}>
           <EmojiReactionPanel onReaction={sendReaction} />
         </View>
       )}
 
-      {/* Bottom Controls */}
       <GlassView style={[styles.controls, { bottom: insets.bottom + 12 }]}>
         {permissions.isListener && (
           <HandRaiseButton isRaised={isHandRaised} onPress={handleRaiseHand} />
@@ -538,45 +608,7 @@ export default function SpaceScreen() {
         </Pressable>
       </GlassView>
 
-      {/* Participant Profile Card */}
-      <ParticipantProfileCard
-        participant={selectedParticipant}
-        visible={!!selectedParticipant}
-        onClose={() => setSelectedParticipant(null)}
-      />
-
-      {/* Host Controls Modal */}
-      <HostControls
-        visible={showHostControls}
-        onClose={() => setShowHostControls(false)}
-        speakers={speakers}
-        handQueue={handQueue}
-        participants={participants}
-        onPromote={handlePromote}
-        onDemote={handleDemote}
-        onMute={handleMute}
-        onKick={handleKick}
-        onBan={handleBan}
-        onEndSpace={handleEndSpace}
-        hostFid={room.host_fid}
-      />
-
-      {/* Mini App Picker */}
-      <MiniAppPicker
-        visible={isMiniAppPickerVisible}
-        onClose={() => setIsMiniAppPickerVisible(false)}
-        addedMiniApps={addedMiniApps}
-        onSelectMiniApp={(miniApp) => {
-          setIsMiniAppPickerVisible(false);
-          openMiniApp({
-            url: miniApp.config.homeUrl,
-            domain: miniApp.domain,
-            manifest: null,
-            config: miniApp.config,
-            location: { type: 'launcher' },
-          });
-        }}
-      />
+      {modals}
     </View>
     </AvatarPositionProvider>
   );
@@ -584,7 +616,17 @@ export default function SpaceScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.main },
-  header: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.background.border },
+  // Standard mode header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.background.border,
+  },
+  backBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  headerText: { flex: 1 },
   title: { color: colors.text.primary, fontSize: 22, fontWeight: '700' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
@@ -611,14 +653,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderBottomColor: colors.text.primary,
   },
-  tabText: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  tabTextActive: {
-    color: colors.text.primary,
-  },
+  tabText: { color: colors.text.secondary, fontSize: 14, fontWeight: '500' },
+  tabTextActive: { color: colors.text.primary },
   scrollContent: { flex: 1 },
   controls: {
     position: 'absolute',
@@ -639,16 +675,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  controlIconMuted: {
-    backgroundColor: glass.mutedOverlay,
-  },
-  controlIconLeave: {
-    backgroundColor: glass.dangerOverlay,
-  },
-  reactionPanel: {
-    position: 'absolute',
-    alignSelf: 'center',
-  },
+  controlIconMuted: { backgroundColor: glass.mutedOverlay },
+  controlIconLeave: { backgroundColor: glass.dangerOverlay },
+  reactionPanel: { position: 'absolute', alignSelf: 'center' },
   // Scheduled space styles
   scheduledContent: {
     flex: 1,

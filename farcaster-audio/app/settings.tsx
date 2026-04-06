@@ -1,8 +1,9 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, Switch, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useSpaceStore } from '@/stores/spaceStore';
+import { usePrefsStore } from '@/stores/prefsStore';
 import { Avatar } from '@/components/common/Avatar';
 import { colors, spacing } from '@/constants/theme';
 import * as livekitService from '@/services/livekit';
@@ -15,6 +16,8 @@ export default function SettingsScreen() {
   const logout = useAuthStore((s) => s.logout);
   const room = useSpaceStore((s) => s.room);
   const leaveSpace = useSpaceStore((s) => s.leaveSpace);
+  const winampMode = usePrefsStore((s) => s.winampMode);
+  const setWinampMode = usePrefsStore((s) => s.setWinampMode);
 
   const handleLogout = async () => {
     if (room) {
@@ -80,6 +83,23 @@ export default function SettingsScreen() {
       )}
 
       <View style={styles.section}>
+        <View style={styles.row}>
+          <Ionicons name="musical-notes-outline" size={20} color={colors.purple} />
+          <View style={styles.rowLabelWrap}>
+            <Text style={styles.rowText}>Winamp Mode</Text>
+            <Text style={styles.rowHint}>Retro player skin for audio spaces</Text>
+          </View>
+          <Switch
+            value={winampMode}
+            onValueChange={setWinampMode}
+            trackColor={{ false: colors.background.border, true: colors.purple }}
+            thumbColor="#ffffff"
+            style={{ marginLeft: 'auto' }}
+          />
+        </View>
+      </View>
+
+      <View style={styles.section}>
         <Pressable style={styles.row} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Log out">
           <Ionicons name="log-out-outline" size={20} color={colors.danger} />
           <Text style={styles.rowTextDanger}>Log Out</Text>
@@ -130,9 +150,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing['2xl'],
     paddingVertical: 14,
   },
+  rowLabelWrap: {
+    flex: 1,
+  },
   rowText: {
     color: colors.text.primary,
     fontSize: 16,
+  },
+  rowHint: {
+    color: colors.text.secondary,
+    fontSize: 13,
+    marginTop: 2,
   },
   rowTextDanger: {
     color: colors.danger,
