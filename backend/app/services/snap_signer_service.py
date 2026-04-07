@@ -82,6 +82,9 @@ async def register_ed25519_signer_with_neynar(
     deadline: int,
 ) -> dict:
     """Register an Ed25519 public key with Neynar as a developer-managed signer."""
+    # Defense in depth: validate even though callers normalize upstream.
+    _decode_pubkey_hex(public_key_hex)
+
     payload = {
         "public_key": public_key_hex,
         "app_fid": settings.FARCASTER_APP_FID,
@@ -107,6 +110,9 @@ async def register_ed25519_signer_with_neynar(
 
 async def check_ed25519_signer_status(public_key_hex: str) -> dict:
     """Check the registration status of a developer-managed Ed25519 signer."""
+    # Defense in depth: validate even though callers normalize upstream.
+    _decode_pubkey_hex(public_key_hex)
+
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
         resp = await client.get(
             NEYNAR_SIGNER_STATUS_URL,

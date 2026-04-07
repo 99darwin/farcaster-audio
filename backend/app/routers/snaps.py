@@ -31,6 +31,26 @@ router = APIRouter(prefix="/v1/snaps", tags=["snaps"])
 
 PUBKEY_PATTERN = re.compile(r"^0x[0-9a-fA-F]{64}$")
 
+RATE_LIMIT_MAX = 3
+RATE_LIMIT_WINDOW_SECONDS = 3600
+# Ownership mapping lifetime. Long enough to cover signer lifecycle but
+# bounded so stale/unapproved registrations don't accumulate forever.
+SNAP_SIGNER_OWNERSHIP_TTL_SECONDS = 30 * 86400
+
+
+def _normalize_pubkey(public_key: str) -> str:
+    """Validate + lowercase an Ed25519 pubkey. Raises 400 on invalid input."""
+    if not PUBKEY_PATTERN.match(public_key):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Ed25519 public key",
+        )
+    return public_key.lower()
+
+
+def _ownership_key(public_key_lower: str) -> str:
+    return f"snap_signer:{public_key_lower}"
+
 
 @router.post("/register-signer", response_model=RegisterSnapSignerResponse)
 async def register_snap_signer(
@@ -39,19 +59,28 @@ async def register_snap_signer(
     redis: aioredis.Redis = Depends(get_redis),
 ):
     """Register an Ed25519 public key for snap interactivity."""
-    # Rate limit: max 3 registrations per hour per user
+    public_key = _normalize_pubkey(body.public_key)
     rate_key = f"snap_signer_rate:{fid}"
-    attempts = await redis.incr(rate_key)
-    if attempts == 1:
-        await redis.expire(rate_key, 3600)
-    if attempts > 3:
+
+    # Rate limit: check current count first so we don't burn attempts on
+    # validation failures. Increment only after a successful registration.
+    current = await redis.get(rate_key)
+    if current is not None and int(current) >= RATE_LIMIT_MAX:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many registration attempts. Try again later.",
         )
 
+    # Reject attempts to re-register a pubkey already claimed by a different fid.
+    existing_owner = await redis.get(_ownership_key(public_key))
+    if existing_owner is not None and int(existing_owner) != fid:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Public key already registered",
+        )
+
     try:
-        signature, deadline = generate_signed_key_request_for_ed25519(body.public_key)
+        signature, deadline = generate_signed_key_request_for_ed25519(public_key)
     except ValueError as exc:
         logger.error("Ed25519 signed key request failed: %s", exc)
         raise HTTPException(
@@ -61,26 +90,74 @@ async def register_snap_signer(
 
     try:
         result = await register_ed25519_signer_with_neynar(
-            public_key_hex=body.public_key,
+            public_key_hex=public_key,
             signature=signature,
             deadline=deadline,
         )
     except httpx.HTTPStatusError as exc:
         logger.error(
-            "Neynar snap signer registration failed for fid=%s: %s",
+            "Neynar snap signer registration failed for fid=%s status=%s",
             fid,
-            exc.response.text,
+            exc.response.status_code,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Snap signer registration failed",
         )
+    except httpx.RequestError as exc:
+        logger.error(
+            "Neynar snap signer registration transport error for fid=%s: %s",
+            fid,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Snap signer registration unavailable",
+        )
 
-    # Store pubkey -> FID mapping so status checks can verify ownership
-    await redis.set(f"snap_signer:{body.public_key.lower()}", str(fid))
+    # Verify Neynar echoed back the pubkey we sent — protects against
+    # state split where the client is told one key but Redis/hub have another.
+    upstream_pubkey = result.get("public_key")
+    if upstream_pubkey and upstream_pubkey.lower() != public_key:
+        logger.error("Neynar returned mismatched pubkey for fid=%s", fid)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Snap signer registration failed",
+        )
+
+    # Atomically claim the ownership mapping. SET NX prevents a concurrent
+    # duplicate registration from overwriting an existing record; TTL caps
+    # unbounded key growth.
+    claimed = await redis.set(
+        _ownership_key(public_key),
+        str(fid),
+        ex=SNAP_SIGNER_OWNERSHIP_TTL_SECONDS,
+        nx=True,
+    )
+    if not claimed:
+        # Key was written between our initial check and now. Re-read to
+        # decide whether this is a same-fid refresh or a conflict.
+        existing = await redis.get(_ownership_key(public_key))
+        if existing is not None and int(existing) != fid:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Public key already registered",
+            )
+        # Same fid — refresh TTL to keep the claim alive.
+        await redis.expire(
+            _ownership_key(public_key), SNAP_SIGNER_OWNERSHIP_TTL_SECONDS
+        )
+
+    # Only bump the rate limiter on success. Use a pipeline so the window
+    # TTL is set atomically with the first increment — no crash window
+    # where a key exists with no TTL.
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.set(rate_key, 0, ex=RATE_LIMIT_WINDOW_SECONDS, nx=True)
+        pipe.incr(rate_key)
+        await pipe.execute()
 
     return RegisterSnapSignerResponse(
-        public_key=result.get("public_key", body.public_key),
+        public_key=public_key,
         status=result.get("status", "pending_approval"),
         approval_url=result.get("signer_approval_url"),
     )
@@ -93,13 +170,9 @@ async def get_snap_signer_status(
     redis: aioredis.Redis = Depends(get_redis),
 ):
     """Check whether a snap signer has been approved."""
-    if not PUBKEY_PATTERN.match(public_key):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid Ed25519 public key",
-        )
+    public_key = _normalize_pubkey(public_key)
 
-    owner_fid = await redis.get(f"snap_signer:{public_key.lower()}")
+    owner_fid = await redis.get(_ownership_key(public_key))
     if owner_fid is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -115,17 +188,29 @@ async def get_snap_signer_status(
         result = await check_ed25519_signer_status(public_key)
     except httpx.HTTPStatusError as exc:
         logger.error(
-            "Neynar snap signer status check failed for fid=%s: %s",
+            "Neynar snap signer status check failed for fid=%s status=%s",
             fid,
-            exc.response.text,
+            exc.response.status_code,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to check snap signer status",
         )
+    except httpx.RequestError as exc:
+        logger.error(
+            "Neynar snap signer status transport error for fid=%s: %s",
+            fid,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Snap signer status unavailable",
+        )
 
+    # Return the verified fid from our ownership mapping rather than blindly
+    # trusting the upstream value.
     return SnapSignerStatusResponse(
-        public_key=result.get("public_key", public_key),
+        public_key=public_key,
         status=result.get("status", "unknown"),
-        fid=result.get("fid"),
+        fid=fid,
     )
