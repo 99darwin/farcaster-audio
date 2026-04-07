@@ -9,6 +9,34 @@ const MAX_EXTRA_INDENT_PX = 48; // Max additional indent beyond CastCard's built
 const DEFAULT_MAX_DEPTH = 3;
 const MAX_RECURSION_DEPTH = 10;
 
+/**
+ * Returns true if `hash` matches `reply.hash` or any cast in its nested
+ * `direct_replies` subtree.
+ */
+export function subtreeContainsHash(reply: NeynarCastWithReplies, hash: string): boolean {
+  if (reply.hash === hash) return true;
+  const children = reply.direct_replies ?? [];
+  for (const child of children) {
+    if (subtreeContainsHash(child, hash)) return true;
+  }
+  return false;
+}
+
+/**
+ * Walks each top-level reply in `replies` (and its nested subtree) and returns
+ * the index of the top-level reply whose subtree contains `hash`. Returns -1
+ * if not found.
+ */
+export function findTopLevelIndexContaining(
+  replies: NeynarCastWithReplies[],
+  hash: string,
+): number {
+  for (let i = 0; i < replies.length; i++) {
+    if (subtreeContainsHash(replies[i], hash)) return i;
+  }
+  return -1;
+}
+
 interface ThreadedRepliesProps {
   replies: NeynarCastWithReplies[];
   depth?: number;
@@ -19,6 +47,7 @@ interface ThreadedRepliesProps {
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   onCastPress: (hash: string) => void;
+  focusHash?: string;
 }
 
 function ReplyNode({
@@ -31,6 +60,7 @@ function ReplyNode({
   onQuoteCast,
   onReply,
   onCastPress,
+  focusHash,
 }: {
   reply: NeynarCastWithReplies;
   depth: number;
@@ -41,14 +71,21 @@ function ReplyNode({
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   onCastPress: (hash: string) => void;
+  focusHash?: string;
 }) {
   // L1: Recursion safety valve
   if (depth > MAX_RECURSION_DEPTH) return null;
 
-  const [isExpanded, setIsExpanded] = useState(false);
   const childReplies = reply.direct_replies ?? [];
   const hasChildren = childReplies.length > 0;
   const isAtMaxDepth = depth >= maxDepth;
+  const subtreeContainsFocus = focusHash ? subtreeContainsHash(reply, focusHash) : false;
+  const isFocused = !!focusHash && reply.hash === focusHash;
+  // Auto-expand collapsed nodes whose subtree contains the focused reply,
+  // so the focus target is actually rendered.
+  const [isExpanded, setIsExpanded] = useState<boolean>(
+    () => isAtMaxDepth && hasChildren && subtreeContainsFocus,
+  );
 
   // CastCard's `threaded` prop already applies 52px left padding + thread line + sm avatar.
   // We only add extra indent for depth > 0 (nested replies beyond direct replies).
@@ -70,17 +107,19 @@ function ReplyNode({
       accessibilityLabel={`Thread reply, depth ${depth + 1}`}
     >
       <View style={wrapperStyle}>
-        <CastCard
-          cast={reply}
-          myFid={myFid}
-          onLike={onLike}
-          onRecast={onRecast}
-          onQuoteCast={onQuoteCast}
-          onReply={onReply}
-          onPress={() => onCastPress(reply.hash)}
-          threaded
-          hideThreadLine={depth > 0}
-        />
+        <View style={isFocused ? styles.focusHighlight : undefined}>
+          <CastCard
+            cast={reply}
+            myFid={myFid}
+            onLike={onLike}
+            onRecast={onRecast}
+            onQuoteCast={onQuoteCast}
+            onReply={onReply}
+            onPress={() => onCastPress(reply.hash)}
+            threaded
+            hideThreadLine={depth > 0}
+          />
+        </View>
       </View>
 
       {hasChildren && !isAtMaxDepth && (
@@ -94,6 +133,7 @@ function ReplyNode({
           onQuoteCast={onQuoteCast}
           onReply={onReply}
           onCastPress={onCastPress}
+          focusHash={focusHash}
         />
       )}
 
@@ -120,6 +160,7 @@ function ReplyNode({
             onQuoteCast={onQuoteCast}
             onReply={onReply}
             onCastPress={onCastPress}
+            focusHash={focusHash}
           />
           <Pressable
             style={[styles.unfurlButton, unfurlPaddingStyle]}
@@ -143,6 +184,7 @@ export function ThreadedReplies({
   onQuoteCast,
   onReply,
   onCastPress,
+  focusHash,
 }: ThreadedRepliesProps) {
   return (
     <View>
@@ -158,6 +200,7 @@ export function ThreadedReplies({
           onQuoteCast={onQuoteCast}
           onReply={onReply}
           onCastPress={onCastPress}
+          focusHash={focusHash}
         />
       ))}
     </View>
@@ -173,5 +216,10 @@ const styles = StyleSheet.create({
     color: colors.purple,
     fontSize: 14,
     fontWeight: '500',
+  },
+  focusHighlight: {
+    backgroundColor: colors.purple + '14',
+    borderLeftWidth: 2,
+    borderLeftColor: colors.purple,
   },
 });

@@ -63,9 +63,13 @@ export function NotificationItem({ notification, isUnread, onLike }: Notificatio
     if (type === 'follows') {
       router.push(`/profile/${actor.fid}`);
     } else if (cast?.hash) {
-      // Navigate to thread root so replies show full context
+      // Navigate to thread root so replies show full context.
+      // If the notification cast is itself a reply, focus on it within the thread.
       const threadHash = cast.thread_hash ?? cast.parent_hash ?? cast.hash;
-      router.push(`/cast/${threadHash}`);
+      const focusHash = cast.hash !== threadHash ? cast.hash : undefined;
+      router.push(
+        focusHash ? `/cast/${threadHash}?focusHash=${focusHash}` : `/cast/${threadHash}`,
+      );
     }
   };
 

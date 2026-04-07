@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { FlatList, View, Text, RefreshControl, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useCastThread } from '@/hooks/useCastThread';
 import { CastCard } from '@/components/feed/CastCard';
-import { ThreadedReplies } from '@/components/feed/ThreadedReplies';
+import { ThreadedReplies, findTopLevelIndexContaining } from '@/components/feed/ThreadedReplies';
 import { ComposeModal } from '@/components/feed/ComposeModal';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorView } from '@/components/common/ErrorView';
@@ -13,7 +13,7 @@ import { likeCast, recastCast, removeLike, removeRecast, publishCast } from '@/s
 import type { NeynarCast, NeynarCastWithReplies } from '@/types/neynar';
 
 export default function CastThreadScreen() {
-  const { hash } = useLocalSearchParams<{ hash: string }>();
+  const { hash, focusHash } = useLocalSearchParams<{ hash: string; focusHash?: string }>();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const myFid = user?.fid ?? 0;
@@ -22,10 +22,37 @@ export default function CastThreadScreen() {
   const [composeVisible, setComposeVisible] = useState(false);
   const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
   const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
+  const flatListRef = useRef<FlatList<NeynarCastWithReplies>>(null);
 
   useEffect(() => {
     fetch();
   }, [fetch]);
+
+  // Scroll to the focused reply once thread data is loaded.
+  useEffect(() => {
+    if (!focusHash || replies.length === 0) return;
+    if (rootCast?.hash === focusHash) return; // header already visible
+    const index = findTopLevelIndexContaining(replies, focusHash);
+    if (index < 0) return;
+    const raf = requestAnimationFrame(() => {
+      flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [focusHash, replies, rootCast?.hash]);
+
+  const handleScrollToIndexFailed = useCallback(
+    (info: { index: number; highestMeasuredFrameIndex: number; averageItemLength: number }) => {
+      // Reply rows have variable height; retry after a short delay.
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({
+          index: info.index,
+          animated: true,
+          viewPosition: 0.2,
+        });
+      }, 100);
+    },
+    [],
+  );
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -95,8 +122,10 @@ export default function CastThreadScreen() {
   return (
     <View style={styles.container}>
       <FlatList<NeynarCastWithReplies>
+        ref={flatListRef}
         data={replies}
         keyExtractor={(item) => item.hash}
+        onScrollToIndexFailed={handleScrollToIndexFailed}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -126,6 +155,7 @@ export default function CastThreadScreen() {
             onQuoteCast={handleQuoteCast}
             onReply={handleReply}
             onCastPress={handleCastPress}
+            focusHash={focusHash}
           />
         )}
         ListEmptyComponent={
