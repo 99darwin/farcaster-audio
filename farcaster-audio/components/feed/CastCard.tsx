@@ -173,6 +173,7 @@ function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
 }
 
 function QuoteCast({ cast, onPress }: { cast: NeynarCast; onPress?: () => void }) {
+  if (!cast?.author) return null;
   const content = (
     <View style={styles.quoteContainer}>
       <View style={styles.quoteHeader}>
