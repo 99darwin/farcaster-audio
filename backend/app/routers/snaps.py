@@ -62,10 +62,15 @@ async def register_snap_signer(
     public_key = _normalize_pubkey(body.public_key)
     rate_key = f"snap_signer_rate:{fid}"
 
-    # Rate limit: check current count first so we don't burn attempts on
-    # validation failures. Increment only after a successful registration.
-    current = await redis.get(rate_key)
-    if current is not None and int(current) >= RATE_LIMIT_MAX:
+    # Rate limit: atomically increment first so concurrent requests cannot
+    # race past the check. We always count the attempt against the caller's
+    # budget — including failures — which prevents an attacker from
+    # hammering Neynar by deliberately triggering upstream errors.
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.incr(rate_key)
+        pipe.expire(rate_key, RATE_LIMIT_WINDOW_SECONDS)
+        new_count, _ = await pipe.execute()
+    if int(new_count) > RATE_LIMIT_MAX:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many registration attempts. Try again later.",
@@ -148,14 +153,6 @@ async def register_snap_signer(
             _ownership_key(public_key), SNAP_SIGNER_OWNERSHIP_TTL_SECONDS
         )
 
-    # Only bump the rate limiter on success. Use a pipeline so the window
-    # TTL is set atomically with the first increment — no crash window
-    # where a key exists with no TTL.
-    async with redis.pipeline(transaction=True) as pipe:
-        pipe.set(rate_key, 0, ex=RATE_LIMIT_WINDOW_SECONDS, nx=True)
-        pipe.incr(rate_key)
-        await pipe.execute()
-
     return RegisterSnapSignerResponse(
         public_key=public_key,
         status=result.get("status", "pending_approval"),
@@ -172,16 +169,13 @@ async def get_snap_signer_status(
     """Check whether a snap signer has been approved."""
     public_key = _normalize_pubkey(public_key)
 
+    # Constant-shape 403 for both "does not exist" and "not yours" so we
+    # don't leak whether an arbitrary pubkey is registered in our system.
     owner_fid = await redis.get(_ownership_key(public_key))
-    if owner_fid is None:
+    if owner_fid is None or int(owner_fid) != fid:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Unknown snap signer",
-        )
-    if int(owner_fid) != fid:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Snap signer does not belong to this user",
+            detail="Snap signer not accessible",
         )
 
     try:

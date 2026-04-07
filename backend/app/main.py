@@ -41,6 +41,22 @@ async def lifespan(app: FastAPI):
             "JWT_SECRET must be changed from the default value in non-development environments"
         )
 
+    # Reject wildcard CORS origins — combined with allow_credentials=True
+    # this would be a cross-site footgun if we ever move to cookie auth.
+    # We also require every allowed origin to be HTTPS outside development.
+    if "*" in settings.CORS_ORIGINS:
+        raise RuntimeError(
+            "CORS_ORIGINS must not contain '*' while credentials are allowed"
+        )
+    if settings.ENVIRONMENT != "development":
+        insecure_origins = [
+            o for o in settings.CORS_ORIGINS if not o.startswith("https://")
+        ]
+        if insecure_origins:
+            raise RuntimeError(
+                f"CORS_ORIGINS must be HTTPS outside development: {insecure_origins}"
+            )
+
     # Startup: init redis pool
     app.state.redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
     yield

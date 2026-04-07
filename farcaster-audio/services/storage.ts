@@ -1,5 +1,14 @@
 import * as SecureStore from 'expo-secure-store';
 
+/**
+ * Keychain accessibility for all stored credentials. `_THIS_DEVICE_ONLY`
+ * prevents items from migrating via iCloud Keychain / encrypted backups, so
+ * a compromised Apple ID does not yield the user's tokens or signer keys.
+ */
+const SECURE_STORE_OPTS: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+};
+
 const KEYS = {
   JWT: 'auth_jwt',
   REFRESH_TOKEN: 'auth_refresh_token',
@@ -14,8 +23,8 @@ export interface StoredTokens {
 // --- Tokens ---
 
 export async function saveTokens(jwt: string, refreshToken: string): Promise<void> {
-  await SecureStore.setItemAsync(KEYS.JWT, jwt);
-  await SecureStore.setItemAsync(KEYS.REFRESH_TOKEN, refreshToken);
+  await SecureStore.setItemAsync(KEYS.JWT, jwt, SECURE_STORE_OPTS);
+  await SecureStore.setItemAsync(KEYS.REFRESH_TOKEN, refreshToken, SECURE_STORE_OPTS);
 }
 
 export async function getTokens(): Promise<StoredTokens | null> {
@@ -43,7 +52,7 @@ export interface StoredUserProfile {
 }
 
 export async function saveUserProfile(profile: StoredUserProfile): Promise<void> {
-  await SecureStore.setItemAsync(KEYS.USER_PROFILE, JSON.stringify(profile));
+  await SecureStore.setItemAsync(KEYS.USER_PROFILE, JSON.stringify(profile), SECURE_STORE_OPTS);
 }
 
 export async function getUserProfile(): Promise<StoredUserProfile | null> {
@@ -62,7 +71,7 @@ export async function clearUserProfile(): Promise<void> {
 const PUSH_TOKEN_KEY = 'push_token';
 
 export async function savePushToken(token: string): Promise<void> {
-  await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token);
+  await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token, SECURE_STORE_OPTS);
 }
 
 export async function getPushToken(): Promise<string | null> {
@@ -82,7 +91,7 @@ export async function getLastSeenNotificationTimestamp(): Promise<string | null>
 }
 
 export async function saveLastSeenNotificationTimestamp(timestamp: string): Promise<void> {
-  await SecureStore.setItemAsync(LAST_SEEN_NOTIFICATION_KEY, timestamp);
+  await SecureStore.setItemAsync(LAST_SEEN_NOTIFICATION_KEY, timestamp, SECURE_STORE_OPTS);
 }
 
 // --- Clear All ---
