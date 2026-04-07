@@ -10,7 +10,7 @@ from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,20 +65,8 @@ class CastIdEmbed(BaseModel):
 class CastRequest(BaseModel):
     text: str = Field(max_length=10000)
     parent: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
-    embeds: list[HttpUrl] | None = Field(default=None, max_length=2)
+    embeds: list[HttpUrl] | None = Field(default=None, max_length=4)
     quote: CastIdEmbed | None = None
-
-    @model_validator(mode="after")
-    def validate_total_embeds(self) -> "CastRequest":
-        # Farcaster protocol allows max 2 embeds per cast; quote counts as one slot
-        embed_count = len(self.embeds) if self.embeds else 0
-        if self.quote:
-            embed_count += 1
-        if embed_count > 2:
-            raise ValueError(
-                "A cast can have at most 2 embeds total (a quote counts as one)"
-            )
-        return self
 
 
 # --- Endpoints ---
