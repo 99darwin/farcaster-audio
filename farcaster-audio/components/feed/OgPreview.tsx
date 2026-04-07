@@ -1,8 +1,12 @@
+import { useEffect, useState } from 'react';
 import { View, Text, Pressable, Linking, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { colors } from '@/constants/theme';
 import { useMiniAppStore } from '@/stores/miniappStore';
 import { resolveMiniApp } from '@/services/manifest';
+import { fetchSnap, getCachedSnap } from '@/services/snapClient';
+import type { SnapResponse } from '@/types/snap';
+import { SnapCard } from '@/components/feed/snap/SnapCard';
 import type { NeynarEmbed } from '@/types/neynar';
 import type { CastEmbedLocationContext } from '@/types/miniapp';
 
@@ -148,9 +152,32 @@ interface OgPreviewProps {
 
 export function OgPreview({ embed, castContext }: OgPreviewProps) {
   const url = embed.url;
+  const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
+
+  // Snap detection: only for non-mini-app URLs with no existing frame metadata.
+  // Seed from the session cache so scrolled-back-into-view cards render instantly.
+  const canDetectSnap = !!url && !getFrameMeta(embed) && !isMiniApp(embed);
+  const [snap, setSnap] = useState<SnapResponse | null>(() =>
+    canDetectSnap && url ? getCachedSnap(url) : null,
+  );
+
+  useEffect(() => {
+    if (!canDetectSnap || !url || snap) return;
+    let cancelled = false;
+    fetchSnap(url).then((result) => {
+      if (!cancelled && result) setSnap(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canDetectSnap, url, snap]);
+
   if (!url) return null;
 
-  const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
+  if (snap) {
+    return <SnapCard url={url} response={snap} />;
+  }
+
   const imageUrl = getOgImage(embed);
   const title = getOgTitle(embed);
   const description = getOgDescription(embed);

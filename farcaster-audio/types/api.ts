@@ -119,3 +119,16 @@ export interface AuthAddressStatusResponse {
   status: string;
   fid: number | null;
 }
+
+// Snap Signer (Ed25519 developer-managed signer)
+export interface RegisterSnapSignerResponse {
+  public_key: string;
+  status: string;
+  approval_url: string | null;
+}
+
+export interface SnapSignerStatusResponse {
+  public_key: string;
+  status: string;
+  fid: number | null;
+}
