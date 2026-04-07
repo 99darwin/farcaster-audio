@@ -65,19 +65,19 @@ class CastIdEmbed(BaseModel):
 class CastRequest(BaseModel):
     text: str = Field(max_length=10000)
     parent: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
-    embeds: list[HttpUrl] | None = Field(default=None, max_length=4)
+    embeds: list[HttpUrl] | None = Field(default=None, max_length=2)
     quote: CastIdEmbed | None = None
 
     @model_validator(mode="after")
     def validate_total_embeds(self) -> "CastRequest":
-        # When quoting, the total embed slots (images + quote) cannot exceed 2.
-        # Without a quote, up to 4 image embeds are allowed (Neynar premium tier).
+        # Farcaster protocol allows max 2 embeds per cast; quote counts as one slot
+        embed_count = len(self.embeds) if self.embeds else 0
         if self.quote:
-            embed_count = (len(self.embeds) if self.embeds else 0) + 1
-            if embed_count > 2:
-                raise ValueError(
-                    "A cast with a quote can have at most 1 additional image embed"
-                )
+            embed_count += 1
+        if embed_count > 2:
+            raise ValueError(
+                "A cast can have at most 2 embeds total (a quote counts as one)"
+            )
         return self
 
 
