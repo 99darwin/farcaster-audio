@@ -14,7 +14,7 @@ import {
   signSnapSubmit,
   type SnapSignerStatus,
 } from '@/services/snapSigner';
-import { submitSnap } from '@/services/snapClient';
+import { submitSnap, assertSafeSnapUrl, isSameOriginSnapTarget } from '@/services/snapClient';
 
 interface State {
   inputs: SnapInputs;
@@ -160,11 +160,27 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       }
 
       // Resolve per-button POST target — snaps can route to different URLs
-      // via on.press.params.target. Fall back to the original snap URL.
+      // via on.press.params.target. To defeat signed-body exfiltration we
+      // require any target to share the original snap URL's origin and
+      // pass a safe-URL check (https + not a private/loopback host).
       const element = state.response.ui.elements[elementId] as
         | { on?: { press?: { params?: { target?: string } } } }
         | undefined;
-      const target = element?.on?.press?.params?.target ?? url;
+      const rawTarget = element?.on?.press?.params?.target ?? url;
+      let target: string;
+      try {
+        target = assertSafeSnapUrl(rawTarget);
+      } catch {
+        dispatch({ type: 'submit-error', error: 'Unsafe snap target URL' });
+        return;
+      }
+      if (!isSameOriginSnapTarget(target, url)) {
+        dispatch({
+          type: 'submit-error',
+          error: 'Snap target must share the origin of the original snap URL',
+        });
+        return;
+      }
 
       dispatch({ type: 'submit-start' });
       try {
@@ -172,6 +188,7 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
           fid,
           buttonIndex,
           state.inputs as Record<string, string | number | boolean>,
+          target,
         );
         const next = await submitSnap(target, jfs);
         dispatch({ type: 'submit-success', response: next });

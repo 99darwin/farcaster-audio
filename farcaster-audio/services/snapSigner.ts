@@ -21,6 +21,22 @@ ed.hashes.sha512 = sha512;
 
 const SNAP_KEY_PREFIX = 'snap_signer_key_';
 const SNAP_STATUS_PREFIX = 'snap_signer_status_';
+const SNAP_STATUS_TS_PREFIX = 'snap_signer_status_ts_';
+
+/**
+ * Cached "approved" status is valid for one hour. After that we re-check
+ * with the backend so that revoked or rotated signers stop being trusted.
+ */
+const STATUS_CACHE_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Keychain accessibility for all snap-signer items. `_THIS_DEVICE_ONLY`
+ * prevents iCloud Keychain / encrypted-backup migration, so compromising
+ * the user's Apple ID does not yield the signer private key.
+ */
+const SECURE_STORE_OPTS: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+};
 
 export type SnapSignerStatus = 'none' | 'pending_approval' | 'approved';
 
@@ -84,7 +100,7 @@ export async function getOrCreateSnapKey(fid: number): Promise<{
 
   const privateKey = ed.utils.randomSecretKey();
   const publicKey = ed.getPublicKey(privateKey);
-  await SecureStore.setItemAsync(storageKey, bytesToHex(privateKey));
+  await SecureStore.setItemAsync(storageKey, bytesToHex(privateKey), SECURE_STORE_OPTS);
   return {
     publicKey: `0x${bytesToHex(publicKey)}` as `0x${string}`,
     privateKey,
@@ -92,10 +108,28 @@ export async function getOrCreateSnapKey(fid: number): Promise<{
   };
 }
 
+async function writeStatusCache(fid: number, value: SnapSignerStatus): Promise<void> {
+  await SecureStore.setItemAsync(`${SNAP_STATUS_PREFIX}${fid}`, value, SECURE_STORE_OPTS);
+  await SecureStore.setItemAsync(
+    `${SNAP_STATUS_TS_PREFIX}${fid}`,
+    String(Date.now()),
+    SECURE_STORE_OPTS,
+  );
+}
+
+async function readFreshStatusCache(fid: number): Promise<SnapSignerStatus | null> {
+  const cached = await SecureStore.getItemAsync(`${SNAP_STATUS_PREFIX}${fid}`);
+  if (cached !== 'approved') return null;
+  const tsRaw = await SecureStore.getItemAsync(`${SNAP_STATUS_TS_PREFIX}${fid}`);
+  const ts = tsRaw ? Number(tsRaw) : 0;
+  if (!ts || Date.now() - ts > STATUS_CACHE_TTL_MS) return null;
+  return 'approved';
+}
+
 /** Check whether the snap signer for this fid is registered & approved. */
 export async function getSnapSignerStatus(fid: number): Promise<SnapSignerStatus> {
-  const cached = await SecureStore.getItemAsync(`${SNAP_STATUS_PREFIX}${fid}`);
-  if (cached === 'approved') return 'approved';
+  const fresh = await readFreshStatusCache(fid);
+  if (fresh) return fresh;
 
   const storageKey = `${SNAP_KEY_PREFIX}${fid}`;
   const existing = await SecureStore.getItemAsync(storageKey);
@@ -109,9 +143,12 @@ export async function getSnapSignerStatus(fid: number): Promise<SnapSignerStatus
   try {
     const result = await api.getSnapSignerStatus(publicKey);
     if (result.status === 'approved') {
-      await SecureStore.setItemAsync(`${SNAP_STATUS_PREFIX}${fid}`, 'approved');
+      await writeStatusCache(fid, 'approved');
       return 'approved';
     }
+    // Clear stale cache if upstream no longer reports approved.
+    await SecureStore.deleteItemAsync(`${SNAP_STATUS_PREFIX}${fid}`);
+    await SecureStore.deleteItemAsync(`${SNAP_STATUS_TS_PREFIX}${fid}`);
     return result.status === 'pending_approval' ? 'pending_approval' : 'none';
   } catch {
     return 'none';
@@ -128,7 +165,7 @@ export async function registerSnapSigner(fid: number): Promise<{
   const result = await api.registerSnapSigner(publicKey);
 
   if (result.status === 'approved') {
-    await SecureStore.setItemAsync(`${SNAP_STATUS_PREFIX}${fid}`, 'approved');
+    await writeStatusCache(fid, 'approved');
   }
 
   return {
@@ -145,6 +182,10 @@ export interface SnapSubmitPayload {
   inputs: Record<string, string | number | boolean>;
   button_index: number;
   timestamp: number;
+  /** Target URL this body is signed for — prevents cross-origin replay. */
+  aud: string;
+  /** Random per-request nonce — prevents same-origin replay. */
+  nonce: string;
 }
 
 export interface JfsBody {
@@ -153,16 +194,28 @@ export interface JfsBody {
   signature: string;
 }
 
+function randomNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
+}
+
 /**
  * Build a JSON Farcaster Signature body for a snap submit request.
  *
  * Returns the JSON shape accepted by @farcaster/snap server:
  * `{ header, payload, signature }` where each field is base64url-encoded.
+ *
+ * The payload is bound to `audience` (the target URL being POSTed to) and
+ * includes a random nonce to defeat cross-origin replay and capture-replay
+ * attacks. These fields are additive — standards-compliant snap servers
+ * that ignore unknown payload fields will still accept the body.
  */
 export async function signSnapSubmit(
   fid: number,
   buttonIndex: number,
   inputs: Record<string, string | number | boolean>,
+  audience: string,
 ): Promise<JfsBody> {
   const { publicKey, privateKey } = await getOrCreateSnapKey(fid);
 
@@ -176,6 +229,8 @@ export async function signSnapSubmit(
     inputs,
     button_index: buttonIndex,
     timestamp: Math.floor(Date.now() / 1000),
+    aud: audience,
+    nonce: randomNonce(),
   };
 
   const headerB64 = base64UrlEncode(JSON.stringify(header));

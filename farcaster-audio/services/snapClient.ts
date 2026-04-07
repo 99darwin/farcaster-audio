@@ -13,6 +13,65 @@ const MAX_RESPONSE_BYTES = 256 * 1024; // 256 KB
 const FETCH_TIMEOUT_MS = 8000;
 const CACHE_MAX = 200;
 
+/**
+ * Hostname patterns we refuse to contact for snap requests. This is a
+ * best-effort SSRF guard — DNS rebinding can defeat it, but it stops the
+ * common footguns (loopback, RFC1918, link-local, `.local`, ip6 loopback).
+ */
+const PRIVATE_HOST_PATTERNS: RegExp[] = [
+  /^localhost$/i,
+  /^127\./,
+  /^0\./,
+  /^10\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^169\.254\./,
+  /^::1$/,
+  /^fc[0-9a-f]{2}:/i,
+  /^fe80:/i,
+  /\.local$/i,
+  /\.internal$/i,
+];
+
+/**
+ * Validate a URL for snap fetch/submit. Enforces:
+ *   - parseable URL
+ *   - https: scheme only
+ *   - hostname not in the private/loopback denylist
+ * Returns the normalized href. Throws on rejection.
+ */
+export function assertSafeSnapUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('Invalid snap URL');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Snap URL must use HTTPS');
+  }
+  const host = parsed.hostname;
+  for (const re of PRIVATE_HOST_PATTERNS) {
+    if (re.test(host)) throw new Error('Snap URL host is not permitted');
+  }
+  return parsed.href;
+}
+
+/** Returns true iff `target` shares the same scheme + hostname + port as `base`. */
+export function isSameOriginSnapTarget(target: string, base: string): boolean {
+  try {
+    const t = new URL(target);
+    const b = new URL(base);
+    return (
+      t.protocol === b.protocol &&
+      t.hostname.toLowerCase() === b.hostname.toLowerCase() &&
+      t.port === b.port
+    );
+  } catch {
+    return false;
+  }
+}
+
 type CacheEntry =
   | { kind: 'snap'; response: SnapResponse }
   | { kind: 'not-snap' };
@@ -83,6 +142,13 @@ async function fetchWithTimeout(
  * if the server advertises snap support, otherwise null.
  */
 export async function fetchSnap(url: string): Promise<SnapResponse | null> {
+  try {
+    assertSafeSnapUrl(url);
+  } catch {
+    cacheSet(url, { kind: 'not-snap' });
+    return null;
+  }
+
   const cached = cacheGet(url);
   if (cached) return cached.kind === 'snap' ? cached.response : null;
 
@@ -181,6 +247,7 @@ export function isKnownElement(el: { type: string }): el is SnapElement {
  * or invalid response shape.
  */
 export async function submitSnap(url: string, jfs: JfsBody): Promise<SnapResponse> {
+  assertSafeSnapUrl(url);
   const response = await fetchWithTimeout(
     url,
     {
