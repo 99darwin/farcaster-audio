@@ -41,7 +41,9 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
   const user = useAuthStore((s) => s.user);
   const isPro = user?.is_pro ?? false;
   const maxCastLength = isPro ? CAST_LENGTH_PRO : CAST_LENGTH_DEFAULT;
-  const maxImages = isPro ? MAX_IMAGES_PRO : MAX_IMAGES_DEFAULT;
+  // Farcaster protocol allows max 2 embeds per cast; quote counts as one slot
+  const baseMaxImages = isPro ? MAX_IMAGES_PRO : MAX_IMAGES_DEFAULT;
+  const maxImages = Math.max(0, baseMaxImages - (quoteCast ? 1 : 0));
   const [text, setText] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
   const [attachments, setAttachments] = useState<Array<{ uri: string; type: 'image' | 'video' }>>([]);
