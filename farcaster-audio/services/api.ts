@@ -21,6 +21,8 @@ import type {
   StatusResponse,
   RegisterAuthAddressResponse,
   AuthAddressStatusResponse,
+  RegisterSnapSignerResponse,
+  SnapSignerStatusResponse,
   RsvpResponse,
 } from '@/types/api';
 
@@ -236,6 +238,13 @@ export const registerAuthAddress = (authAddress: string) =>
 
 export const getAuthAddressStatus = (address: string) =>
   apiClient.get<AuthAddressStatusResponse>('/v1/auth/auth-address/status', { params: { address } }).then((r) => r.data);
+
+// --- Snap Signer (Ed25519) ---
+export const registerSnapSigner = (publicKey: string) =>
+  apiClient.post<RegisterSnapSignerResponse>('/v1/snaps/register-signer', { public_key: publicKey }).then((r) => r.data);
+
+export const getSnapSignerStatus = (publicKey: string) =>
+  apiClient.get<SnapSignerStatusResponse>('/v1/snaps/signer-status', { params: { public_key: publicKey } }).then((r) => r.data);
 
 // --- Notifications ---
 export const getNotifications = (params?: { limit?: number; cursor?: string }) =>
