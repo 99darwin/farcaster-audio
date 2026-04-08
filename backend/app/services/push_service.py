@@ -307,6 +307,14 @@ class PushService:
             author_name = author.get("display_name") or author.get("username", "Someone")
             cast_hash = cast_data.get("hash", "")
 
+            # Build a thread-aware URL so the client opens the full conversation
+            # with the triggering cast focused. Mirrors NotificationItem logic.
+            thread_hash = cast_data.get("thread_hash") or cast_data.get("parent_hash") or cast_hash
+            if thread_hash and thread_hash != cast_hash:
+                cast_url = f"/cast/{thread_hash}?focusHash={cast_hash}"
+            else:
+                cast_url = f"/cast/{cast_hash}"
+
             # Check for mentions
             mentioned_fids = [
                 m.get("fid")
@@ -319,7 +327,7 @@ class PushService:
                 notification_type = "reply"
                 title = "New Reply"
                 body = f"{author_name} replied to your cast"
-                data = {"type": "reply", "url": f"/cast/{cast_hash}"}
+                data = {"type": "reply", "url": cast_url}
 
             # Send mention notifications (separate from reply)
             for mfid in mentioned_fids:
@@ -333,7 +341,7 @@ class PushService:
                         fid=mfid,
                         title="You were mentioned",
                         body=f"{author_name} mentioned you in a cast",
-                        data={"type": "mention", "url": f"/cast/{cast_hash}"},
+                        data={"type": "mention", "url": cast_url},
                     )
 
         elif event_type == "reaction.created":
