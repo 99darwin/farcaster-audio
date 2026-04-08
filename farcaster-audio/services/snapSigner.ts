@@ -182,10 +182,6 @@ export interface SnapSubmitPayload {
   inputs: Record<string, string | number | boolean>;
   button_index: number;
   timestamp: number;
-  /** Target URL this body is signed for — prevents cross-origin replay. */
-  aud: string;
-  /** Random per-request nonce — prevents same-origin replay. */
-  nonce: string;
 }
 
 export interface JfsBody {
@@ -194,28 +190,22 @@ export interface JfsBody {
   signature: string;
 }
 
-function randomNonce(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return bytesToHex(bytes);
-}
-
 /**
  * Build a JSON Farcaster Signature body for a snap submit request.
  *
  * Returns the JSON shape accepted by @farcaster/snap server:
  * `{ header, payload, signature }` where each field is base64url-encoded.
  *
- * The payload is bound to `audience` (the target URL being POSTed to) and
- * includes a random nonce to defeat cross-origin replay and capture-replay
- * attacks. These fields are additive — standards-compliant snap servers
- * that ignore unknown payload fields will still accept the body.
+ * Note: the JFS payload schema is fixed by the snap spec and reference
+ * implementations validate it strictly, so we cannot add `aud` / `nonce`
+ * fields to bind audience or defeat replay. Same-origin target validation
+ * on the client side is our primary defense against cross-origin signed-
+ * body exfiltration — see `SnapCard.submitButton`.
  */
 export async function signSnapSubmit(
   fid: number,
   buttonIndex: number,
   inputs: Record<string, string | number | boolean>,
-  audience: string,
 ): Promise<JfsBody> {
   const { publicKey, privateKey } = await getOrCreateSnapKey(fid);
 
@@ -229,8 +219,6 @@ export async function signSnapSubmit(
     inputs,
     button_index: buttonIndex,
     timestamp: Math.floor(Date.now() / 1000),
-    aud: audience,
-    nonce: randomNonce(),
   };
 
   const headerB64 = base64UrlEncode(JSON.stringify(header));
