@@ -188,7 +188,6 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
           fid,
           buttonIndex,
           state.inputs as Record<string, string | number | boolean>,
-          target,
         );
         const next = await submitSnap(target, jfs);
         dispatch({ type: 'submit-success', response: next });
