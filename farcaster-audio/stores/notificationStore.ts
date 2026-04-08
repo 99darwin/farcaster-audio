@@ -9,6 +9,7 @@ interface NotificationStore {
   hasMore: boolean;
   error: string | null;
   unreadCount: number;
+  lastFetchedAt: number | null;
 
   // Actions
   setNotifications: (notifications: NeynarNotification[], cursor: string | null) => void;
@@ -29,6 +30,7 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
   hasMore: true,
   error: null,
   unreadCount: 0,
+  lastFetchedAt: null,
 
   setNotifications: (notifications, cursor) =>
     set({
@@ -38,6 +40,7 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
       isLoading: false,
       isRefreshing: false,
       error: null,
+      lastFetchedAt: Date.now(),
     }),
 
   appendNotifications: (newNotifications, cursor) =>
@@ -63,5 +66,6 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
       hasMore: true,
       error: null,
       unreadCount: 0,
+      lastFetchedAt: null,
     }),
 }));

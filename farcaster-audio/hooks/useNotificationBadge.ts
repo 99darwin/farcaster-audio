@@ -17,30 +17,38 @@ function computeUnreadCount(
   ).length;
 }
 
+const BADGE_REFETCH_THROTTLE_MS = 60_000;
+
 export function useNotificationBadge() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const setUnreadCount = useNotificationStore((s) => s.setUnreadCount);
+  const setNotifications = useNotificationStore((s) => s.setNotifications);
 
   const fetchBadge = useCallback(async () => {
     try {
-      const data = await api.getNotifications({ limit: 25 });
+      const data = await api.getNotifications({ limit: 5 });
       const lastSeen = await getLastSeenNotificationTimestamp();
       const unread = computeUnreadCount(data.notifications, lastSeen);
+      const existing = useNotificationStore.getState().notifications;
+      if (existing.length === 0) {
+        setNotifications(data.notifications, data.next?.cursor ?? null);
+      }
       setUnreadCount(unread);
     } catch {
       // Silently fail — badge is non-critical
     }
-  }, [setUnreadCount]);
+  }, [setUnreadCount, setNotifications]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // Fetch once on mount
     fetchBadge();
 
-    // Re-fetch when app returns to foreground
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') fetchBadge();
+      if (state !== 'active') return;
+      const lastFetchedAt = useNotificationStore.getState().lastFetchedAt;
+      if (lastFetchedAt && Date.now() - lastFetchedAt <= BADGE_REFETCH_THROTTLE_MS) return;
+      fetchBadge();
     });
 
     return () => subscription.remove();

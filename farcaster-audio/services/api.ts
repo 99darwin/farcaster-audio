@@ -247,8 +247,20 @@ export const getSnapSignerStatus = (publicKey: string) =>
   apiClient.get<SnapSignerStatusResponse>('/v1/snaps/signer-status', { params: { public_key: publicKey } }).then((r) => r.data);
 
 // --- Notifications ---
-export const getNotifications = (params?: { limit?: number; cursor?: string }) =>
-  apiClient.get<import('@/types/neynar').NotificationsResponse>('/v1/notifications', { params }).then((r) => r.data);
+const inFlightNotifications = new Map<string, Promise<import('@/types/neynar').NotificationsResponse>>();
+export const getNotifications = (params?: { limit?: number; cursor?: string }): Promise<import('@/types/neynar').NotificationsResponse> => {
+  const key = `${params?.limit ?? ''}:${params?.cursor ?? ''}`;
+  const existing = inFlightNotifications.get(key);
+  if (existing) return existing;
+  const promise = apiClient
+    .get<import('@/types/neynar').NotificationsResponse>('/v1/notifications', { params })
+    .then((r) => r.data)
+    .finally(() => {
+      inFlightNotifications.delete(key);
+    });
+  inFlightNotifications.set(key, promise);
+  return promise;
+};
 
 // --- Push Notifications ---
 export const registerPushToken = (body: { expo_push_token: string; device_id?: string }) =>

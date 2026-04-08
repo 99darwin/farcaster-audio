@@ -2,13 +2,15 @@
 Notifications router — proxies Neynar notifications API with quality filtering.
 """
 
+import json
 import logging
 
 import httpx
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.config import settings
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,7 @@ router = APIRouter(prefix="/v1/notifications", tags=["notifications"])
 
 NEYNAR_BASE = "https://api.neynar.com/v2"
 MIN_USER_SCORE = 0.5
+CACHE_TTL_SECONDS = 10
 
 
 def _neynar_headers() -> dict[str, str]:
@@ -34,8 +37,19 @@ async def get_notifications(
     limit: int = Query(default=25, ge=1, le=50),
     cursor: str | None = Query(default=None, max_length=500, pattern=r"^[a-zA-Z0-9_\-=.%]+$"),
     current_user: int = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
     """Proxy Neynar notifications endpoint with quality filtering."""
+    cache_key = f"notif:{current_user}:{limit}:{cursor or 'none'}"
+
+    # Try cache first; fall through on any Redis error.
+    try:
+        cached = await redis.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception as e:
+        logger.warning("[notifications] Redis GET failed: %s", e)
+
     params: dict[str, str | int] = {"fid": current_user, "limit": limit}
     if cursor:
         params["cursor"] = cursor
@@ -88,7 +102,15 @@ async def get_notifications(
                 continue
         filtered.append(n)
 
-    return {
+    response = {
         "notifications": filtered,
         "next": data.get("next", {"cursor": None}),
     }
+
+    # Cache filtered response to absorb bursty duplicate calls.
+    try:
+        await redis.setex(cache_key, CACHE_TTL_SECONDS, json.dumps(response))
+    except Exception as e:
+        logger.warning("[notifications] Redis SETEX failed: %s", e)
+
+    return response
