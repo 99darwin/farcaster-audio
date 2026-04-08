@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -39,37 +39,38 @@ function ZoomableImage({ uri, width, height, onClose }: { uri: string; width: nu
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
   const opacity = useSharedValue(1);
+  const [isZoomed, setIsZoomed] = useState(false);
 
-  const pinch = Gesture.Pinch()
-    .onUpdate((e) => {
-      scale.value = Math.min(Math.max(savedScale.value * e.scale, 0.5), 4);
-    })
-    .onEnd(() => {
-      if (scale.value < 1) {
-        scale.value = withSpring(1, SPRING_CONFIG);
-        savedScale.value = 1;
-        translateX.value = withSpring(0, SPRING_CONFIG);
-        translateY.value = withSpring(0, SPRING_CONFIG);
-        savedTranslateX.value = 0;
-        savedTranslateY.value = 0;
-      } else {
-        savedScale.value = scale.value;
-      }
-    });
+  const gesture = useMemo(() => {
+    const pinch = Gesture.Pinch()
+      .onUpdate((e) => {
+        scale.value = Math.min(Math.max(savedScale.value * e.scale, 0.5), 4);
+      })
+      .onEnd(() => {
+        if (scale.value < 1) {
+          scale.value = withSpring(1, SPRING_CONFIG);
+          savedScale.value = 1;
+          translateX.value = withSpring(0, SPRING_CONFIG);
+          translateY.value = withSpring(0, SPRING_CONFIG);
+          savedTranslateX.value = 0;
+          savedTranslateY.value = 0;
+          runOnJS(setIsZoomed)(false);
+        } else {
+          savedScale.value = scale.value;
+          runOnJS(setIsZoomed)(scale.value > 1);
+        }
+      });
 
-  // Vertical-only dismiss pan — active at 1x zoom, fails on horizontal swipes so FlatList can scroll
-  const dismissPan = Gesture.Pan()
-    .activeOffsetY([-20, 20])
-    .failOffsetX([-20, 20])
-    .enabled(true)
-    .onUpdate((e) => {
-      if (savedScale.value <= 1) {
+    // Vertical-only dismiss pan — used when not zoomed. Fails on horizontal
+    // movement so the parent FlatList can page between images.
+    const dismissPan = Gesture.Pan()
+      .activeOffsetY([-20, 20])
+      .failOffsetX([-20, 20])
+      .onUpdate((e) => {
         translateY.value = e.translationY;
         opacity.value = Math.max(0.4, 1 - Math.abs(e.translationY) / 400);
-      }
-    })
-    .onEnd((e) => {
-      if (savedScale.value <= 1) {
+      })
+      .onEnd((e) => {
         if (Math.abs(e.translationY) > DISMISS_THRESHOLD) {
           opacity.value = withTiming(0, { duration: 200 });
           runOnJS(onClose)();
@@ -77,43 +78,42 @@ function ZoomableImage({ uri, width, height, onClose }: { uri: string; width: nu
           translateY.value = withSpring(0, SPRING_CONFIG);
           opacity.value = withSpring(1, SPRING_CONFIG);
         }
-      }
-    });
+      });
 
-  // Full pan for when zoomed in — allows panning in all directions
-  const zoomPan = Gesture.Pan()
-    .enabled(true)
-    .onUpdate((e) => {
-      if (savedScale.value > 1) {
+    // Full pan for when zoomed in — allows panning in all directions.
+    const zoomPan = Gesture.Pan()
+      .onUpdate((e) => {
         translateX.value = savedTranslateX.value + e.translationX;
         translateY.value = savedTranslateY.value + e.translationY;
-      }
-    })
-    .onEnd(() => {
-      if (savedScale.value > 1) {
+      })
+      .onEnd(() => {
         savedTranslateX.value = translateX.value;
         savedTranslateY.value = translateY.value;
-      }
-    });
+      });
 
-  const doubleTap = Gesture.Tap()
-    .numberOfTaps(2)
-    .onEnd(() => {
-      if (savedScale.value > 1) {
-        scale.value = withSpring(1, SPRING_CONFIG);
-        savedScale.value = 1;
-        translateX.value = withSpring(0, SPRING_CONFIG);
-        translateY.value = withSpring(0, SPRING_CONFIG);
-        savedTranslateX.value = 0;
-        savedTranslateY.value = 0;
-      } else {
-        scale.value = withSpring(2, SPRING_CONFIG);
-        savedScale.value = 2;
-      }
-    });
+    const doubleTap = Gesture.Tap()
+      .numberOfTaps(2)
+      .onEnd(() => {
+        if (savedScale.value > 1) {
+          scale.value = withSpring(1, SPRING_CONFIG);
+          savedScale.value = 1;
+          translateX.value = withSpring(0, SPRING_CONFIG);
+          translateY.value = withSpring(0, SPRING_CONFIG);
+          savedTranslateX.value = 0;
+          savedTranslateY.value = 0;
+          runOnJS(setIsZoomed)(false);
+        } else {
+          scale.value = withSpring(2, SPRING_CONFIG);
+          savedScale.value = 2;
+          runOnJS(setIsZoomed)(true);
+        }
+      });
 
-  const composed = Gesture.Simultaneous(pinch, Gesture.Race(dismissPan, zoomPan));
-  const gesture = Gesture.Exclusive(doubleTap, composed);
+    // Only compose the active pan mode so unused pans never capture the
+    // gesture from the parent horizontal FlatList.
+    const activePan = isZoomed ? zoomPan : dismissPan;
+    return Gesture.Exclusive(doubleTap, Gesture.Simultaneous(pinch, activePan));
+  }, [isZoomed, onClose, scale, savedScale, translateX, translateY, savedTranslateX, savedTranslateY, opacity]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [

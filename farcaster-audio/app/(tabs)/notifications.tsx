@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import { View, FlatList, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { useNavigation } from 'expo-router';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useNotificationStore } from '@/stores/notificationStore';
 import { NotificationItem } from '@/components/notifications/NotificationItem';
 import { getLastSeenNotificationTimestamp } from '@/services/storage';
 import { colors, typography } from '@/constants/theme';
@@ -27,7 +28,11 @@ export default function NotificationsScreen() {
   useEffect(() => {
     if (hasFetched.current) return;
     hasFetched.current = true;
-    fetch();
+    const lastFetchedAt = useNotificationStore.getState().lastFetchedAt;
+    const isFresh = lastFetchedAt !== null && Date.now() - lastFetchedAt < 60_000;
+    if (!isFresh) {
+      fetch();
+    }
     getLastSeenNotificationTimestamp().then(setLastSeenTs);
   }, []);
 
