@@ -1,16 +1,52 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { View, StyleSheet, Linking, Pressable, Text, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
 import type { ReactNode } from 'react';
-import type { SnapAccent, SnapInputValue, SnapInputs, SnapResponse } from '@/types/snap';
+import type { SnapAccent, SnapElement, SnapInputValue, SnapInputs, SnapResponse } from '@/types/snap';
 import { SnapContext, type SnapContextValue } from './context';
 import { SnapRenderer } from './SnapRenderer';
 import { Confetti } from './effects/Confetti';
 import { DEFAULT_SNAP_ACCENT, resolvePaletteColor } from '@/constants/snapPalette';
 import { colors } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
-import { registerSnapSigner, signSnapSubmit } from '@/services/snapSigner';
+import { registerSnapSigner, signSnapSubmit, signSnapSubmitV1 } from '@/services/snapSigner';
 import { useSnapSignerStatus } from '@/hooks/useSnapSignerStatus';
-import { submitSnap, assertSafeSnapUrl, isSameOriginSnapTarget } from '@/services/snapClient';
+import {
+  submitSnap,
+  assertSafeSnapUrl,
+  isSameOriginSnapTarget,
+  SnapSubmitError,
+} from '@/services/snapClient';
+
+/**
+ * Walk the element tree depth-first from root and assign 0-based button
+ * indices. Used only for the v1 fallback path — v2 discriminates buttons
+ * by their distinct submit `target` URL instead.
+ */
+function buildButtonIndexMap(
+  rootId: string,
+  elements: Record<string, SnapElement>,
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  const visited = new Set<string>();
+  let counter = 0;
+
+  const walk = (id: string, depth: number) => {
+    if (depth > 20 || visited.has(id)) return;
+    visited.add(id);
+    const el = elements[id];
+    if (!el) return;
+    if (el.type === 'button') {
+      map[id] = counter;
+      counter += 1;
+    }
+    if (el.children) {
+      for (const childId of el.children) walk(childId, depth + 1);
+    }
+  };
+
+  walk(rootId, 0);
+  return map;
+}
 
 /** Hard cap for the post-approval AppState listener. */
 const APPROVAL_WATCH_MAX_MS = 10 * 60 * 1000;
@@ -102,6 +138,13 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       }
     };
   }, []);
+
+  // Only consulted for the v1 fallback payload — v2 identifies buttons by
+  // their distinct submit `target` URL.
+  const buttonIndexMap = useMemo(
+    () => buildButtonIndexMap(response.ui.root, response.ui.elements),
+    [response.ui.root, response.ui.elements],
+  );
 
   const setInput = useCallback((name: string, value: SnapInputValue) => {
     dispatch({ type: 'set-input', name, value });
@@ -213,20 +256,47 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         return;
       }
 
-      // After the same-origin check, target.origin === snap origin — this
-      // is the value the snap server will verify against in the JFS claim.
-      const audience = new URL(target).origin;
+      // v2 `audience` is `scheme://host` (no port) per the upgrading doc.
+      // After the same-origin check, this equals the snap server's origin
+      // that the JFS claim will be verified against.
+      const targetUrl = new URL(target);
+      const audience = `${targetUrl.protocol}//${targetUrl.hostname}`;
+
+      const inputs = state.inputs as Record<string, string | number | boolean>;
 
       dispatch({ type: 'submit-start' });
       try {
-        const jfs = await signSnapSubmit(
-          fid,
-          state.inputs as Record<string, string | number | boolean>,
-          { audience },
-        );
+        const jfs = await signSnapSubmit(fid, inputs, { audience });
         const next = await submitSnap(target, jfs);
         dispatch({ type: 'submit-success', response: next });
       } catch (err) {
+        // v1 fallback: if a v2 submit is rejected with a 4xx the server is
+        // still on the v1 spec. Re-sign with the v1 payload shape (restore
+        // button_index, drop nonce/audience) and retry once. See:
+        // docs.farcaster.xyz/snap/2.0/client-upgrade
+        const isClientError =
+          err instanceof SnapSubmitError &&
+          typeof err.status === 'number' &&
+          err.status >= 400 &&
+          err.status < 500;
+
+        if (isClientError) {
+          const buttonIndex = buttonIndexMap[elementId];
+          if (buttonIndex !== undefined) {
+            try {
+              const jfsV1 = await signSnapSubmitV1(fid, buttonIndex, inputs);
+              const next = await submitSnap(target, jfsV1);
+              dispatch({ type: 'submit-success', response: next });
+              return;
+            } catch (fallbackErr) {
+              const message =
+                fallbackErr instanceof Error ? fallbackErr.message : 'Submit failed';
+              dispatch({ type: 'submit-error', error: message });
+              return;
+            }
+          }
+        }
+
         const message = err instanceof Error ? err.message : 'Submit failed';
         if (looksLikeSignerRevoked(err)) {
           await invalidateSigner();
@@ -236,7 +306,7 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         dispatch({ type: 'submit-error', error: message });
       }
     },
-    [fid, signerStatus, refreshSignerStatus, handleEnableInteractions, invalidateSigner, state.inputs, state.response.ui.elements, url],
+    [fid, signerStatus, refreshSignerStatus, handleEnableInteractions, invalidateSigner, state.inputs, state.response.ui.elements, url, buttonIndexMap],
   );
 
   const contextValue: SnapContextValue = useMemo(

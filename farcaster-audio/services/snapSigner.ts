@@ -260,3 +260,47 @@ export async function signSnapSubmit(
     signature: signatureB64,
   };
 }
+
+/**
+ * v1 JFS payload shape, retained for the v1 fallback path per the v2
+ * client-upgrade doc (try v2 first, retry as v1 on 4xx).
+ */
+export interface SnapSubmitPayloadV1 {
+  fid: number;
+  inputs: Record<string, string | number | boolean>;
+  button_index: number;
+  timestamp: number;
+}
+
+/**
+ * Build a v1 JFS body. Used only as the fallback when a v2 submit is
+ * rejected with a 4xx — see `SnapCard.submitButton`. No `nonce` / `audience`:
+ * v1 servers reject non-standard fields.
+ */
+export async function signSnapSubmitV1(
+  fid: number,
+  buttonIndex: number,
+  inputs: Record<string, string | number | boolean>,
+): Promise<JfsBody> {
+  const { publicKey, privateKey } = await getOrCreateSnapKey(fid);
+
+  const header = {
+    fid,
+    type: 'app_key',
+    key: publicKey,
+  };
+  const payload: SnapSubmitPayloadV1 = {
+    fid,
+    inputs,
+    button_index: buttonIndex,
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+
+  const headerB64 = base64UrlEncode(JSON.stringify(header));
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const signingBytes = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+  const signatureBytes = ed.sign(signingBytes, privateKey);
+  const signatureB64 = base64UrlEncode(signatureBytes);
+
+  return { header: headerB64, payload: payloadB64, signature: signatureB64 };
+}

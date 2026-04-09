@@ -155,7 +155,10 @@ function validateSnapResponse(data: unknown): SnapResponse | null {
   if (!data || typeof data !== 'object') return null;
   const obj = data as Record<string, unknown>;
 
-  if (obj.version !== '2.0') return null;
+  // Accept both v1 and v2 during the transition. v1 is exercised only via
+  // the fallback path in SnapCard (try v2 → on 4xx retry with v1 body).
+  // Structural limits below apply to v2 only.
+  if (obj.version !== '2.0' && obj.version !== '1.0') return null;
 
   const ui = obj.ui as Record<string, unknown> | undefined;
   if (!ui || typeof ui !== 'object') return null;
@@ -173,7 +176,11 @@ function validateSnapResponse(data: unknown): SnapResponse | null {
     if (!el.props || typeof el.props !== 'object') return null;
   }
 
-  return validateSnapStructure(obj as unknown as SnapResponse);
+  const response = obj as unknown as SnapResponse;
+  if (response.version === '2.0') {
+    return validateSnapStructure(response);
+  }
+  return response;
 }
 
 async function fetchWithTimeout(
@@ -295,9 +302,22 @@ export function isKnownElement(el: { type: string }): el is SnapElement {
 }
 
 /**
+ * Thrown by `submitSnap`. Carries the HTTP status when the failure came
+ * from a non-OK response, so callers can branch on 4xx (e.g. v1 fallback).
+ */
+export class SnapSubmitError extends Error {
+  readonly status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'SnapSubmitError';
+    this.status = status;
+  }
+}
+
+/**
  * POST a signed JFS body to a snap URL and return the next SnapResponse.
- * Throws on network error, non-OK status, wrong content type, oversized body,
- * or invalid response shape.
+ * Throws `SnapSubmitError` on network error, non-OK status, wrong content
+ * type, oversized body, or invalid response shape.
  */
 export async function submitSnap(url: string, jfs: JfsBody): Promise<SnapResponse> {
   assertSafeSnapUrl(url);
@@ -315,7 +335,7 @@ export async function submitSnap(url: string, jfs: JfsBody): Promise<SnapRespons
   );
 
   if (!response.ok) {
-    throw new Error(`Snap submit failed: ${response.status}`);
+    throw new SnapSubmitError(`Snap submit failed: ${response.status}`, response.status);
   }
 
   const contentType = response.headers.get('content-type') ?? '';
