@@ -97,12 +97,65 @@ function cacheSet(url: string, entry: CacheEntry): void {
   cache.set(url, entry);
 }
 
+/**
+ * Snap v2 structural limits — enforced at fetch time so malformed trees
+ * never reach the renderer. These match the upgrading guide:
+ *   - max 64 elements total
+ *   - root element has ≤ 7 direct children
+ *   - every `stack` / `item_group` container has ≤ 6 direct children
+ *   - max nesting depth of 4 (root at depth 1)
+ */
+const SNAP_MAX_ELEMENTS = 64;
+const SNAP_MAX_ROOT_CHILDREN = 7;
+const SNAP_MAX_CONTAINER_CHILDREN = 6;
+const SNAP_MAX_DEPTH = 4;
+
+/**
+ * Validate v2 structural constraints. Returns null if any limit is
+ * violated. Assumes the caller has already confirmed the minimal shape
+ * (root id exists, every element has a type + props).
+ */
+export function validateSnapStructure(response: SnapResponse): SnapResponse | null {
+  const { root, elements } = response.ui;
+
+  if (Object.keys(elements).length > SNAP_MAX_ELEMENTS) return null;
+
+  const visited = new Set<string>();
+  const stack: Array<{ id: string; depth: number; isRoot: boolean }> = [
+    { id: root, depth: 1, isRoot: true },
+  ];
+
+  while (stack.length > 0) {
+    const { id, depth, isRoot } = stack.pop()!;
+    if (visited.has(id)) return null; // cycle
+    visited.add(id);
+    if (depth > SNAP_MAX_DEPTH) return null;
+
+    const el = elements[id];
+    if (!el) return null;
+    const children = el.children ?? [];
+    const isContainer = el.type === 'stack' || el.type === 'item_group';
+    const limit = isRoot
+      ? SNAP_MAX_ROOT_CHILDREN
+      : isContainer
+        ? SNAP_MAX_CONTAINER_CHILDREN
+        : Infinity;
+    if (children.length > limit) return null;
+
+    for (const childId of children) {
+      stack.push({ id: childId, depth: depth + 1, isRoot: false });
+    }
+  }
+
+  return response;
+}
+
 /** Validate minimal SnapResponse shape. Returns null if invalid. */
 function validateSnapResponse(data: unknown): SnapResponse | null {
   if (!data || typeof data !== 'object') return null;
   const obj = data as Record<string, unknown>;
 
-  if (obj.version !== '1.0') return null;
+  if (obj.version !== '2.0') return null;
 
   const ui = obj.ui as Record<string, unknown> | undefined;
   if (!ui || typeof ui !== 'object') return null;
@@ -120,7 +173,7 @@ function validateSnapResponse(data: unknown): SnapResponse | null {
     if (!el.props || typeof el.props !== 'object') return null;
   }
 
-  return obj as unknown as SnapResponse;
+  return validateSnapStructure(obj as unknown as SnapResponse);
 }
 
 async function fetchWithTimeout(

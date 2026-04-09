@@ -12,6 +12,7 @@
 
 import '@/utils/cryptoPolyfill';
 import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import * as api from '@/services/api';
@@ -202,7 +203,8 @@ export async function invalidateSnapSigner(fid: number): Promise<void> {
 export interface SnapSubmitPayload {
   fid: number;
   inputs: Record<string, string | number | boolean>;
-  button_index: number;
+  nonce: string;
+  audience: string;
   timestamp: number;
 }
 
@@ -218,16 +220,15 @@ export interface JfsBody {
  * Returns the JSON shape accepted by @farcaster/snap server:
  * `{ header, payload, signature }` where each field is base64url-encoded.
  *
- * Note: the JFS payload schema is fixed by the snap spec and reference
- * implementations validate it strictly, so we cannot add `aud` / `nonce`
- * fields to bind audience or defeat replay. Same-origin target validation
- * on the client side is our primary defense against cross-origin signed-
- * body exfiltration — see `SnapCard.submitButton`.
+ * Snap v2 requires `nonce` and `audience` in the signed payload. `audience`
+ * binds the signature to the snap server origin (scheme+host+port) and
+ * `nonce` defeats replay. Per-button discrimination is now carried by the
+ * POST `target` URL, not a `button_index` claim.
  */
 export async function signSnapSubmit(
   fid: number,
-  buttonIndex: number,
   inputs: Record<string, string | number | boolean>,
+  { audience }: { audience: string },
 ): Promise<JfsBody> {
   const { publicKey, privateKey } = await getOrCreateSnapKey(fid);
 
@@ -236,10 +237,12 @@ export async function signSnapSubmit(
     type: 'app_key',
     key: publicKey,
   };
+  const nonceBytes = await Crypto.getRandomBytesAsync(16);
   const payload: SnapSubmitPayload = {
     fid,
     inputs,
-    button_index: buttonIndex,
+    nonce: base64UrlEncode(nonceBytes),
+    audience,
     timestamp: Math.floor(Date.now() / 1000),
   };
 

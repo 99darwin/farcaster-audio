@@ -193,7 +193,7 @@ export interface SnapUi {
 }
 
 export interface SnapResponse {
-  version: '1.0';
+  version: '2.0';
   theme?: SnapTheme;
   effects?: SnapEffect[];
   ui: SnapUi;

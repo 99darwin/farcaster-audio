@@ -9,8 +9,6 @@ export interface SnapContextValue {
   inputs: SnapInputs;
   setInput: (name: string, value: SnapInputValue) => void;
   renderChildren: (ids: string[] | undefined, depth: number) => ReactNode;
-  /** Button index (1-based) assigned to an element id during tree walk. */
-  buttonIndexFor: (elementId: string) => number;
   /** Submit a button press. Resolves once the response is applied. */
   submitButton: (elementId: string) => Promise<void>;
   /** Current signer status. Determines whether buttons enable interaction. */

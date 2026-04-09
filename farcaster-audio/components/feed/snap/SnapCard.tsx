@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { View, StyleSheet, Linking, Pressable, Text, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
 import type { ReactNode } from 'react';
-import type { SnapAccent, SnapElement, SnapInputValue, SnapInputs, SnapResponse } from '@/types/snap';
+import type { SnapAccent, SnapInputValue, SnapInputs, SnapResponse } from '@/types/snap';
 import { SnapContext, type SnapContextValue } from './context';
 import { SnapRenderer } from './SnapRenderer';
 import { Confetti } from './effects/Confetti';
@@ -69,33 +69,6 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-/** Walk the element tree depth-first from root and assign 0-based button indices. */
-function buildButtonIndexMap(
-  rootId: string,
-  elements: Record<string, SnapElement>,
-): Record<string, number> {
-  const map: Record<string, number> = {};
-  const visited = new Set<string>();
-  let counter = 0;
-
-  const walk = (id: string, depth: number) => {
-    if (depth > 20 || visited.has(id)) return;
-    visited.add(id);
-    const el = elements[id];
-    if (!el) return;
-    if (el.type === 'button') {
-      map[id] = counter;
-      counter += 1;
-    }
-    if (el.children) {
-      for (const childId of el.children) walk(childId, depth + 1);
-    }
-  };
-
-  walk(rootId, 0);
-  return map;
-}
-
 interface SnapCardProps {
   url: string;
   response: SnapResponse;
@@ -129,11 +102,6 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       }
     };
   }, []);
-
-  const buttonIndexMap = useMemo(
-    () => buildButtonIndexMap(response.ui.root, response.ui.elements),
-    [response.ui.root, response.ui.elements],
-  );
 
   const setInput = useCallback((name: string, value: SnapInputValue) => {
     dispatch({ type: 'set-input', name, value });
@@ -212,8 +180,8 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
   const submitButton = useCallback(
     async (elementId: string) => {
       if (!fid) return;
-      const buttonIndex = buttonIndexMap[elementId];
-      if (buttonIndex === undefined) return;
+      const element = state.response.ui.elements[elementId];
+      if (!element || element.type !== 'button') return;
 
       if (signerStatus !== 'approved') {
         const latest = await refreshSignerStatus();
@@ -223,14 +191,13 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         }
       }
 
-      // Resolve per-button POST target — snaps can route to different URLs
-      // via on.press.params.target. To defeat signed-body exfiltration we
-      // require any target to share the original snap URL's origin and
+      // Resolve per-button POST target — snap v2 uses a distinct submit
+      // `target` URL as the button discriminator. To defeat signed-body
+      // exfiltration we require the target to share the snap origin and
       // pass a safe-URL check (https + not a private/loopback host).
-      const element = state.response.ui.elements[elementId] as
-        | { on?: { press?: { params?: { target?: string } } } }
-        | undefined;
-      const rawTarget = element?.on?.press?.params?.target ?? url;
+      const pressParams = (element.on?.press as { params?: { target?: string } } | undefined)
+        ?.params;
+      const rawTarget = pressParams?.target ?? url;
       let target: string;
       try {
         target = assertSafeSnapUrl(rawTarget);
@@ -246,12 +213,16 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         return;
       }
 
+      // After the same-origin check, target.origin === snap origin — this
+      // is the value the snap server will verify against in the JFS claim.
+      const audience = new URL(target).origin;
+
       dispatch({ type: 'submit-start' });
       try {
         const jfs = await signSnapSubmit(
           fid,
-          buttonIndex,
           state.inputs as Record<string, string | number | boolean>,
+          { audience },
         );
         const next = await submitSnap(target, jfs);
         dispatch({ type: 'submit-success', response: next });
@@ -265,12 +236,7 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         dispatch({ type: 'submit-error', error: message });
       }
     },
-    [fid, buttonIndexMap, signerStatus, refreshSignerStatus, handleEnableInteractions, invalidateSigner, state.inputs, state.response.ui.elements, url],
-  );
-
-  const buttonIndexFor = useCallback(
-    (elementId: string) => buttonIndexMap[elementId] ?? -1,
-    [buttonIndexMap],
+    [fid, signerStatus, refreshSignerStatus, handleEnableInteractions, invalidateSigner, state.inputs, state.response.ui.elements, url],
   );
 
   const contextValue: SnapContextValue = useMemo(
@@ -280,7 +246,6 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       inputs: state.inputs,
       setInput,
       renderChildren,
-      buttonIndexFor,
       submitButton,
       signerStatus,
       submitting,
@@ -291,7 +256,6 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       state.inputs,
       setInput,
       renderChildren,
-      buttonIndexFor,
       submitButton,
       signerStatus,
       submitting,
