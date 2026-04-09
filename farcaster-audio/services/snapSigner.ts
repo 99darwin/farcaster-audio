@@ -54,16 +54,16 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
+/**
+ * UTF-8 → base64url. Strings are encoded with `TextEncoder` so we avoid
+ * the deprecated `unescape(encodeURIComponent(...))` trick and handle
+ * non-ASCII input (e.g. emoji in snap inputs) correctly.
+ */
 function base64UrlEncode(input: string | Uint8Array): string {
-  let b64: string;
-  if (typeof input === 'string') {
-    // btoa requires latin1; JSON/ASCII is fine
-    b64 = globalThis.btoa(unescape(encodeURIComponent(input)));
-  } else {
-    let bin = '';
-    for (let i = 0; i < input.length; i++) bin += String.fromCharCode(input[i]);
-    b64 = globalThis.btoa(bin);
-  }
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = globalThis.btoa(bin);
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 

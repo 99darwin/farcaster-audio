@@ -34,9 +34,24 @@ const PRIVATE_HOST_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Normalize a hostname for comparison + audience construction:
+ *   - lowercase ASCII
+ *   - strip a single trailing dot (`example.com.` → `example.com`)
+ * Note: we reject IPv6 hosts in `assertSafeSnapUrl` so we never have to
+ * deal with bracketing here.
+ */
+function normalizeHost(hostname: string): string {
+  const lower = hostname.toLowerCase();
+  return lower.endsWith('.') ? lower.slice(0, -1) : lower;
+}
+
+/**
  * Validate a URL for snap fetch/submit. Enforces:
  *   - parseable URL
  *   - https: scheme only
+ *   - hostname is not an IPv6 literal (we only support DNS + IPv4 hosts;
+ *     IPv6 introduces bracketing ambiguity in the `audience` claim and is
+ *     not a shape a real snap server has a legitimate reason to take)
  *   - hostname not in the private/loopback denylist
  * Returns the normalized href. Throws on rejection.
  */
@@ -51,8 +66,13 @@ export function assertSafeSnapUrl(raw: string): string {
     throw new Error('Snap URL must use HTTPS');
   }
   const host = parsed.hostname;
+  // IPv6 literals contain `:`; DNS + IPv4 never do.
+  if (host.includes(':')) {
+    throw new Error('Snap URL host is not permitted');
+  }
+  const normalized = normalizeHost(host);
   for (const re of PRIVATE_HOST_PATTERNS) {
-    if (re.test(host)) throw new Error('Snap URL host is not permitted');
+    if (re.test(normalized)) throw new Error('Snap URL host is not permitted');
   }
   return parsed.href;
 }
@@ -64,12 +84,23 @@ export function isSameOriginSnapTarget(target: string, base: string): boolean {
     const b = new URL(base);
     return (
       t.protocol === b.protocol &&
-      t.hostname.toLowerCase() === b.hostname.toLowerCase() &&
+      normalizeHost(t.hostname) === normalizeHost(b.hostname) &&
       t.port === b.port
     );
   } catch {
     return false;
   }
+}
+
+/**
+ * Build the JFS `audience` claim for a snap submit target. The snap v2
+ * upgrading doc specifies `scheme://host` — no port, no path, no userinfo.
+ * Hostname is normalized (lowercased, trailing dot stripped). Assumes the
+ * caller already validated the URL with `assertSafeSnapUrl`.
+ */
+export function buildSnapAudience(target: string): string {
+  const u = new URL(target);
+  return `${u.protocol}//${normalizeHost(u.hostname)}`;
 }
 
 type CacheEntry =
@@ -176,11 +207,12 @@ function validateSnapResponse(data: unknown): SnapResponse | null {
     if (!el.props || typeof el.props !== 'object') return null;
   }
 
-  const response = obj as unknown as SnapResponse;
-  if (response.version === '2.0') {
-    return validateSnapStructure(response);
-  }
-  return response;
+  // Apply the v2 structural limits (element count cap, width caps, depth
+  // cap, cycle detection) to v1 responses too — the limits are a DoS
+  // guard for the renderer, not a spec-compliance check. A hostile v1
+  // server should not be able to crash the app by returning a cyclic or
+  // oversized tree.
+  return validateSnapStructure(obj as unknown as SnapResponse);
 }
 
 async function fetchWithTimeout(
@@ -318,8 +350,17 @@ export class SnapSubmitError extends Error {
  * POST a signed JFS body to a snap URL and return the next SnapResponse.
  * Throws `SnapSubmitError` on network error, non-OK status, wrong content
  * type, oversized body, or invalid response shape.
+ *
+ * `expectVersion` is enforced against `response.version`: when the caller
+ * signed a v2 body it must not accept a v1 response (and vice versa).
+ * This closes the door on a server mixing shapes across the request/
+ * response boundary.
  */
-export async function submitSnap(url: string, jfs: JfsBody): Promise<SnapResponse> {
+export async function submitSnap(
+  url: string,
+  jfs: JfsBody,
+  opts: { expectVersion: '1.0' | '2.0' },
+): Promise<SnapResponse> {
   assertSafeSnapUrl(url);
   const response = await fetchWithTimeout(
     url,
@@ -356,6 +397,11 @@ export async function submitSnap(url: string, jfs: JfsBody): Promise<SnapRespons
   const validated = validateSnapResponse(JSON.parse(text));
   if (!validated) {
     throw new Error('Snap submit response invalid');
+  }
+  if (validated.version !== opts.expectVersion) {
+    throw new Error(
+      `Snap submit response version mismatch: expected ${opts.expectVersion}, got ${validated.version}`,
+    );
   }
 
   // Refresh cache so re-renders pick up the new state

@@ -14,6 +14,7 @@ import {
   submitSnap,
   assertSafeSnapUrl,
   isSameOriginSnapTarget,
+  buildSnapAudience,
   SnapSubmitError,
 } from '@/services/snapClient';
 
@@ -256,36 +257,36 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         return;
       }
 
-      // v2 `audience` is `scheme://host` (no port) per the upgrading doc.
-      // After the same-origin check, this equals the snap server's origin
-      // that the JFS claim will be verified against.
-      const targetUrl = new URL(target);
-      const audience = `${targetUrl.protocol}//${targetUrl.hostname}`;
-
+      const audience = buildSnapAudience(target);
       const inputs = state.inputs as Record<string, string | number | boolean>;
+      // Only legacy v1-advertising servers are eligible for the v1
+      // fallback path. A server that returned `version: "2.0"` on the
+      // initial GET must never receive a v1-shaped body — that would be
+      // a downgrade gadget (v1 signatures omit `audience` and `nonce`,
+      // so a replay against another v1 server becomes trivial).
+      const initialVersion = state.response.version;
 
       dispatch({ type: 'submit-start' });
       try {
         const jfs = await signSnapSubmit(fid, inputs, { audience });
-        const next = await submitSnap(target, jfs);
+        const next = await submitSnap(target, jfs, { expectVersion: '2.0' });
         dispatch({ type: 'submit-success', response: next });
       } catch (err) {
-        // v1 fallback: if a v2 submit is rejected with a 4xx the server is
-        // still on the v1 spec. Re-sign with the v1 payload shape (restore
-        // button_index, drop nonce/audience) and retry once. See:
-        // docs.farcaster.xyz/snap/2.0/client-upgrade
-        const isClientError =
+        // v1 fallback per docs.farcaster.xyz/snap/2.0/client-upgrade.
+        // Narrowed from the doc's "any 4xx" to avoid downgrade abuse:
+        //   - server must have advertised v1 on the initial GET
+        //   - status must be 400 or 422 (schema/validation)
+        //     401/403/429 are unrelated and must not trigger a re-sign.
+        const isVersionMismatch4xx =
           err instanceof SnapSubmitError &&
-          typeof err.status === 'number' &&
-          err.status >= 400 &&
-          err.status < 500;
+          (err.status === 400 || err.status === 422);
 
-        if (isClientError) {
+        if (initialVersion === '1.0' && isVersionMismatch4xx) {
           const buttonIndex = buttonIndexMap[elementId];
           if (buttonIndex !== undefined) {
             try {
               const jfsV1 = await signSnapSubmitV1(fid, buttonIndex, inputs);
-              const next = await submitSnap(target, jfsV1);
+              const next = await submitSnap(target, jfsV1, { expectVersion: '1.0' });
               dispatch({ type: 'submit-success', response: next });
               return;
             } catch (fallbackErr) {
