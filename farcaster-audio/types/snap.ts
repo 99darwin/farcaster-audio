@@ -177,9 +177,21 @@ export type SnapElement =
 
 export type SnapElementType = SnapElement['type'];
 
+export type SnapActionType =
+  | 'submit'
+  | 'open_url'
+  | 'open_snap'
+  | 'open_mini_app'
+  | 'view_cast'
+  | 'view_profile'
+  | 'compose_cast'
+  | 'view_token'
+  | 'send_token'
+  | 'swap_token';
+
 export interface SnapAction {
-  type: 'submit';
-  [key: string]: unknown;
+  action: SnapActionType;
+  params?: Record<string, unknown>;
 }
 
 export interface SnapEvents {
@@ -193,7 +205,7 @@ export interface SnapUi {
 }
 
 export interface SnapResponse {
-  version: '1.0';
+  version: '1.0' | '2.0';
   theme?: SnapTheme;
   effects?: SnapEffect[];
   ui: SnapUi;

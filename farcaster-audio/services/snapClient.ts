@@ -34,9 +34,24 @@ const PRIVATE_HOST_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Normalize a hostname for comparison + audience construction:
+ *   - lowercase ASCII
+ *   - strip a single trailing dot (`example.com.` → `example.com`)
+ * Note: we reject IPv6 hosts in `assertSafeSnapUrl` so we never have to
+ * deal with bracketing here.
+ */
+function normalizeHost(hostname: string): string {
+  const lower = hostname.toLowerCase();
+  return lower.endsWith('.') ? lower.slice(0, -1) : lower;
+}
+
+/**
  * Validate a URL for snap fetch/submit. Enforces:
  *   - parseable URL
  *   - https: scheme only
+ *   - hostname is not an IPv6 literal (we only support DNS + IPv4 hosts;
+ *     IPv6 introduces bracketing ambiguity in the `audience` claim and is
+ *     not a shape a real snap server has a legitimate reason to take)
  *   - hostname not in the private/loopback denylist
  * Returns the normalized href. Throws on rejection.
  */
@@ -51,8 +66,13 @@ export function assertSafeSnapUrl(raw: string): string {
     throw new Error('Snap URL must use HTTPS');
   }
   const host = parsed.hostname;
+  // IPv6 literals contain `:`; DNS + IPv4 never do.
+  if (host.includes(':')) {
+    throw new Error('Snap URL host is not permitted');
+  }
+  const normalized = normalizeHost(host);
   for (const re of PRIVATE_HOST_PATTERNS) {
-    if (re.test(host)) throw new Error('Snap URL host is not permitted');
+    if (re.test(normalized)) throw new Error('Snap URL host is not permitted');
   }
   return parsed.href;
 }
@@ -64,12 +84,23 @@ export function isSameOriginSnapTarget(target: string, base: string): boolean {
     const b = new URL(base);
     return (
       t.protocol === b.protocol &&
-      t.hostname.toLowerCase() === b.hostname.toLowerCase() &&
+      normalizeHost(t.hostname) === normalizeHost(b.hostname) &&
       t.port === b.port
     );
   } catch {
     return false;
   }
+}
+
+/**
+ * Build the JFS `audience` claim for a snap submit target. The snap v2
+ * upgrading doc specifies `scheme://host` — no port, no path, no userinfo.
+ * Hostname is normalized (lowercased, trailing dot stripped). Assumes the
+ * caller already validated the URL with `assertSafeSnapUrl`.
+ */
+export function buildSnapAudience(target: string): string {
+  const u = new URL(target);
+  return `${u.protocol}//${normalizeHost(u.hostname)}`;
 }
 
 type CacheEntry =
@@ -97,12 +128,68 @@ function cacheSet(url: string, entry: CacheEntry): void {
   cache.set(url, entry);
 }
 
+/**
+ * Snap v2 structural limits — enforced at fetch time so malformed trees
+ * never reach the renderer. These match the upgrading guide:
+ *   - max 64 elements total
+ *   - root element has ≤ 7 direct children
+ *   - every `stack` / `item_group` container has ≤ 6 direct children
+ *   - max nesting depth of 4 (root at depth 1)
+ */
+const SNAP_MAX_ELEMENTS = 64;
+const SNAP_MAX_ROOT_CHILDREN = 7;
+const SNAP_MAX_CONTAINER_CHILDREN = 6;
+const SNAP_MAX_DEPTH = 4;
+
+/**
+ * Validate v2 structural constraints. Returns null if any limit is
+ * violated. Assumes the caller has already confirmed the minimal shape
+ * (root id exists, every element has a type + props).
+ */
+export function validateSnapStructure(response: SnapResponse): SnapResponse | null {
+  const { root, elements } = response.ui;
+
+  if (Object.keys(elements).length > SNAP_MAX_ELEMENTS) return null;
+
+  const visited = new Set<string>();
+  const stack: Array<{ id: string; depth: number; isRoot: boolean }> = [
+    { id: root, depth: 1, isRoot: true },
+  ];
+
+  while (stack.length > 0) {
+    const { id, depth, isRoot } = stack.pop()!;
+    if (visited.has(id)) return null; // cycle
+    visited.add(id);
+    if (depth > SNAP_MAX_DEPTH) return null;
+
+    const el = elements[id];
+    if (!el) return null;
+    const children = el.children ?? [];
+    const isContainer = el.type === 'stack' || el.type === 'item_group';
+    const limit = isRoot
+      ? SNAP_MAX_ROOT_CHILDREN
+      : isContainer
+        ? SNAP_MAX_CONTAINER_CHILDREN
+        : Infinity;
+    if (children.length > limit) return null;
+
+    for (const childId of children) {
+      stack.push({ id: childId, depth: depth + 1, isRoot: false });
+    }
+  }
+
+  return response;
+}
+
 /** Validate minimal SnapResponse shape. Returns null if invalid. */
 function validateSnapResponse(data: unknown): SnapResponse | null {
   if (!data || typeof data !== 'object') return null;
   const obj = data as Record<string, unknown>;
 
-  if (obj.version !== '1.0') return null;
+  // Accept both v1 and v2 during the transition. v1 is exercised only via
+  // the fallback path in SnapCard (try v2 → on 4xx retry with v1 body).
+  // Structural limits below apply to v2 only.
+  if (obj.version !== '2.0' && obj.version !== '1.0') return null;
 
   const ui = obj.ui as Record<string, unknown> | undefined;
   if (!ui || typeof ui !== 'object') return null;
@@ -120,7 +207,12 @@ function validateSnapResponse(data: unknown): SnapResponse | null {
     if (!el.props || typeof el.props !== 'object') return null;
   }
 
-  return obj as unknown as SnapResponse;
+  // Apply the v2 structural limits (element count cap, width caps, depth
+  // cap, cycle detection) to v1 responses too — the limits are a DoS
+  // guard for the renderer, not a spec-compliance check. A hostile v1
+  // server should not be able to crash the app by returning a cyclic or
+  // oversized tree.
+  return validateSnapStructure(obj as unknown as SnapResponse);
 }
 
 async function fetchWithTimeout(
@@ -242,11 +334,33 @@ export function isKnownElement(el: { type: string }): el is SnapElement {
 }
 
 /**
- * POST a signed JFS body to a snap URL and return the next SnapResponse.
- * Throws on network error, non-OK status, wrong content type, oversized body,
- * or invalid response shape.
+ * Thrown by `submitSnap`. Carries the HTTP status when the failure came
+ * from a non-OK response, so callers can branch on 4xx (e.g. v1 fallback).
  */
-export async function submitSnap(url: string, jfs: JfsBody): Promise<SnapResponse> {
+export class SnapSubmitError extends Error {
+  readonly status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'SnapSubmitError';
+    this.status = status;
+  }
+}
+
+/**
+ * POST a signed JFS body to a snap URL and return the next SnapResponse.
+ * Throws `SnapSubmitError` on network error, non-OK status, wrong content
+ * type, oversized body, or invalid response shape.
+ *
+ * `expectVersion` is enforced against `response.version`: when the caller
+ * signed a v2 body it must not accept a v1 response (and vice versa).
+ * This closes the door on a server mixing shapes across the request/
+ * response boundary.
+ */
+export async function submitSnap(
+  url: string,
+  jfs: JfsBody,
+  opts: { expectVersion: '1.0' | '2.0' },
+): Promise<SnapResponse> {
   assertSafeSnapUrl(url);
   const response = await fetchWithTimeout(
     url,
@@ -262,7 +376,7 @@ export async function submitSnap(url: string, jfs: JfsBody): Promise<SnapRespons
   );
 
   if (!response.ok) {
-    throw new Error(`Snap submit failed: ${response.status}`);
+    throw new SnapSubmitError(`Snap submit failed: ${response.status}`, response.status);
   }
 
   const contentType = response.headers.get('content-type') ?? '';
@@ -283,6 +397,11 @@ export async function submitSnap(url: string, jfs: JfsBody): Promise<SnapRespons
   const validated = validateSnapResponse(JSON.parse(text));
   if (!validated) {
     throw new Error('Snap submit response invalid');
+  }
+  if (validated.version !== opts.expectVersion) {
+    throw new Error(
+      `Snap submit response version mismatch: expected ${opts.expectVersion}, got ${validated.version}`,
+    );
   }
 
   // Refresh cache so re-renders pick up the new state

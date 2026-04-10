@@ -8,9 +8,46 @@ import { Confetti } from './effects/Confetti';
 import { DEFAULT_SNAP_ACCENT, resolvePaletteColor } from '@/constants/snapPalette';
 import { colors } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
-import { registerSnapSigner, signSnapSubmit } from '@/services/snapSigner';
+import { registerSnapSigner, signSnapSubmit, signSnapSubmitV1 } from '@/services/snapSigner';
 import { useSnapSignerStatus } from '@/hooks/useSnapSignerStatus';
-import { submitSnap, assertSafeSnapUrl, isSameOriginSnapTarget } from '@/services/snapClient';
+import {
+  submitSnap,
+  assertSafeSnapUrl,
+  isSameOriginSnapTarget,
+  buildSnapAudience,
+  SnapSubmitError,
+} from '@/services/snapClient';
+
+/**
+ * Walk the element tree depth-first from root and assign 0-based button
+ * indices. Used only for the v1 fallback path — v2 discriminates buttons
+ * by their distinct submit `target` URL instead.
+ */
+function buildButtonIndexMap(
+  rootId: string,
+  elements: Record<string, SnapElement>,
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  const visited = new Set<string>();
+  let counter = 0;
+
+  const walk = (id: string, depth: number) => {
+    if (depth > 20 || visited.has(id)) return;
+    visited.add(id);
+    const el = elements[id];
+    if (!el) return;
+    if (el.type === 'button') {
+      map[id] = counter;
+      counter += 1;
+    }
+    if (el.children) {
+      for (const childId of el.children) walk(childId, depth + 1);
+    }
+  };
+
+  walk(rootId, 0);
+  return map;
+}
 
 /** Hard cap for the post-approval AppState listener. */
 const APPROVAL_WATCH_MAX_MS = 10 * 60 * 1000;
@@ -69,33 +106,6 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-/** Walk the element tree depth-first from root and assign 0-based button indices. */
-function buildButtonIndexMap(
-  rootId: string,
-  elements: Record<string, SnapElement>,
-): Record<string, number> {
-  const map: Record<string, number> = {};
-  const visited = new Set<string>();
-  let counter = 0;
-
-  const walk = (id: string, depth: number) => {
-    if (depth > 20 || visited.has(id)) return;
-    visited.add(id);
-    const el = elements[id];
-    if (!el) return;
-    if (el.type === 'button') {
-      map[id] = counter;
-      counter += 1;
-    }
-    if (el.children) {
-      for (const childId of el.children) walk(childId, depth + 1);
-    }
-  };
-
-  walk(rootId, 0);
-  return map;
-}
-
 interface SnapCardProps {
   url: string;
   response: SnapResponse;
@@ -130,6 +140,8 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
     };
   }, []);
 
+  // Only consulted for the v1 fallback payload — v2 identifies buttons by
+  // their distinct submit `target` URL.
   const buttonIndexMap = useMemo(
     () => buildButtonIndexMap(response.ui.root, response.ui.elements),
     [response.ui.root, response.ui.elements],
@@ -212,8 +224,8 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
   const submitButton = useCallback(
     async (elementId: string) => {
       if (!fid) return;
-      const buttonIndex = buttonIndexMap[elementId];
-      if (buttonIndex === undefined) return;
+      const element = state.response.ui.elements[elementId];
+      if (!element || element.type !== 'button') return;
 
       if (signerStatus !== 'approved') {
         const latest = await refreshSignerStatus();
@@ -223,14 +235,13 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         }
       }
 
-      // Resolve per-button POST target — snaps can route to different URLs
-      // via on.press.params.target. To defeat signed-body exfiltration we
-      // require any target to share the original snap URL's origin and
+      // Resolve per-button POST target — snap v2 uses a distinct submit
+      // `target` URL as the button discriminator. To defeat signed-body
+      // exfiltration we require the target to share the snap origin and
       // pass a safe-URL check (https + not a private/loopback host).
-      const element = state.response.ui.elements[elementId] as
-        | { on?: { press?: { params?: { target?: string } } } }
-        | undefined;
-      const rawTarget = element?.on?.press?.params?.target ?? url;
+      const pressParams = (element.on?.press as { params?: { target?: string } } | undefined)
+        ?.params;
+      const rawTarget = pressParams?.target ?? url;
       let target: string;
       try {
         target = assertSafeSnapUrl(rawTarget);
@@ -239,23 +250,53 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         return;
       }
       if (!isSameOriginSnapTarget(target, url)) {
-        dispatch({
-          type: 'submit-error',
-          error: 'Snap target must share the origin of the original snap URL',
-        });
+        // Cross-origin submit target — open externally rather than
+        // signing a JFS body to a third-party server.
+        await Linking.openURL(target).catch(() => {});
         return;
       }
 
+      const audience = buildSnapAudience(target);
+      const inputs = state.inputs as Record<string, string | number | boolean>;
+      // Only legacy v1-advertising servers are eligible for the v1
+      // fallback path. A server that returned `version: "2.0"` on the
+      // initial GET must never receive a v1-shaped body — that would be
+      // a downgrade gadget (v1 signatures omit `audience` and `nonce`,
+      // so a replay against another v1 server becomes trivial).
+      const initialVersion = state.response.version;
+
       dispatch({ type: 'submit-start' });
       try {
-        const jfs = await signSnapSubmit(
-          fid,
-          buttonIndex,
-          state.inputs as Record<string, string | number | boolean>,
-        );
-        const next = await submitSnap(target, jfs);
+        const jfs = await signSnapSubmit(fid, inputs, { audience });
+        const next = await submitSnap(target, jfs, { expectVersion: '2.0' });
         dispatch({ type: 'submit-success', response: next });
       } catch (err) {
+        // v1 fallback per docs.farcaster.xyz/snap/2.0/client-upgrade.
+        // Narrowed from the doc's "any 4xx" to avoid downgrade abuse:
+        //   - server must have advertised v1 on the initial GET
+        //   - status must be 400 or 422 (schema/validation)
+        //     401/403/429 are unrelated and must not trigger a re-sign.
+        const isVersionMismatch4xx =
+          err instanceof SnapSubmitError &&
+          (err.status === 400 || err.status === 422);
+
+        if (initialVersion === '1.0' && isVersionMismatch4xx) {
+          const buttonIndex = buttonIndexMap[elementId];
+          if (buttonIndex !== undefined) {
+            try {
+              const jfsV1 = await signSnapSubmitV1(fid, buttonIndex, inputs);
+              const next = await submitSnap(target, jfsV1, { expectVersion: '1.0' });
+              dispatch({ type: 'submit-success', response: next });
+              return;
+            } catch (fallbackErr) {
+              const message =
+                fallbackErr instanceof Error ? fallbackErr.message : 'Submit failed';
+              dispatch({ type: 'submit-error', error: message });
+              return;
+            }
+          }
+        }
+
         const message = err instanceof Error ? err.message : 'Submit failed';
         if (looksLikeSignerRevoked(err)) {
           await invalidateSigner();
@@ -265,12 +306,7 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         dispatch({ type: 'submit-error', error: message });
       }
     },
-    [fid, buttonIndexMap, signerStatus, refreshSignerStatus, handleEnableInteractions, invalidateSigner, state.inputs, state.response.ui.elements, url],
-  );
-
-  const buttonIndexFor = useCallback(
-    (elementId: string) => buttonIndexMap[elementId] ?? -1,
-    [buttonIndexMap],
+    [fid, signerStatus, refreshSignerStatus, handleEnableInteractions, invalidateSigner, state.inputs, state.response.ui.elements, url, buttonIndexMap],
   );
 
   const contextValue: SnapContextValue = useMemo(
@@ -280,7 +316,6 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       inputs: state.inputs,
       setInput,
       renderChildren,
-      buttonIndexFor,
       submitButton,
       signerStatus,
       submitting,
@@ -291,7 +326,6 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       state.inputs,
       setInput,
       renderChildren,
-      buttonIndexFor,
       submitButton,
       signerStatus,
       submitting,

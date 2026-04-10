@@ -1,6 +1,8 @@
-import { Pressable, Text, View, StyleSheet, ActivityIndicator } from 'react-native';
+import { Pressable, Text, View, StyleSheet, ActivityIndicator, Linking } from 'react-native';
+import { useRouter } from 'expo-router';
 import type { ButtonProps, SnapEvents } from '@/types/snap';
 import { useSnapContext } from '../context';
+import { useComposeStore } from '@/stores/composeStore';
 import { resolvePaletteColor } from '@/constants/snapPalette';
 import { colors } from '@/constants/theme';
 
@@ -12,21 +14,70 @@ interface Props {
 
 export function SnapButton({ id, props, on }: Props) {
   const { accent, submitButton, signerStatus, submitting } = useSnapContext();
+  const router = useRouter();
   const accentColor = resolvePaletteColor('accent', accent);
   const primary = props.variant !== 'secondary';
 
-  // Treat any button as interactive unless it's an explicit link-out.
-  // Snaps in the wild don't always set `on.press.type` — default to submit.
-  const pressAction = on?.press as { type?: string } | undefined;
-  const isLink = pressAction?.type === 'link' || pressAction?.type === 'open_url';
-  const canInteract = !isLink && !submitting;
+  const action = on?.press?.action ?? 'submit';
+  const params = on?.press?.params as Record<string, unknown> | undefined;
+  const isSubmit = action === 'submit';
+  const canInteract = !submitting;
 
   const handlePress = () => {
     if (!canInteract) return;
-    submitButton(id).catch(() => {});
+
+    switch (action) {
+      case 'submit':
+        submitButton(id).catch(() => {});
+        break;
+
+      case 'open_url': {
+        const target = params?.target as string | undefined;
+        if (target) Linking.openURL(target).catch(() => {});
+        break;
+      }
+
+      case 'open_snap': {
+        // TODO: render inline snap — for now open externally
+        const target = params?.target as string | undefined;
+        if (target) Linking.openURL(target).catch(() => {});
+        break;
+      }
+
+      case 'view_cast': {
+        const hash = params?.hash as string | undefined;
+        if (hash) router.push(`/cast/${hash}`);
+        break;
+      }
+
+      case 'view_profile': {
+        const fid = params?.fid as number | undefined;
+        if (fid) router.push(`/profile/${fid}`);
+        break;
+      }
+
+      case 'compose_cast': {
+        useComposeStore.getState().requestCompose({
+          text: (params?.text as string) ?? undefined,
+          embeds: (params?.embeds as string[]) ?? undefined,
+        });
+        break;
+      }
+
+      case 'open_mini_app': {
+        const target = params?.target as string | undefined;
+        if (target) Linking.openURL(target).catch(() => {});
+        break;
+      }
+
+      default:
+        // Unsupported actions (view_token, send_token, swap_token) — open
+        // nothing rather than crash.
+        break;
+    }
   };
 
-  const showEnableHint = !isLink && signerStatus !== 'approved';
+  const showEnableHint = isSubmit && signerStatus !== 'approved';
 
   return (
     <Pressable
@@ -38,7 +89,6 @@ export function SnapButton({ id, props, on }: Props) {
           ? { backgroundColor: accentColor }
           : { borderWidth: 1, borderColor: accentColor, backgroundColor: 'transparent' },
         pressed && canInteract ? { opacity: 0.8 } : null,
-        isLink ? styles.disabled : null,
       ]}
     >
       <View style={styles.row}>
@@ -71,9 +121,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  disabled: {
-    opacity: 0.6,
   },
   row: {
     flexDirection: 'row',

@@ -12,6 +12,7 @@
 
 import '@/utils/cryptoPolyfill';
 import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import * as api from '@/services/api';
@@ -53,16 +54,16 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
+/**
+ * UTF-8 → base64url. Strings are encoded with `TextEncoder` so we avoid
+ * the deprecated `unescape(encodeURIComponent(...))` trick and handle
+ * non-ASCII input (e.g. emoji in snap inputs) correctly.
+ */
 function base64UrlEncode(input: string | Uint8Array): string {
-  let b64: string;
-  if (typeof input === 'string') {
-    // btoa requires latin1; JSON/ASCII is fine
-    b64 = globalThis.btoa(unescape(encodeURIComponent(input)));
-  } else {
-    let bin = '';
-    for (let i = 0; i < input.length; i++) bin += String.fromCharCode(input[i]);
-    b64 = globalThis.btoa(bin);
-  }
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = globalThis.btoa(bin);
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
@@ -202,7 +203,8 @@ export async function invalidateSnapSigner(fid: number): Promise<void> {
 export interface SnapSubmitPayload {
   fid: number;
   inputs: Record<string, string | number | boolean>;
-  button_index: number;
+  nonce: string;
+  audience: string;
   timestamp: number;
 }
 
@@ -218,16 +220,15 @@ export interface JfsBody {
  * Returns the JSON shape accepted by @farcaster/snap server:
  * `{ header, payload, signature }` where each field is base64url-encoded.
  *
- * Note: the JFS payload schema is fixed by the snap spec and reference
- * implementations validate it strictly, so we cannot add `aud` / `nonce`
- * fields to bind audience or defeat replay. Same-origin target validation
- * on the client side is our primary defense against cross-origin signed-
- * body exfiltration — see `SnapCard.submitButton`.
+ * Snap v2 requires `nonce` and `audience` in the signed payload. `audience`
+ * binds the signature to the snap server origin (scheme+host+port) and
+ * `nonce` defeats replay. Per-button discrimination is now carried by the
+ * POST `target` URL, not a `button_index` claim.
  */
 export async function signSnapSubmit(
   fid: number,
-  buttonIndex: number,
   inputs: Record<string, string | number | boolean>,
+  { audience }: { audience: string },
 ): Promise<JfsBody> {
   const { publicKey, privateKey } = await getOrCreateSnapKey(fid);
 
@@ -236,10 +237,12 @@ export async function signSnapSubmit(
     type: 'app_key',
     key: publicKey,
   };
+  const nonceBytes = await Crypto.getRandomBytesAsync(16);
   const payload: SnapSubmitPayload = {
     fid,
     inputs,
-    button_index: buttonIndex,
+    nonce: base64UrlEncode(nonceBytes),
+    audience,
     timestamp: Math.floor(Date.now() / 1000),
   };
 
@@ -256,4 +259,48 @@ export async function signSnapSubmit(
     payload: payloadB64,
     signature: signatureB64,
   };
+}
+
+/**
+ * v1 JFS payload shape, retained for the v1 fallback path per the v2
+ * client-upgrade doc (try v2 first, retry as v1 on 4xx).
+ */
+export interface SnapSubmitPayloadV1 {
+  fid: number;
+  inputs: Record<string, string | number | boolean>;
+  button_index: number;
+  timestamp: number;
+}
+
+/**
+ * Build a v1 JFS body. Used only as the fallback when a v2 submit is
+ * rejected with a 4xx — see `SnapCard.submitButton`. No `nonce` / `audience`:
+ * v1 servers reject non-standard fields.
+ */
+export async function signSnapSubmitV1(
+  fid: number,
+  buttonIndex: number,
+  inputs: Record<string, string | number | boolean>,
+): Promise<JfsBody> {
+  const { publicKey, privateKey } = await getOrCreateSnapKey(fid);
+
+  const header = {
+    fid,
+    type: 'app_key',
+    key: publicKey,
+  };
+  const payload: SnapSubmitPayloadV1 = {
+    fid,
+    inputs,
+    button_index: buttonIndex,
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+
+  const headerB64 = base64UrlEncode(JSON.stringify(header));
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const signingBytes = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+  const signatureBytes = ed.sign(signingBytes, privateKey);
+  const signatureB64 = base64UrlEncode(signatureBytes);
+
+  return { header: headerB64, payload: payloadB64, signature: signatureB64 };
 }

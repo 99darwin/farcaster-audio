@@ -43,8 +43,9 @@ export default function HomeScreen() {
   const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
   const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
 
-  // Listen for compose requests from the tab bar
+  // Listen for compose requests from the tab bar or snap compose intents
   const composeSignal = useComposeStore((s) => s.composeSignal);
+  const composeDraft = useComposeStore((s) => s.draft);
   const composeSignalRef = useRef(composeSignal);
   useEffect(() => {
     if (composeSignal > composeSignalRef.current) {
@@ -99,6 +100,8 @@ export default function HomeScreen() {
         onPublish={handlePublishCast}
         replyTo={replyTarget}
         quoteCast={quoteCastTarget}
+        defaultText={composeDraft?.text}
+        defaultEmbeds={composeDraft?.embeds}
       />
     </View>
   );

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { FlatList, View, Text, RefreshControl, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
+import { useComposeStore } from '@/stores/composeStore';
 import { useCastThread } from '@/hooks/useCastThread';
 import { CastCard } from '@/components/feed/CastCard';
 import { ThreadedReplies, findTopLevelIndexContaining } from '@/components/feed/ThreadedReplies';
@@ -23,6 +24,19 @@ export default function CastThreadScreen() {
   const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
   const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
   const flatListRef = useRef<FlatList<NeynarCastWithReplies>>(null);
+
+  // Listen for compose intents from snap buttons
+  const composeSignal = useComposeStore((s) => s.composeSignal);
+  const composeDraft = useComposeStore((s) => s.draft);
+  const composeSignalRef = useRef(composeSignal);
+  useEffect(() => {
+    if (composeSignal > composeSignalRef.current) {
+      setReplyTo(null);
+      setQuoteCastTarget(null);
+      setComposeVisible(true);
+    }
+    composeSignalRef.current = composeSignal;
+  }, [composeSignal]);
 
   useEffect(() => {
     fetch();
@@ -176,6 +190,8 @@ export default function CastThreadScreen() {
         onPublish={handlePublish}
         replyTo={replyTo}
         quoteCast={quoteCastTarget}
+        defaultText={composeDraft?.text}
+        defaultEmbeds={composeDraft?.embeds}
       />
     </View>
   );
