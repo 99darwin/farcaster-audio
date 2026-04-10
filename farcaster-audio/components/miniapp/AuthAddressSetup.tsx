@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { View, Text, Pressable, Linking, StyleSheet, ActivityIndicator } from 'react-native';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { View, Text, Pressable, Linking, StyleSheet, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/stores/authStore';
 import { useMiniAppStore } from '@/stores/miniappStore';
@@ -7,6 +7,9 @@ import { registerAuthAddress, getAuthAddressStatus } from '@/services/authAddres
 import { colors, typography } from '@/constants/theme';
 
 type Step = 'intro' | 'registering' | 'approval' | 'polling' | 'done' | 'error';
+
+/** Hard cap for the AppState approval watcher. */
+const APPROVAL_WATCH_MAX_MS = 10 * 60 * 1000;
 
 export function AuthAddressSetup() {
   const showAuthSetup = useMiniAppStore((s) => s.showAuthSetup);
@@ -16,14 +19,84 @@ export function AuthAddressSetup() {
   const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const mountedRef = useRef<boolean>(true);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appStateCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     return () => {
       mountedRef.current = false;
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (doneTimerRef.current) clearTimeout(doneTimerRef.current);
+      if (appStateCleanupRef.current) appStateCleanupRef.current();
     };
   }, []);
+
+  const finishApproved = useCallback(() => {
+    if (!mountedRef.current) return;
+    setStep('done');
+    doneTimerRef.current = setTimeout(() => {
+      if (mountedRef.current) dismissAuthSetup(true);
+    }, 1500);
+  }, [dismissAuthSetup]);
+
+  /**
+   * Subscribe to AppState transitions back to 'active' and fire a single
+   * status check per transition. Auto-unsubscribes on approval, on
+   * component unmount, or after APPROVAL_WATCH_MAX_MS — no timed polling.
+   */
+  const startApprovalWatch = useCallback(() => {
+    if (appStateCleanupRef.current) {
+      appStateCleanupRef.current();
+      appStateCleanupRef.current = null;
+    }
+    const fid = user?.fid;
+    if (!fid) return;
+
+    let cancelled = false;
+
+    const cleanup = () => {
+      if (cancelled) return;
+      cancelled = true;
+      clearTimeout(timeout);
+      subscription.remove();
+      if (appStateCleanupRef.current === cleanup) {
+        appStateCleanupRef.current = null;
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (cancelled) return;
+      if (next !== 'active') return;
+      void getAuthAddressStatus(fid, { force: true }).then((status) => {
+        if (cancelled || !mountedRef.current) return;
+        if (status === 'approved') {
+          cleanup();
+          finishApproved();
+        }
+      });
+    });
+
+    const timeout = setTimeout(() => {
+      if (!mountedRef.current) {
+        cleanup();
+        return;
+      }
+      cleanup();
+      setErrorMsg('Approval timed out. Please try again.');
+      setStep('error');
+    }, APPROVAL_WATCH_MAX_MS);
+
+    appStateCleanupRef.current = cleanup;
+  }, [user?.fid, finishApproved]);
+
+  const handleManualCheck = useCallback(async () => {
+    if (!user?.fid) return;
+    const status = await getAuthAddressStatus(user.fid, { force: true });
+    if (!mountedRef.current) return;
+    if (status === 'approved') {
+      if (appStateCleanupRef.current) appStateCleanupRef.current();
+      finishApproved();
+    }
+  }, [user?.fid, finishApproved]);
 
   if (!showAuthSetup) return null;
 
@@ -35,11 +108,7 @@ export function AuthAddressSetup() {
       const result = await registerAuthAddress(user.fid);
 
       if (result.status === 'approved') {
-        if (!mountedRef.current) return;
-        setStep('done');
-        timerRef.current = setTimeout(() => {
-          if (mountedRef.current) dismissAuthSetup(true);
-        }, 1500);
+        finishApproved();
         return;
       }
 
@@ -60,29 +129,8 @@ export function AuthAddressSetup() {
     if (approvalUrl) {
       await Linking.openURL(approvalUrl);
       setStep('polling');
-      pollForApproval();
+      startApprovalWatch();
     }
-  };
-
-  const pollForApproval = async () => {
-    if (!user?.fid) return;
-    const maxAttempts = 30;
-    for (let i = 0; i < maxAttempts; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      if (!mountedRef.current) return;
-      const status = await getAuthAddressStatus(user.fid);
-      if (!mountedRef.current) return;
-      if (status === 'approved') {
-        setStep('done');
-        timerRef.current = setTimeout(() => {
-          if (mountedRef.current) dismissAuthSetup(true);
-        }, 1500);
-        return;
-      }
-    }
-    if (!mountedRef.current) return;
-    setErrorMsg('Approval timed out. Please try again.');
-    setStep('error');
   };
 
   const handleCancel = () => {
@@ -148,6 +196,12 @@ export function AuthAddressSetup() {
             <Text style={styles.description}>
               Complete the approval in Farcaster, then come back here. This will update automatically.
             </Text>
+            <Pressable onPress={handleManualCheck} style={styles.primaryBtn}>
+              <Text style={styles.primaryBtnText}>I approved it</Text>
+            </Pressable>
+            <Pressable onPress={handleCancel} style={styles.secondaryBtn}>
+              <Text style={styles.secondaryBtnText}>Cancel</Text>
+            </Pressable>
           </>
         )}
 
