@@ -250,10 +250,9 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         return;
       }
       if (!isSameOriginSnapTarget(target, url)) {
-        dispatch({
-          type: 'submit-error',
-          error: 'Snap target must share the origin of the original snap URL',
-        });
+        // Cross-origin submit target — open externally rather than
+        // signing a JFS body to a third-party server.
+        await Linking.openURL(target).catch(() => {});
         return;
       }
 

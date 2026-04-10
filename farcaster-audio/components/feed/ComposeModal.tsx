@@ -35,9 +35,11 @@ interface ComposeModalProps {
   onPublish: (text: string, parentHash?: string, imageUris?: string[], quote?: { fid: number; hash: string }) => Promise<void>;
   replyTo?: NeynarCast | null;
   quoteCast?: NeynarCast | null;
+  defaultText?: string;
+  defaultEmbeds?: string[];
 }
 
-export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast }: ComposeModalProps) {
+export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast, defaultText, defaultEmbeds }: ComposeModalProps) {
   const user = useAuthStore((s) => s.user);
   const isPro = user?.is_pro ?? false;
   const maxCastLength = isPro ? CAST_LENGTH_PRO : CAST_LENGTH_DEFAULT;
@@ -47,6 +49,19 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
   const [attachments, setAttachments] = useState<Array<{ uri: string; type: 'image' | 'video' }>>([]);
   const [isPublishing, setIsPublishing] = useState(false);
   const keyboardPadding = useRef(new Animated.Value(0)).current;
+
+  // Seed text from draft when modal opens with defaultText or embeds.
+  useEffect(() => {
+    if (!isVisible) return;
+    const parts: string[] = [];
+    if (defaultText) parts.push(defaultText);
+    if (defaultEmbeds?.length) parts.push(...defaultEmbeds);
+    if (parts.length > 0) {
+      const initial = parts.join('\n');
+      setText(initial);
+      setCursorPosition(initial.length);
+    }
+  }, [isVisible, defaultText, defaultEmbeds]);
 
   const handleSelectionChange = useCallback(
     (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {

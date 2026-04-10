@@ -319,7 +319,9 @@ export function CastCard({
           <Text style={styles.dot}>{'\u00B7'}</Text>
           <Text style={styles.timestamp}>{getRelativeTime(cast.timestamp)}</Text>
         </Pressable>
-        <CastBody text={cast.text} expanded={expanded} onMentionPress={handleMentionPress} hiddenUrls={renderedEmbedUrls} />
+        <Pressable onPress={onPress} disabled={!onPress}>
+          <CastBody text={cast.text} expanded={expanded} onMentionPress={handleMentionPress} hiddenUrls={renderedEmbedUrls} />
+        </Pressable>
         <CastImages embeds={embeds} onImagePress={(images, index) => setViewerState({ images, index })} />
         <CastVideos embeds={embeds} />
         {embeds
@@ -364,10 +366,6 @@ export function CastCard({
       />
     </View>
   );
-
-  if (onPress) {
-    return <Pressable onPress={onPress}>{card}</Pressable>;
-  }
 
   return card;
 }

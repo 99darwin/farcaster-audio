@@ -1,7 +1,9 @@
 import { useEffect, useCallback, useMemo, useState } from 'react';
 import { FlatList, View, Text, StyleSheet, RefreshControl } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
+import { useComposeStore } from '@/stores/composeStore';
 import { useProfile } from '@/hooks/useProfile';
 import { ProfileHeader, type ProfileTab } from '@/components/profile/ProfileHeader';
 import { CastCard } from '@/components/feed/CastCard';
@@ -22,6 +24,18 @@ export default function ProfileScreen() {
   const [activeTab, setActiveTab] = useState<ProfileTab>('casts');
   const [composeVisible, setComposeVisible] = useState(false);
   const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
+
+  // Listen for compose intents from snap buttons
+  const composeSignal = useComposeStore((s) => s.composeSignal);
+  const composeDraft = useComposeStore((s) => s.draft);
+  const composeSignalRef = useRef(composeSignal);
+  useEffect(() => {
+    if (composeSignal > composeSignalRef.current) {
+      setQuoteCastTarget(null);
+      setComposeVisible(true);
+    }
+    composeSignalRef.current = composeSignal;
+  }, [composeSignal]);
 
   const {
     user,
@@ -165,6 +179,8 @@ export default function ProfileScreen() {
         }}
         onPublish={handlePublish}
         quoteCast={quoteCastTarget}
+        defaultText={composeDraft?.text}
+        defaultEmbeds={composeDraft?.embeds}
       />
     </View>
   );
