@@ -42,10 +42,24 @@ export async function getOrCreateAuthAddress(fid: number): Promise<{
   return { address: account.address, privateKey, isNew: true };
 }
 
-/** Check if an auth address is registered and approved for this FID. */
-export async function getAuthAddressStatus(fid: number): Promise<'none' | 'pending_approval' | 'approved'> {
-  const cached = await SecureStore.getItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`);
-  if (cached === 'approved') return 'approved';
+export type AuthAddressStatus = 'none' | 'pending_approval' | 'approved';
+
+/**
+ * Check if an auth address is registered and approved for this FID.
+ *
+ * Fast path: persisted `approved` is returned without any network call.
+ * The cache is only cleared explicitly via `invalidateAuthAddress` after a
+ * signing failure surfaces revocation. Pass `{ force: true }` to bypass the
+ * cache (used by AppState-driven post-approval confirmation).
+ */
+export async function getAuthAddressStatus(
+  fid: number,
+  opts: { force?: boolean } = {},
+): Promise<AuthAddressStatus> {
+  if (!opts.force) {
+    const cached = await SecureStore.getItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`);
+    if (cached === 'approved') return 'approved';
+  }
 
   // Check if we even have a key
   const storageKey = `${AUTH_ADDRESS_KEY_PREFIX}${fid}`;
@@ -65,9 +79,28 @@ export async function getAuthAddressStatus(fid: number): Promise<'none' | 'pendi
       await SecureStore.setItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`, 'approved');
       return 'approved';
     }
+    await SecureStore.deleteItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`);
     return result.status === 'pending_approval' ? 'pending_approval' : 'none';
   } catch {
     return 'none';
+  }
+}
+
+/**
+ * Clear the locally cached auth address status and notify the backend.
+ * Invoked after a signing failure that looks like revocation. Silently
+ * tolerates a missing backend endpoint (404).
+ */
+export async function invalidateAuthAddress(fid: number): Promise<void> {
+  await SecureStore.deleteItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`);
+  const storageKey = `${AUTH_ADDRESS_KEY_PREFIX}${fid}`;
+  const existing = await SecureStore.getItemAsync(storageKey);
+  if (!existing || !/^0x[0-9a-f]{64}$/i.test(existing)) return;
+  try {
+    const account = privateKeyToAccount(existing as `0x${string}`);
+    await api.invalidateAuthAddress(account.address);
+  } catch {
+    // Best-effort.
   }
 }
 

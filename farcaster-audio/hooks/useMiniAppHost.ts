@@ -249,18 +249,21 @@ export function useMiniAppHost({ domain, launchUrl, onComposeCast }: UseMiniAppH
         throw new SignIn.RejectedByUser();
       }
 
-      // Check if auth address is registered and approved
-      let status = await getAuthAddressStatus(fid);
+      // Fast path: SecureStore-backed cache returns 'approved' without any
+      // network call. Only if the user has never approved do we surface the
+      // setup prompt, and we re-use the cache read the setup flow has
+      // already populated on success.
+      const status = await getAuthAddressStatus(fid);
 
       if (status !== 'approved') {
-        // Prompt user to set up auth address
         const proceed = await useMiniAppStore.getState().requestAuthSetup();
         if (!proceed) {
           throw new SignIn.RejectedByUser();
         }
-        // Re-check status after setup flow
-        status = await getAuthAddressStatus(fid);
-        if (status !== 'approved') {
+        // The setup flow persists 'approved' in SecureStore before
+        // resolving proceed=true, so this read is cache-only (no network).
+        const postSetup = await getAuthAddressStatus(fid);
+        if (postSetup !== 'approved') {
           throw new SignIn.RejectedByUser();
         }
       }

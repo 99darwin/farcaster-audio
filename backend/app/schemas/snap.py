@@ -19,3 +19,11 @@ class SnapSignerStatusResponse(BaseModel):
     public_key: str
     status: str
     fid: int | None = None
+
+
+class InvalidateSnapSignerRequest(BaseModel):
+    public_key: str = Field(
+        ...,
+        pattern=r"^0x[0-9a-fA-F]{64}$",
+        description="Ed25519 public key to mark as revoked",
+    )

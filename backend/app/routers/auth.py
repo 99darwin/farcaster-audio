@@ -1,7 +1,7 @@
 import logging
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from app.dependencies import get_db, get_redis
 from app.models.user import User
 from app.schemas.auth import (
     AuthUrlResponse,
+    InvalidateAuthAddressRequest,
     LoginRequest,
     LoginResponse,
     RefreshRequest,
@@ -33,8 +34,10 @@ from app.services.auth_service import (
 )
 from app.services.auth_address_service import (
     generate_signed_key_request,
+    get_auth_address_status_cached,
+    mark_auth_address_revoked,
     register_auth_address_with_neynar,
-    check_auth_address_status,
+    upsert_auth_address_from_registration,
 )
 from app.dependencies import get_current_user
 
@@ -118,7 +121,7 @@ async def login(
 ):
     """Login with Neynar SIWF credentials."""
     try:
-        await verify_neynar_signer(body.signer_uuid, body.fid)
+        await verify_neynar_signer(body.signer_uuid, body.fid, redis=redis)
     except httpx.HTTPStatusError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -245,6 +248,7 @@ async def register_auth_address(
     body: RegisterAuthAddressRequest,
     fid: int = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
 ):
     """Register an auth address for miniapp signIn (SIWF).
 
@@ -297,10 +301,27 @@ async def register_auth_address(
     # Store address -> FID mapping so status checks can verify ownership
     await redis.set(f"auth_addr:{result['address']}", str(fid))
 
+    upstream_status = result.get("status", "pending_approval")
+    approval_url = result.get("auth_address_approval_url")
+
+    # Persist to local DB so subsequent status checks don't hit Neynar.
+    try:
+        await upsert_auth_address_from_registration(
+            db=db,
+            address=result["address"],
+            fid=fid,
+            status=upstream_status,
+            approval_url=approval_url,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Failed to persist auth address for fid=%s: %s", fid, exc
+        )
+
     return RegisterAuthAddressResponse(
         auth_address=result["address"],
-        status=result.get("status", "pending_approval"),
-        approval_url=result.get("auth_address_approval_url"),
+        status=upstream_status,
+        approval_url=approval_url,
     )
 
 
@@ -309,8 +330,13 @@ async def get_auth_address_status(
     address: str,
     fid: int = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Check whether an auth address has been approved."""
+    """Check whether an auth address has been approved.
+
+    Reads from the local `auth_addresses` table first; only falls through
+    to Neynar for missing rows or stale pending entries (>30s old).
+    """
     if not re.match(r'^0x[0-9a-fA-F]{40}$', address):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -331,7 +357,7 @@ async def get_auth_address_status(
         )
 
     try:
-        result = await check_auth_address_status(address)
+        result = await get_auth_address_status_cached(db, address)
     except httpx.HTTPStatusError as exc:
         logger.error(
             "Neynar auth address status check failed for fid=%s address=%s: %s",
@@ -347,3 +373,50 @@ async def get_auth_address_status(
         status=result.get("status", "unknown"),
         fid=result.get("fid"),
     )
+
+
+@router.post(
+    "/auth-address/invalidate", status_code=status.HTTP_204_NO_CONTENT
+)
+async def invalidate_auth_address(
+    body: InvalidateAuthAddressRequest,
+    fid: int = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Mark an auth address as revoked locally.
+
+    Same authorization pattern as the status endpoint. Lightly rate-limited
+    so a malicious client cannot grief the table.
+    """
+    address = body.auth_address
+    if not re.match(r'^0x[0-9a-fA-F]{40}$', address):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Ethereum address",
+        )
+
+    rate_key = f"auth_addr_invalidate_rate:{fid}"
+    attempts = await redis.incr(rate_key)
+    if attempts == 1:
+        await redis.expire(rate_key, 3600)
+    if attempts > 10:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many invalidate attempts. Try again later.",
+        )
+
+    owner_fid = await redis.get(f"auth_addr:{address}")
+    if owner_fid is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Unknown auth address",
+        )
+    if int(owner_fid) != fid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Auth address does not belong to this user",
+        )
+
+    await mark_auth_address_revoked(db, address)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

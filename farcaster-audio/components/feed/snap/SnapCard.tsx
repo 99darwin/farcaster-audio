@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { View, StyleSheet, Linking, Pressable, Text, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Linking, Pressable, Text, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
 import type { ReactNode } from 'react';
 import type { SnapAccent, SnapElement, SnapInputValue, SnapInputs, SnapResponse } from '@/types/snap';
 import { SnapContext, type SnapContextValue } from './context';
@@ -8,13 +8,31 @@ import { Confetti } from './effects/Confetti';
 import { DEFAULT_SNAP_ACCENT, resolvePaletteColor } from '@/constants/snapPalette';
 import { colors } from '@/constants/theme';
 import { useAuthStore } from '@/stores/authStore';
-import {
-  getSnapSignerStatus as fetchSignerStatus,
-  registerSnapSigner,
-  signSnapSubmit,
-  type SnapSignerStatus,
-} from '@/services/snapSigner';
+import { registerSnapSigner, signSnapSubmit } from '@/services/snapSigner';
+import { useSnapSignerStatus } from '@/hooks/useSnapSignerStatus';
 import { submitSnap, assertSafeSnapUrl, isSameOriginSnapTarget } from '@/services/snapClient';
+
+/** Hard cap for the post-approval AppState listener. */
+const APPROVAL_WATCH_MAX_MS = 10 * 60 * 1000;
+
+/**
+ * Heuristic for "the snap server told us this signer is revoked".
+ * Different snap implementations surface this differently, so we're
+ * defensive: any 401/403 or any message mentioning both "signer" and
+ * "revoked" (or "invalid signer") counts.
+ */
+function looksLikeSignerRevoked(err: unknown): boolean {
+  if (!err) return false;
+  const anyErr = err as { status?: number; response?: { status?: number }; message?: string };
+  const status = anyErr.status ?? anyErr.response?.status;
+  if (status === 401 || status === 403) return true;
+  const msg = (anyErr.message ?? '').toLowerCase();
+  if (!msg) return false;
+  if (msg.includes('signer') && msg.includes('revoked')) return true;
+  if (msg.includes('invalid signer')) return true;
+  if (msg.includes('signer not found')) return true;
+  return false;
+}
 
 interface State {
   inputs: SnapInputs;
@@ -93,23 +111,24 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
     confettiKey: 0,
   });
 
-  const [signerStatus, setSignerStatus] = useState<SnapSignerStatus>('none');
+  const { status: signerStatus, refresh: refreshSignerStatus, invalidate: invalidateSigner } = useSnapSignerStatus(fid);
   const [registering, setRegistering] = useState(false);
-  const signerCheckedRef = useRef(false);
+  const appStateCleanupRef = useRef<(() => void) | null>(null);
 
   const { response, submitting } = state;
   const accent: SnapAccent = response.theme?.accent ?? DEFAULT_SNAP_ACCENT;
   const accentColor = resolvePaletteColor('accent', accent);
   const hasConfetti = response.effects?.includes('confetti') ?? false;
 
-  // Lazy signer status check — only when fid is available
+  // Ensure we tear down any lingering AppState listener on unmount.
   useEffect(() => {
-    if (!fid || signerCheckedRef.current) return;
-    signerCheckedRef.current = true;
-    fetchSignerStatus(fid)
-      .then(setSignerStatus)
-      .catch(() => {});
-  }, [fid]);
+    return () => {
+      if (appStateCleanupRef.current) {
+        appStateCleanupRef.current();
+        appStateCleanupRef.current = null;
+      }
+    };
+  }, []);
 
   const buttonIndexMap = useMemo(
     () => buildButtonIndexMap(response.ui.root, response.ui.elements),
@@ -128,6 +147,42 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
     [],
   );
 
+  const startApprovalWatch = useCallback(() => {
+    if (appStateCleanupRef.current) {
+      appStateCleanupRef.current();
+      appStateCleanupRef.current = null;
+    }
+
+    let cancelled = false;
+
+    const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (cancelled) return;
+      if (next !== 'active') return;
+      void refreshSignerStatus({ force: true }).then((result) => {
+        if (cancelled) return;
+        if (result === 'approved') {
+          cleanup();
+        }
+      });
+    });
+
+    const timeout = setTimeout(() => {
+      cleanup();
+    }, APPROVAL_WATCH_MAX_MS);
+
+    const cleanup = () => {
+      if (cancelled) return;
+      cancelled = true;
+      clearTimeout(timeout);
+      subscription.remove();
+      if (appStateCleanupRef.current === cleanup) {
+        appStateCleanupRef.current = null;
+      }
+    };
+
+    appStateCleanupRef.current = cleanup;
+  }, [refreshSignerStatus]);
+
   const handleEnableInteractions = useCallback(async () => {
     if (!fid || registering) return;
     setRegistering(true);
@@ -136,13 +191,23 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       if (result.approvalUrl) {
         await Linking.openURL(result.approvalUrl).catch(() => {});
       }
-      setSignerStatus(result.status === 'approved' ? 'approved' : 'pending_approval');
+      if (result.status === 'approved') {
+        await refreshSignerStatus();
+      } else {
+        // Pending: watch for return from Farcaster and re-check once.
+        startApprovalWatch();
+        await refreshSignerStatus();
+      }
     } catch {
       // swallow — user can retry
     } finally {
       setRegistering(false);
     }
-  }, [fid, registering]);
+  }, [fid, registering, refreshSignerStatus, startApprovalWatch]);
+
+  const handleManualApprovalCheck = useCallback(() => {
+    void refreshSignerStatus({ force: true });
+  }, [refreshSignerStatus]);
 
   const submitButton = useCallback(
     async (elementId: string) => {
@@ -151,8 +216,7 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       if (buttonIndex === undefined) return;
 
       if (signerStatus !== 'approved') {
-        const latest = await fetchSignerStatus(fid);
-        setSignerStatus(latest);
+        const latest = await refreshSignerStatus();
         if (latest !== 'approved') {
           await handleEnableInteractions();
           return;
@@ -193,10 +257,15 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
         dispatch({ type: 'submit-success', response: next });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Submit failed';
+        if (looksLikeSignerRevoked(err)) {
+          await invalidateSigner();
+          dispatch({ type: 'submit-error', error: 'Signer revoked — tap to enable interactions' });
+          return;
+        }
         dispatch({ type: 'submit-error', error: message });
       }
     },
-    [fid, buttonIndexMap, signerStatus, handleEnableInteractions, state.inputs, state.response.ui.elements, url],
+    [fid, buttonIndexMap, signerStatus, refreshSignerStatus, handleEnableInteractions, invalidateSigner, state.inputs, state.response.ui.elements, url],
   );
 
   const buttonIndexFor = useCallback(
@@ -246,6 +315,11 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
           <Text style={[styles.bannerText, { color: accentColor }]}>
             Snap signer pending approval — open Farcaster to approve
           </Text>
+          <Pressable onPress={handleManualApprovalCheck} style={styles.bannerAction}>
+            <Text style={[styles.bannerActionText, { color: accentColor }]}>
+              I approved it — check now
+            </Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -295,6 +369,15 @@ const styles = StyleSheet.create({
   bannerText: {
     fontSize: 11,
     fontWeight: '600',
+  },
+  bannerAction: {
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  bannerActionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   errorBanner: {
     paddingHorizontal: 12,

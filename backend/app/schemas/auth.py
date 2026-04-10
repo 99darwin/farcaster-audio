@@ -45,3 +45,7 @@ class AuthAddressStatusResponse(BaseModel):
     auth_address: str
     status: str
     fid: int | None = None
+
+
+class InvalidateAuthAddressRequest(BaseModel):
+    auth_address: str

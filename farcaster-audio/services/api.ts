@@ -239,12 +239,38 @@ export const registerAuthAddress = (authAddress: string) =>
 export const getAuthAddressStatus = (address: string) =>
   apiClient.get<AuthAddressStatusResponse>('/v1/auth/auth-address/status', { params: { address } }).then((r) => r.data);
 
+/**
+ * Mark an auth address as revoked on the backend. Silently tolerates 404 so
+ * the frontend can ship before the backend endpoint lands.
+ */
+export const invalidateAuthAddress = async (address: string): Promise<void> => {
+  try {
+    await apiClient.post('/v1/auth/auth-address/invalidate', { address });
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) return;
+    throw error;
+  }
+};
+
 // --- Snap Signer (Ed25519) ---
 export const registerSnapSigner = (publicKey: string) =>
   apiClient.post<RegisterSnapSignerResponse>('/v1/snaps/register-signer', { public_key: publicKey }).then((r) => r.data);
 
 export const getSnapSignerStatus = (publicKey: string) =>
   apiClient.get<SnapSignerStatusResponse>('/v1/snaps/signer-status', { params: { public_key: publicKey } }).then((r) => r.data);
+
+/**
+ * Mark a snap signer as revoked on the backend. Silently tolerates 404 so
+ * the frontend can ship before the backend endpoint lands.
+ */
+export const invalidateSnapSigner = async (publicKey: string): Promise<void> => {
+  try {
+    await apiClient.post('/v1/snaps/signer-invalidate', { public_key: publicKey });
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) return;
+    throw error;
+  }
+};
 
 // --- Notifications ---
 const inFlightNotifications = new Map<string, Promise<import('@/types/neynar').NotificationsResponse>>();

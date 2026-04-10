@@ -21,13 +21,6 @@ ed.hashes.sha512 = sha512;
 
 const SNAP_KEY_PREFIX = 'snap_signer_key_';
 const SNAP_STATUS_PREFIX = 'snap_signer_status_';
-const SNAP_STATUS_TS_PREFIX = 'snap_signer_status_ts_';
-
-/**
- * Cached "approved" status is valid for one hour. After that we re-check
- * with the backend so that revoked or rotated signers stop being trusted.
- */
-const STATUS_CACHE_TTL_MS = 60 * 60 * 1000;
 
 /**
  * Keychain accessibility for all snap-signer items. `_THIS_DEVICE_ONLY`
@@ -108,28 +101,40 @@ export async function getOrCreateSnapKey(fid: number): Promise<{
   };
 }
 
-async function writeStatusCache(fid: number, value: SnapSignerStatus): Promise<void> {
-  await SecureStore.setItemAsync(`${SNAP_STATUS_PREFIX}${fid}`, value, SECURE_STORE_OPTS);
-  await SecureStore.setItemAsync(
-    `${SNAP_STATUS_TS_PREFIX}${fid}`,
-    String(Date.now()),
-    SECURE_STORE_OPTS,
-  );
+async function writeApprovedCache(fid: number): Promise<void> {
+  await SecureStore.setItemAsync(`${SNAP_STATUS_PREFIX}${fid}`, 'approved', SECURE_STORE_OPTS);
 }
 
-async function readFreshStatusCache(fid: number): Promise<SnapSignerStatus | null> {
+async function clearApprovedCache(fid: number): Promise<void> {
+  await SecureStore.deleteItemAsync(`${SNAP_STATUS_PREFIX}${fid}`);
+}
+
+/**
+ * Read the persistent approved cache. Once `approved` is stored it stays
+ * until `invalidateSnapSigner` clears it — revocation is externally
+ * triggered and rare, so we rely on submit-failure feedback instead of
+ * periodic refresh.
+ */
+async function readApprovedCache(fid: number): Promise<SnapSignerStatus | null> {
   const cached = await SecureStore.getItemAsync(`${SNAP_STATUS_PREFIX}${fid}`);
-  if (cached !== 'approved') return null;
-  const tsRaw = await SecureStore.getItemAsync(`${SNAP_STATUS_TS_PREFIX}${fid}`);
-  const ts = tsRaw ? Number(tsRaw) : 0;
-  if (!ts || Date.now() - ts > STATUS_CACHE_TTL_MS) return null;
-  return 'approved';
+  return cached === 'approved' ? 'approved' : null;
 }
 
-/** Check whether the snap signer for this fid is registered & approved. */
-export async function getSnapSignerStatus(fid: number): Promise<SnapSignerStatus> {
-  const fresh = await readFreshStatusCache(fid);
-  if (fresh) return fresh;
+/**
+ * Check whether the snap signer for this fid is registered & approved.
+ *
+ * Fast path: if SecureStore has `approved`, returns immediately without any
+ * network call. Pass `{ force: true }` to bypass the cache and re-check with
+ * the backend (used by the AppState-driven post-approval confirmation).
+ */
+export async function getSnapSignerStatus(
+  fid: number,
+  opts: { force?: boolean } = {},
+): Promise<SnapSignerStatus> {
+  if (!opts.force) {
+    const cached = await readApprovedCache(fid);
+    if (cached) return cached;
+  }
 
   const storageKey = `${SNAP_KEY_PREFIX}${fid}`;
   const existing = await SecureStore.getItemAsync(storageKey);
@@ -143,12 +148,10 @@ export async function getSnapSignerStatus(fid: number): Promise<SnapSignerStatus
   try {
     const result = await api.getSnapSignerStatus(publicKey);
     if (result.status === 'approved') {
-      await writeStatusCache(fid, 'approved');
+      await writeApprovedCache(fid);
       return 'approved';
     }
-    // Clear stale cache if upstream no longer reports approved.
-    await SecureStore.deleteItemAsync(`${SNAP_STATUS_PREFIX}${fid}`);
-    await SecureStore.deleteItemAsync(`${SNAP_STATUS_TS_PREFIX}${fid}`);
+    await clearApprovedCache(fid);
     return result.status === 'pending_approval' ? 'pending_approval' : 'none';
   } catch {
     return 'none';
@@ -165,7 +168,7 @@ export async function registerSnapSigner(fid: number): Promise<{
   const result = await api.registerSnapSigner(publicKey);
 
   if (result.status === 'approved') {
-    await writeStatusCache(fid, 'approved');
+    await writeApprovedCache(fid);
   }
 
   return {
@@ -173,6 +176,25 @@ export async function registerSnapSigner(fid: number): Promise<{
     approvalUrl: result.approval_url,
     status: result.status,
   };
+}
+
+/**
+ * Clear the locally cached signer status and tell the backend to mark the
+ * signer revoked. Called after a snap submit fails with a "signer revoked"
+ * shape, which is our only invalidation signal (Neynar does not provide
+ * signer lifecycle webhooks).
+ *
+ * The backend call swallows 404 so the frontend can ship before the new
+ * endpoint lands.
+ */
+export async function invalidateSnapSigner(fid: number): Promise<void> {
+  await clearApprovedCache(fid);
+  try {
+    const { publicKey } = await getOrCreateSnapKey(fid);
+    await api.invalidateSnapSigner(publicKey);
+  } catch {
+    // Best-effort: local state is already cleared.
+  }
 }
 
 // --- JFS signing ---
