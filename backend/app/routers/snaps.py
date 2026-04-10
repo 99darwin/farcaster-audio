@@ -11,18 +11,22 @@ import re
 
 import httpx
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user, get_redis
+from app.dependencies import get_current_user, get_db, get_redis
 from app.schemas.snap import (
+    InvalidateSnapSignerRequest,
     RegisterSnapSignerRequest,
     RegisterSnapSignerResponse,
     SnapSignerStatusResponse,
 )
 from app.services.snap_signer_service import (
-    check_ed25519_signer_status,
     generate_signed_key_request_for_ed25519,
+    get_signer_status_cached,
+    mark_signer_revoked,
     register_ed25519_signer_with_neynar,
+    upsert_signer_from_registration,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +37,8 @@ PUBKEY_PATTERN = re.compile(r"^0x[0-9a-fA-F]{64}$")
 
 RATE_LIMIT_MAX = 3
 RATE_LIMIT_WINDOW_SECONDS = 3600
+INVALIDATE_RATE_LIMIT_MAX = 10
+INVALIDATE_RATE_LIMIT_WINDOW_SECONDS = 3600
 # Ownership mapping lifetime. Long enough to cover signer lifecycle but
 # bounded so stale/unapproved registrations don't accumulate forever.
 SNAP_SIGNER_OWNERSHIP_TTL_SECONDS = 30 * 86400
@@ -57,6 +63,7 @@ async def register_snap_signer(
     body: RegisterSnapSignerRequest,
     fid: int = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
 ):
     """Register an Ed25519 public key for snap interactivity."""
     public_key = _normalize_pubkey(body.public_key)
@@ -153,10 +160,30 @@ async def register_snap_signer(
             _ownership_key(public_key), SNAP_SIGNER_OWNERSHIP_TTL_SECONDS
         )
 
+    upstream_status = result.get("status", "pending_approval")
+    approval_url = result.get("signer_approval_url")
+
+    # Persist to local DB so subsequent status checks don't hit Neynar.
+    try:
+        await upsert_signer_from_registration(
+            db=db,
+            public_key=public_key,
+            fid=fid,
+            status=upstream_status,
+            approval_url=approval_url,
+        )
+    except Exception as exc:
+        # DB write failure should not break the user-facing flow — the
+        # ownership claim is in Redis, the signer is registered with
+        # Neynar, and the next status check will reconcile.
+        logger.exception(
+            "Failed to persist snap signer for fid=%s: %s", fid, exc
+        )
+
     return RegisterSnapSignerResponse(
         public_key=public_key,
-        status=result.get("status", "pending_approval"),
-        approval_url=result.get("signer_approval_url"),
+        status=upstream_status,
+        approval_url=approval_url,
     )
 
 
@@ -165,8 +192,13 @@ async def get_snap_signer_status(
     public_key: str,
     fid: int = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Check whether a snap signer has been approved."""
+    """Check whether a snap signer has been approved.
+
+    Reads from the local `snap_signers` table first; only falls through to
+    Neynar for missing rows or stale pending entries (>30s old).
+    """
     public_key = _normalize_pubkey(public_key)
 
     # Constant-shape 403 for both "does not exist" and "not yours" so we
@@ -179,7 +211,7 @@ async def get_snap_signer_status(
         )
 
     try:
-        result = await check_ed25519_signer_status(public_key)
+        result = await get_signer_status_cached(db, public_key)
     except httpx.HTTPStatusError as exc:
         logger.error(
             "Neynar snap signer status check failed for fid=%s status=%s",
@@ -208,3 +240,42 @@ async def get_snap_signer_status(
         status=result.get("status", "unknown"),
         fid=fid,
     )
+
+
+@router.post("/signer-invalidate", status_code=status.HTTP_204_NO_CONTENT)
+async def invalidate_snap_signer(
+    body: InvalidateSnapSignerRequest,
+    fid: int = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Mark a snap signer as revoked locally.
+
+    Called by the client after observing a signing failure that indicates
+    the signer is no longer valid (e.g. revoked from Warpcast). Authorization
+    follows the same ownership check as `/signer-status`. Lightly rate-limited
+    so a malicious client can't grief the table.
+    """
+    public_key = _normalize_pubkey(body.public_key)
+
+    # Lightweight rate limit: 10/hour/user. Atomic incr-then-expire.
+    rate_key = f"snap_signer_invalidate_rate:{fid}"
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.incr(rate_key)
+        pipe.expire(rate_key, INVALIDATE_RATE_LIMIT_WINDOW_SECONDS)
+        new_count, _ = await pipe.execute()
+    if int(new_count) > INVALIDATE_RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many invalidate attempts. Try again later.",
+        )
+
+    owner_fid = await redis.get(_ownership_key(public_key))
+    if owner_fid is None or int(owner_fid) != fid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Snap signer not accessible",
+        )
+
+    await mark_signer_revoked(db, public_key)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

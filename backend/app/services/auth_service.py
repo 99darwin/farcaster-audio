@@ -12,11 +12,37 @@ from app.config import settings
 from app.models.user import User
 
 
-async def verify_neynar_signer(signer_uuid: str, expected_fid: int) -> dict:
+NEYNAR_SIGNER_VERIFY_CACHE_PREFIX = "neynar_signer_verify:"
+NEYNAR_SIGNER_VERIFY_TTL_SECONDS = 600  # 10 minutes
+
+
+async def verify_neynar_signer(
+    signer_uuid: str,
+    expected_fid: int,
+    redis: aioredis.Redis | None = None,
+) -> dict:
     """Verify a signer_uuid with Neynar API. Returns signer data if valid.
 
     Raises ValueError if the signer's fid does not match expected_fid.
+
+    If a Redis client is provided, the verified fid is cached for
+    `NEYNAR_SIGNER_VERIFY_TTL_SECONDS` keyed by signer_uuid. Cache hits
+    avoid the Neynar round-trip entirely (which absorbs login retries
+    and prevents burning Neynar credits on every /v1/auth/login call).
     """
+    cache_key = f"{NEYNAR_SIGNER_VERIFY_CACHE_PREFIX}{signer_uuid}"
+
+    if redis is not None:
+        cached = await redis.get(cache_key)
+        if cached is not None:
+            cached_fid = int(cached)
+            if cached_fid != expected_fid:
+                raise ValueError(
+                    f"Signer fid {cached_fid} does not match expected fid "
+                    f"{expected_fid}"
+                )
+            return {"fid": cached_fid, "signer_uuid": signer_uuid}
+
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.neynar.com/v2/farcaster/signer",
@@ -29,6 +55,12 @@ async def verify_neynar_signer(signer_uuid: str, expected_fid: int) -> dict:
         if signer_fid != expected_fid:
             raise ValueError(
                 f"Signer fid {signer_fid} does not match expected fid {expected_fid}"
+            )
+        if redis is not None and signer_fid is not None:
+            await redis.set(
+                cache_key,
+                str(signer_fid),
+                ex=NEYNAR_SIGNER_VERIFY_TTL_SECONDS,
             )
         return data
 
