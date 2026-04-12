@@ -110,8 +110,10 @@ if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
                     "accepts": {
                         "scheme": "exact",
                         "network": settings.X402_NETWORK,
-                        "asset": settings.X402_USDC_ASSET,
-                        "price": settings.AGENT_JOIN_TOLL,
+                        "price": {
+                            "amount": settings.AGENT_JOIN_TOLL,
+                            "asset": settings.X402_USDC_ASSET,
+                        },
                         "pay_to": settings.X402_PAYMENT_ADDRESS,
                     },
                 },
