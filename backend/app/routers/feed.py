@@ -5,7 +5,12 @@ The user's signer_uuid is always looked up from the database, never accepted
 from the client, so it never leaves the backend.
 """
 
+import asyncio
+import ipaddress
 import logging
+import re
+import socket
+import urllib.parse
 from typing import Literal
 
 import httpx
@@ -244,3 +249,171 @@ async def delete_reaction(
         _raise_upstream_error(resp)
 
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# OG metadata preview — used by the composer to show a link preview before
+# publishing. We scrape minimal OG tags server-side so the API key / scraping
+# stays off the client.
+# ---------------------------------------------------------------------------
+
+# SSRF protection: block private/reserved IP ranges
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+# Per-user rate limit: track recent requests (fid -> list of timestamps)
+_og_rate_limits: dict[int, list[float]] = {}
+_OG_RATE_LIMIT = 15  # requests per minute
+_OG_MAX_BODY = 32768  # 32 KB
+
+
+def _is_private_ip(ip_str: str) -> bool:
+    """Check if an IP address belongs to a private/reserved network."""
+    try:
+        addr = ipaddress.ip_address(ip_str)
+        return any(addr in net for net in _BLOCKED_NETWORKS)
+    except ValueError:
+        return True  # block on parse failure
+
+
+def _check_url_safety(target: str) -> None:
+    """Validate URL scheme and resolve DNS to block SSRF against internal hosts."""
+    parsed = urllib.parse.urlparse(target)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Only http/https URLs are allowed")
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(status_code=400, detail="Invalid URL")
+    try:
+        resolved = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail="Cannot resolve hostname")
+    for _family, _type, _proto, _canonname, sockaddr in resolved:
+        if _is_private_ip(sockaddr[0]):
+            raise HTTPException(status_code=400, detail="URL resolves to a blocked address")
+
+
+def _check_og_rate_limit(fid: int) -> None:
+    """Simple in-memory per-user rate limit for OG fetches."""
+    import time
+
+    now = time.monotonic()
+    window = _og_rate_limits.get(fid, [])
+    # Prune entries older than 60s
+    window = [t for t in window if now - t < 60]
+    if len(window) >= _OG_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    window.append(now)
+    _og_rate_limits[fid] = window
+
+
+def _parse_og_tags(html: str) -> dict[str, str]:
+    """Extract og:* meta tags from HTML. Runs in a thread to avoid blocking the event loop."""
+    # Use atomic patterns to prevent catastrophic backtracking (no nested quantifiers)
+    tag_re = re.compile(
+        r'<meta\s[^>]*?(?:property|name)\s*=\s*["\']og:(\w+)["\'][^>]*?content\s*=\s*["\']([^"\']*)["\']',
+        re.IGNORECASE,
+    )
+    tag_re_rev = re.compile(
+        r'<meta\s[^>]*?content\s*=\s*["\']([^"\']*)["\'][^>]*?(?:property|name)\s*=\s*["\']og:(\w+)["\']',
+        re.IGNORECASE,
+    )
+    og: dict[str, str] = {}
+    for match in tag_re.finditer(html):
+        og.setdefault(match.group(1).lower(), match.group(2))
+    for match in tag_re_rev.finditer(html):
+        og.setdefault(match.group(2).lower(), match.group(1))
+    return og
+
+
+class OgResponse(BaseModel):
+    url: str
+    title: str | None = None
+    description: str | None = None
+    image: str | None = None
+
+
+@router.get("/og", response_model=OgResponse)
+async def fetch_og_metadata(
+    url: HttpUrl = Query(...),
+    _current_user: int = Depends(get_current_user),
+):
+    """Fetch Open Graph metadata for a URL (composer link preview)."""
+    target = str(url)
+
+    # Rate limit per user
+    _check_og_rate_limit(_current_user)
+
+    # SSRF protection: validate scheme + resolve DNS before connecting
+    _check_url_safety(target)
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=False, timeout=8.0) as client:
+            resp = await client.get(
+                target,
+                headers={"User-Agent": "farcaster-audio-bot/1.0 (OG preview)"},
+            )
+            # Handle redirects manually to re-validate each target
+            redirects = 0
+            while resp.is_redirect and redirects < 5:
+                redirects += 1
+                location = resp.headers.get("location", "")
+                if not location:
+                    break
+                # Resolve relative redirects
+                redirect_url = urllib.parse.urljoin(str(resp.url), location)
+                _check_url_safety(redirect_url)
+                resp = await client.get(
+                    redirect_url,
+                    headers={"User-Agent": "farcaster-audio-bot/1.0 (OG preview)"},
+                )
+    except HTTPException:
+        raise
+    except httpx.HTTPError:
+        return OgResponse(url=target)
+
+    if resp.status_code != 200:
+        return OgResponse(url=target)
+
+    # Only parse HTML responses
+    content_type = resp.headers.get("content-type", "")
+    if "html" not in content_type:
+        return OgResponse(url=target)
+
+    # Stream-safe: httpx already read the body, but cap what we parse
+    # Check Content-Length upfront to reject obviously huge responses
+    cl = resp.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > 1_000_000:
+        return OgResponse(url=target)
+
+    html = resp.text[:_OG_MAX_BODY]
+
+    # Run regex parsing in a thread with a timeout to prevent ReDoS
+    try:
+        og = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, _parse_og_tags, html),
+            timeout=2.0,
+        )
+    except asyncio.TimeoutError:
+        return OgResponse(url=target)
+
+    # Validate OG image URL scheme
+    image_url = og.get("image")
+    if image_url and not image_url.startswith(("http://", "https://")):
+        image_url = None
+
+    return OgResponse(
+        url=target,
+        title=og.get("title"),
+        description=og.get("description"),
+        image=image_url,
+    )
