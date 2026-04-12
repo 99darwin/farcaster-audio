@@ -106,12 +106,14 @@ if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
             server=resource_server,
             routes={
                 "POST /v1/rooms/:room_id/agent-join": {
-                    "scheme": "exact",
-                    "network": settings.X402_NETWORK,
-                    "asset": settings.X402_USDC_ASSET,
-                    "amount": settings.AGENT_JOIN_TOLL,
-                    "pay_to": settings.X402_PAYMENT_ADDRESS,
                     "description": "Join Juke audio space as listener",
+                    "accepts": {
+                        "scheme": "exact",
+                        "network": settings.X402_NETWORK,
+                        "asset": settings.X402_USDC_ASSET,
+                        "price": settings.AGENT_JOIN_TOLL,
+                        "pay_to": settings.X402_PAYMENT_ADDRESS,
+                    },
                 },
             },
         )
