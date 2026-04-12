@@ -8,10 +8,11 @@ Dependency pattern:
 """
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db, get_redis
+from app.schemas.agent import AgentJoinRequest, AgentJoinResponse
 from app.schemas.common import StatusResponse
 from app.schemas.participant import (
     BanRequest,
@@ -53,6 +54,127 @@ async def join_room(
 ) -> JoinResponse:
     """Join a room as a listener. Returns LiveKit token, WS URL, and current room state."""
     return await service.join_room(room_id=room_id, fid=fid)
+
+
+@router.post("/{room_id}/agent-join", response_model=AgentJoinResponse)
+async def agent_join_room(
+    room_id: str,
+    body: AgentJoinRequest,
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
+):
+    """Join a room as an agent. Requires x402 payment or a valid session token.
+
+    Agents are always identified as non-human in the participant list.
+    They join as listeners with data-publish rights (can send transcription, etc).
+    """
+    from app.models.room import Room
+    from app.models.user import User
+    from app.services.session_service import SessionService
+    from sqlalchemy import select as sa_select
+
+    # Pre-check: does this room allow agents? Do this BEFORE payment processing
+    # to avoid charging agents for rooms they can't enter.
+    import uuid as uuid_mod
+    try:
+        room_uuid = uuid_mod.UUID(room_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
+    result = await db.execute(sa_select(Room).where(Room.id == room_uuid))
+    room = result.scalar_one_or_none()
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
+    if room.status != "active":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Room is not active")
+    if not room.allow_agents:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This room does not allow agents")
+
+    # Check for existing session token (re-join)
+    session_token = request.headers.get("x-session-token")
+    if session_token:
+        session_svc = SessionService(redis)
+        session = await session_svc.verify_session(session_token, room_id=room_id)
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired session token",
+            )
+        # Re-join with existing session
+        livekit = LiveKitService()
+        try:
+            svc = RoomService(db=db, redis=RedisService(redis), livekit=livekit)
+            join_response = await svc.join_room(room_id=room_id, fid=session.agent_fid)
+            return AgentJoinResponse(
+                session_token=session_token,
+                livekit_token=join_response.livekit_token,
+                livekit_ws_url=join_response.livekit_ws_url,
+                role=join_response.role,
+                room=join_response.room.model_dump(),
+                participants=[p.model_dump() for p in join_response.participants],
+            )
+        finally:
+            await livekit.close()
+
+    # Check for x402 payment (set by middleware on request.state)
+    if not hasattr(request.state, "payment_data"):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Payment required. See GET /v1/agent/SKILL.md for instructions.",
+        )
+
+    # Extract payer address from payment data if available
+    payer_address = None
+    payment_data = request.state.payment_data
+    if hasattr(payment_data, "payer"):
+        payer_address = payment_data.payer
+
+    # Create agent session
+    session_svc = SessionService(redis)
+    token, session = await session_svc.create_session(
+        room_id=room_id,
+        agent_name=body.agent_name,
+        agent_pfp_url=body.agent_pfp_url,
+        payer_address=payer_address,
+    )
+
+    # Create temporary User record for the agent
+    from sqlalchemy import select
+    result = await db.execute(select(User).where(User.fid == session.agent_fid))
+    existing_user = result.scalar_one_or_none()
+
+    if not existing_user:
+        agent_user = User(
+            fid=session.agent_fid,
+            signer_uuid=f"agent:{session.agent_fid}",
+            username=f"agent-{session.agent_fid}",
+            display_name=body.agent_name,
+            pfp_url=body.agent_pfp_url,
+            is_agent=True,
+        )
+        db.add(agent_user)
+        await db.commit()
+
+    # Join the room
+    livekit = LiveKitService()
+    try:
+        svc = RoomService(db=db, redis=RedisService(redis), livekit=livekit)
+        join_response = await svc.join_room_as_agent(
+            room_id=room_id,
+            agent_fid=session.agent_fid,
+            agent_name=body.agent_name,
+            agent_pfp_url=body.agent_pfp_url,
+        )
+        return AgentJoinResponse(
+            session_token=token,
+            livekit_token=join_response.livekit_token,
+            livekit_ws_url=join_response.livekit_ws_url,
+            role=join_response.role,
+            room=join_response.room.model_dump(),
+            participants=[p.model_dump() for p in join_response.participants],
+        )
+    finally:
+        await livekit.close()
 
 
 @router.post("/{room_id}/leave", response_model=StatusResponse)

@@ -1,10 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import redis.asyncio as aioredis
 import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
@@ -28,6 +30,10 @@ if settings.ENVIRONMENT != "development":
         ],
         traces_sample_rate=0.1,
     )
+
+# Load SKILL.md once at startup
+_skill_md_path = Path(__file__).parent / "static" / "SKILL.md"
+_skill_md_content = _skill_md_path.read_text() if _skill_md_path.exists() else "# SKILL.md not found"
 
 
 @asynccontextmanager
@@ -70,13 +76,48 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ---------------------------------------------------------------------------
+# Middleware stack (order matters: last added = first to execute)
+# ---------------------------------------------------------------------------
+
+# CORS must be outermost
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
 )
+
+# x402 payment middleware — only active when X402_ENABLED=true and configured
+if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
+    try:
+        from x402.http.middleware.fastapi import PaymentMiddlewareASGI
+
+        app.add_middleware(
+            PaymentMiddlewareASGI,
+            facilitator_url=settings.X402_FACILITATOR_URL,
+            routes={
+                "POST /v1/rooms/{room_id}/agent-join": {
+                    "scheme": "exact",
+                    "network": settings.X402_NETWORK,
+                    "asset": settings.X402_USDC_ASSET,
+                    "amount": settings.AGENT_JOIN_TOLL,
+                    "pay_to": settings.X402_PAYMENT_ADDRESS,
+                    "description": "Join Juke audio space as listener",
+                },
+            },
+        )
+        logger.info("x402 payment middleware enabled (network=%s, toll=%s)",
+                     settings.X402_NETWORK, settings.AGENT_JOIN_TOLL)
+    except ImportError:
+        logger.warning("x402 package not installed — agent payment gate disabled. "
+                       "Install with: pip install 'x402[fastapi,httpx,evm]'")
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 
 @app.get("/health")
@@ -94,6 +135,15 @@ async def health(request: Request):
         health_data["redis"] = "disconnected"
         health_data["status"] = "degraded"
     return health_data
+
+
+@app.get("/v1/agent/SKILL.md", response_class=PlainTextResponse)
+async def get_agent_skill():
+    """Serve the agent skill document. Free, no auth required."""
+    return PlainTextResponse(
+        content=_skill_md_content,
+        media_type="text/markdown; charset=utf-8",
+    )
 
 
 app.include_router(admin.router)
