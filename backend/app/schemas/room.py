@@ -30,6 +30,7 @@ class RoomCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=256)
     announce_cast: bool = False
     scheduled_at: str | None = None  # ISO 8601 datetime string
+    allow_agents: bool = True
 
 
 class RoomResponse(BaseModel):
@@ -45,6 +46,7 @@ class RoomResponse(BaseModel):
     listener_count: int = 0
     recording: bool = False
     cast_hash: str | None = None
+    allow_agents: bool = True
     rsvp_summary: RsvpSummary | None = None
 
 

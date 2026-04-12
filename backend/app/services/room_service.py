@@ -106,6 +106,7 @@ class RoomService:
         title: str,
         announce_cast: bool = False,
         scheduled_at: datetime | None = None,
+        allow_agents: bool = True,
     ) -> RoomCreateResponse:
         """
         Create a new audio room (immediate or scheduled).
@@ -138,6 +139,7 @@ class RoomService:
             status="scheduled" if is_scheduled else "active",
             scheduled_at=scheduled_at,
             started_at=None if is_scheduled else _utcnow(),
+            allow_agents=allow_agents,
         )
         self.db.add(room)
         await self.db.flush()
@@ -736,6 +738,167 @@ class RoomService:
             livekit_token=token,
             livekit_ws_url=settings.LIVEKIT_WS_URL,
             role=role,
+            room=room_response,
+            participants=participants,
+        )
+
+    async def join_room_as_agent(
+        self,
+        room_id: str,
+        agent_fid: int,
+        agent_name: str,
+        agent_pfp_url: str | None = None,
+    ) -> JoinResponse:
+        """Join an active room as an agent listener.
+
+        Similar to join_room but:
+        - Agents always join as listeners
+        - LiveKit token includes is_agent=True metadata
+        - Agent listeners get can_publish_data=True (for sending transcription etc)
+        - Skips _get_user() since the temp User was already created by the router
+        - Checks allow_agents room flag
+        """
+        room = await self._get_room_or_404(room_id)
+
+        if room.status != "active":
+            raise HTTPException(status_code=400, detail="Room is not active")
+
+        if not room.allow_agents:
+            raise HTTPException(status_code=403, detail="This room does not allow agents")
+
+        # Ban check (agents can be banned by FID like any participant)
+        await self._assert_not_banned(room_id, agent_fid)
+
+        display_name = agent_name
+
+        # Idempotency: if already in Redis, return a fresh token
+        existing = await self.redis.get_participant(room_id, agent_fid)
+        if existing:
+            token = self.livekit.generate_token(
+                room_id=room_id,
+                fid=agent_fid,
+                display_name=existing.get("display_name", display_name),
+                role=existing["role"],
+                pfp_url=existing.get("pfp_url"),
+                is_agent=True,
+                can_publish_data_override=True,
+            )
+            participants_data = await self.redis.get_all_participants(room_id)
+            host = await self._get_user(room.host_fid)
+            speaker_count = sum(
+                1 for p in participants_data if p.get("role") in ("host", "co_host", "speaker")
+            )
+            listener_count = sum(1 for p in participants_data if p.get("role") == "listener")
+            room_response = await self._build_room_response(
+                room, host, speaker_count, listener_count
+            )
+            participants = [
+                ParticipantResponse(
+                    fid=p["fid"],
+                    role=p["role"],
+                    is_muted=p.get("is_muted", True),
+                    hand_raised=p.get("hand_raised", False),
+                    display_name=p.get("display_name", str(p["fid"])),
+                    pfp_url=p.get("pfp_url"),
+                )
+                for p in participants_data
+            ]
+            return JoinResponse(
+                livekit_token=token,
+                livekit_ws_url=settings.LIVEKIT_WS_URL,
+                role=existing["role"],
+                room=room_response,
+                participants=participants,
+            )
+
+        participant_data = {
+            "fid": agent_fid,
+            "role": "listener",
+            "is_muted": True,
+            "hand_raised": False,
+            "display_name": display_name,
+            "pfp_url": agent_pfp_url,
+            "is_agent": True,
+        }
+
+        # Persist participant in DB
+        result = await self.db.execute(
+            select(Participant).where(
+                Participant.room_id == room.id,
+                Participant.fid == agent_fid,
+            )
+        )
+        db_participant = result.scalar_one_or_none()
+
+        if db_participant is None:
+            db_participant = Participant(
+                room_id=room.id,
+                fid=agent_fid,
+                role="listener",
+                is_muted=True,
+            )
+            self.db.add(db_participant)
+        else:
+            db_participant.left_at = None
+            db_participant.role = "listener"
+            db_participant.is_muted = True
+            db_participant.hand_raised = False
+
+        await self.db.commit()
+
+        # Update Redis
+        await self.redis.set_participant(room_id, agent_fid, participant_data)
+        await self.redis.set_user_active_room(agent_fid, room_id)
+
+        # Generate LiveKit token with agent metadata + data publish rights
+        token = self.livekit.generate_token(
+            room_id=room_id,
+            fid=agent_fid,
+            display_name=display_name,
+            role="listener",
+            pfp_url=agent_pfp_url,
+            is_agent=True,
+            can_publish_data_override=True,
+        )
+
+        # Publish join event
+        await self.redis.publish_room_event(
+            room_id,
+            {
+                "event": "participant_joined",
+                "room_id": room_id,
+                "fid": agent_fid,
+                "role": "listener",
+                "display_name": display_name,
+                "is_agent": True,
+            },
+        )
+
+        participants_data = await self.redis.get_all_participants(room_id)
+        host = await self._get_user(room.host_fid)
+        speaker_count = sum(
+            1 for p in participants_data if p.get("role") in ("host", "co_host", "speaker")
+        )
+        listener_count = sum(1 for p in participants_data if p.get("role") == "listener")
+        room_response = await self._build_room_response(room, host, speaker_count, listener_count)
+
+        participants = [
+            ParticipantResponse(
+                fid=p["fid"],
+                role=p["role"],
+                is_muted=p.get("is_muted", True),
+                hand_raised=p.get("hand_raised", False),
+                display_name=p.get("display_name", str(p["fid"])),
+                pfp_url=p.get("pfp_url"),
+            )
+            for p in participants_data
+        ]
+
+        logger.info("agent fid=%s (%s) joined room %s", agent_fid, agent_name, room_id)
+        return JoinResponse(
+            livekit_token=token,
+            livekit_ws_url=settings.LIVEKIT_WS_URL,
+            role="listener",
             room=room_response,
             participants=participants,
         )
@@ -1374,6 +1537,7 @@ class RoomService:
             listener_count=listener_count,
             recording=room.recording,
             cast_hash=room.cast_hash,
+            allow_agents=room.allow_agents,
             rsvp_summary=rsvp_summary,
         )
 

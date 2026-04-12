@@ -38,13 +38,25 @@ class LiveKitService:
         display_name: str,
         role: str,
         pfp_url: str | None = None,
+        is_agent: bool = False,
+        can_publish_data_override: bool | None = None,
     ) -> str:
-        """Generate a LiveKit access token for a participant."""
-        can_publish = role in ("host", "co_host", "speaker")
+        """Generate a LiveKit access token for a participant.
 
-        metadata = {"fid": fid, "role": role}
+        Args:
+            is_agent: If True, sets is_agent in participant metadata.
+            can_publish_data_override: If set, overrides the default
+                can_publish_data grant (which normally matches can_publish).
+                Used for agents that need to send data messages as listeners.
+        """
+        can_publish = role in ("host", "co_host", "speaker")
+        can_publish_data = can_publish_data_override if can_publish_data_override is not None else can_publish
+
+        metadata: dict = {"fid": fid, "role": role}
         if pfp_url:
             metadata["pfp_url"] = pfp_url
+        if is_agent:
+            metadata["is_agent"] = True
 
         token = api.AccessToken(
             api_key=settings.LIVEKIT_API_KEY,
@@ -60,7 +72,7 @@ class LiveKitService:
             room=room_id,
             can_publish=can_publish,
             can_subscribe=True,
-            can_publish_data=can_publish,
+            can_publish_data=can_publish_data,
         )
         token.with_grants(grant)
         return token.to_jwt()

@@ -87,6 +87,7 @@ async def create_room(
         title=body.title,
         announce_cast=body.announce_cast,
         scheduled_at=scheduled_at,
+        allow_agents=body.allow_agents,
     )
 
 

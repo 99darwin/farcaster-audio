@@ -32,6 +32,9 @@ class Room(Base):
     cast_hash: Mapped[str | None] = mapped_column(String(66), index=True)
     neynar_webhook_id: Mapped[str | None] = mapped_column(String(64))
     neynar_webhook_secret: Mapped[str | None] = mapped_column(String(256))
+    allow_agents: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
