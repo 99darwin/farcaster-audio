@@ -196,6 +196,17 @@ export const adminKickParticipant = (roomId: string, fid: number) =>
 export const adminSetupWebhooks = () =>
   apiClient.post('/v1/admin/setup-webhooks').then((r) => r.data);
 
+// --- OG Metadata ---
+export interface OgMetadata {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+}
+
+export const fetchOgMetadata = (url: string) =>
+  apiClient.get<OgMetadata>('/v1/feed/og', { params: { url }, timeout: 10000 }).then((r) => r.data);
+
 // --- Media ---
 export async function uploadImage(uri: string): Promise<string> {
   const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';

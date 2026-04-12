@@ -21,6 +21,7 @@ import { uploadImage, uploadVideo } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Avatar } from '@/components/common/Avatar';
 import { MentionSuggestions } from '@/components/common/MentionSuggestions';
+import { useOgPreview, extractUrls } from '@/hooks/useOgPreview';
 import { colors } from '@/constants/theme';
 import type { NeynarCast } from '@/types/neynar';
 
@@ -49,6 +50,9 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
   const [attachments, setAttachments] = useState<Array<{ uri: string; type: 'image' | 'video' }>>([]);
   const [isPublishing, setIsPublishing] = useState(false);
   const keyboardPadding = useRef(new Animated.Value(0)).current;
+
+  // OG preview for URLs detected in the text
+  const { ogData, isLoading: ogLoading, dismissPreview } = useOgPreview(text);
 
   // Seed text from draft when modal opens with defaultText or embeds.
   useEffect(() => {
@@ -152,10 +156,14 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
         );
       }
 
+      // Extract URLs from text to send as embeds so Neynar unfurls OG metadata
+      const textUrls = extractUrls(text.trim());
+      const allEmbeds = [...(uploadedUrls ?? []), ...textUrls].slice(0, 4);
+
       const quote = quoteCast
         ? { fid: quoteCast.author.fid, hash: quoteCast.hash }
         : undefined;
-      await onPublish(text.trim(), replyTo?.hash, uploadedUrls, quote);
+      await onPublish(text.trim(), replyTo?.hash, allEmbeds.length > 0 ? allEmbeds : undefined, quote);
       setText('');
       setAttachments([]);
       onClose();
@@ -265,6 +273,33 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
                   </View>
                 ))}
               </ScrollView>
+            )}
+            {/* OG link preview */}
+            {ogLoading && (
+              <View style={styles.ogPreviewLoading}>
+                <ActivityIndicator size="small" color={colors.text.secondary} />
+              </View>
+            )}
+            {ogData && !ogLoading && (
+              <View style={styles.ogPreviewCard}>
+                <Pressable style={styles.ogDismiss} onPress={dismissPreview} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color={colors.text.secondary} />
+                </Pressable>
+                {ogData.image ? (
+                  <Image source={{ uri: ogData.image }} style={styles.ogPreviewImage} contentFit="cover" />
+                ) : null}
+                <View style={styles.ogPreviewText}>
+                  <Text style={styles.ogPreviewDomain} numberOfLines={1}>
+                    {(() => { try { return new URL(ogData.url).hostname.replace(/^www\./, ''); } catch { return ogData.url; } })()}
+                  </Text>
+                  {ogData.title ? (
+                    <Text style={styles.ogPreviewTitle} numberOfLines={2}>{ogData.title}</Text>
+                  ) : null}
+                  {ogData.description ? (
+                    <Text style={styles.ogPreviewDesc} numberOfLines={2}>{ogData.description}</Text>
+                  ) : null}
+                </View>
+              </View>
             )}
           </View>
         </View>
@@ -450,5 +485,48 @@ const styles = StyleSheet.create({
   },
   charCountOver: {
     color: colors.error,
+  },
+  // OG preview styles
+  ogPreviewLoading: {
+    marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  ogPreviewCard: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.background.border,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  ogDismiss: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 9,
+  },
+  ogPreviewImage: {
+    width: '100%',
+    aspectRatio: 1.91,
+  },
+  ogPreviewText: {
+    padding: 10,
+    gap: 2,
+  },
+  ogPreviewDomain: {
+    color: colors.text.secondary,
+    fontSize: 12,
+  },
+  ogPreviewTitle: {
+    color: colors.text.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  ogPreviewDesc: {
+    color: colors.text.secondary,
+    fontSize: 13,
+    lineHeight: 18,
   },
 });
