@@ -93,11 +93,17 @@ app.add_middleware(
 # x402 payment middleware — only active when X402_ENABLED=true and configured
 if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
     try:
+        from x402 import HTTPFacilitatorClient, x402ResourceServer
         from x402.http.middleware.fastapi import PaymentMiddlewareASGI
+        from x402.mechanisms.evm import ExactEvmServerScheme
+
+        facilitator = HTTPFacilitatorClient(base_url=settings.X402_FACILITATOR_URL)
+        resource_server = x402ResourceServer(facilitator)
+        resource_server.register("eip155:*", ExactEvmServerScheme())
 
         app.add_middleware(
             PaymentMiddlewareASGI,
-            facilitator_url=settings.X402_FACILITATOR_URL,
+            server=resource_server,
             routes={
                 "POST /v1/rooms/{room_id}/agent-join": {
                     "scheme": "exact",
