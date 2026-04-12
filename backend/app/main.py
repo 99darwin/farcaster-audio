@@ -105,7 +105,7 @@ if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
             PaymentMiddlewareASGI,
             server=resource_server,
             routes={
-                "POST /v1/rooms/{room_id}/agent-join": {
+                "POST /v1/rooms/:room_id/agent-join": {
                     "scheme": "exact",
                     "network": settings.X402_NETWORK,
                     "asset": settings.X402_USDC_ASSET,
