@@ -117,17 +117,18 @@ async def agent_join_room(
             await livekit.close()
 
     # Check for x402 payment (set by middleware on request.state)
-    if not hasattr(request.state, "payment_data"):
+    # The x402 middleware sets payment_payload and payment_requirements on verified payment.
+    if not hasattr(request.state, "payment_payload"):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Payment required. See GET /v1/agent/SKILL.md for instructions.",
         )
 
-    # Extract payer address from payment data if available
+    # Extract payer address from payment payload if available
     payer_address = None
-    payment_data = request.state.payment_data
-    if hasattr(payment_data, "payer"):
-        payer_address = payment_data.payer
+    payment_payload = request.state.payment_payload
+    if hasattr(payment_payload, "payer"):
+        payer_address = payment_payload.payer
 
     # Create agent session
     session_svc = SessionService(redis)
