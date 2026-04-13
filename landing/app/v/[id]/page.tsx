@@ -41,7 +41,7 @@ async function getVoiceNote(id: string): Promise<VoiceNoteDetail | null> {
   }
 }
 
-export function formatDuration(ms: number): string {
+function formatDuration(ms: number): string {
   const secs = Math.floor(ms / 1000);
   const mins = Math.floor(secs / 60);
   const remainSecs = secs % 60;
