@@ -11,7 +11,6 @@ class TrustScore(Base):
 
     fid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     neynar_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    quotient_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     warpcast_label: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     composite: Mapped[float] = mapped_column(Float, nullable=False)
     is_spam: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
