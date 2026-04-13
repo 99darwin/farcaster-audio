@@ -95,12 +95,13 @@ if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
     try:
         from x402 import x402ResourceServer
         from x402.http.facilitator_client import HTTPFacilitatorClient
+        from x402.http.facilitator_client_base import FacilitatorConfig
         from x402.http.middleware.fastapi import PaymentMiddlewareASGI
-        from x402.mechanisms.evm import ExactEvmServerScheme
+        from x402.mechanisms.evm.exact.server import ExactEvmScheme
 
-        facilitator = HTTPFacilitatorClient(base_url=settings.X402_FACILITATOR_URL)
+        facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=settings.X402_FACILITATOR_URL))
         resource_server = x402ResourceServer(facilitator)
-        resource_server.register("eip155:*", ExactEvmServerScheme())
+        resource_server.register("eip155:*", ExactEvmScheme())
 
         app.add_middleware(
             PaymentMiddlewareASGI,
