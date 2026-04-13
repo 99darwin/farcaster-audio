@@ -148,6 +148,7 @@ async def transcribe(voice_note_id: str) -> None:
                     "model": "nova-3",
                     "smart_format": "true",
                     "punctuate": "true",
+                    "detect_language": "true",
                 },
                 headers={
                     "Content-Type": "audio/mp4",
