@@ -18,7 +18,7 @@ class VoiceNoteCreateRequest(BaseModel):
         pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     )
     duration_ms: int = Field(..., gt=0, le=60000)
-    audio_size: int = Field(..., gt=0)
+    audio_size: int = Field(default=0, ge=0)
     post_to_farcaster: bool = True
     cast_text: str = Field(default="", max_length=1024)
 
