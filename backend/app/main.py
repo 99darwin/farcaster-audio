@@ -93,7 +93,8 @@ app.add_middleware(
 # x402 payment middleware — only active when X402_ENABLED=true and configured
 if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
     try:
-        from x402 import HTTPFacilitatorClient, x402ResourceServer
+        from x402 import x402ResourceServer
+        from x402.http.facilitator_client import HTTPFacilitatorClient
         from x402.http.middleware.fastapi import PaymentMiddlewareASGI
         from x402.mechanisms.evm import ExactEvmServerScheme
 
