@@ -16,18 +16,13 @@
       "bundleIdentifier": "xyz.juke.app",
       "associatedDomains": ["applinks:juke.audio"],
       "infoPlist": {
-        "UIBackgroundModes": [
-          "audio",
-          "remote-notification"
-        ],
-        "NSMicrophoneUsageDescription": "Required to speak in audio spaces",
+        "UIBackgroundModes": ["audio", "remote-notification"],
+        "NSMicrophoneUsageDescription": "Required to speak in audio spaces and record voice notes",
         "NSCameraUsageDescription": "Not used in this app",
         "NSPhotoLibraryUsageDescription": "Attach photos to your casts",
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": [
-              "juke"
-            ]
+            "CFBundleURLSchemes": ["juke"]
           }
         ],
         "ITSAppUsesNonExemptEncryption": false
@@ -60,7 +55,8 @@
             "./assets/fonts/DSEG7Classic-Bold.ttf"
           ]
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

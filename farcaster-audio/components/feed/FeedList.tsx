@@ -1,11 +1,20 @@
-import { useEffect, useRef, useCallback, forwardRef } from 'react';
-import { Animated, FlatList, RefreshControl, View, Text, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-import { CastCard } from '@/components/feed/CastCard';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { ErrorView } from '@/components/common/ErrorView';
-import { colors } from '@/constants/theme';
-import type { NeynarCast } from '@/types/neynar';
+import { useEffect, useRef, useCallback, forwardRef } from "react";
+import {
+  Animated,
+  FlatList,
+  RefreshControl,
+  View,
+  Text,
+  StyleSheet,
+} from "react-native";
+import { useRouter } from "expo-router";
+import { CastCard } from "@/components/feed/CastCard";
+import { VoiceNoteFeedItem } from "@/components/voice-notes/VoiceNoteFeedItem";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import { ErrorView } from "@/components/common/ErrorView";
+import { colors } from "@/constants/theme";
+import type { NeynarCast } from "@/types/neynar";
+import type { FeedItem } from "@/types/voiceNote";
 
 function SkeletonCard() {
   const opacity = useRef(new Animated.Value(0.3)).current;
@@ -43,7 +52,7 @@ function SkeletonCard() {
 
 const skeletonStyles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
+    flexDirection: "row",
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.background.border,
@@ -66,13 +75,13 @@ const skeletonStyles = StyleSheet.create({
     backgroundColor: colors.background.subtle,
   },
   textLine: {
-    width: '100%',
+    width: "100%",
     height: 12,
     borderRadius: 4,
     backgroundColor: colors.background.subtle,
   },
   textLineShort: {
-    width: '60%',
+    width: "60%",
     height: 12,
     borderRadius: 4,
     backgroundColor: colors.background.subtle,
@@ -80,7 +89,7 @@ const skeletonStyles = StyleSheet.create({
 });
 
 interface FeedListProps {
-  casts: NeynarCast[];
+  items: FeedItem[];
   myFid: number;
   isLoading: boolean;
   isRefreshing: boolean;
@@ -91,6 +100,8 @@ interface FeedListProps {
   onRecast: (hash: string, isRecasted: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
+  onVoiceNoteLike?: (id: string, isLiked: boolean) => void;
+  onVoiceNoteRecast?: (id: string, isRecasted: boolean) => void;
   ListHeaderComponent?: React.ReactElement | null;
   error?: string | null;
   onRetry?: () => void;
@@ -98,7 +109,7 @@ interface FeedListProps {
 
 export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
   {
-    casts,
+    items,
     myFid,
     isLoading,
     isRefreshing,
@@ -109,6 +120,8 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     onRecast,
     onQuoteCast,
     onReply,
+    onVoiceNoteLike,
+    onVoiceNoteRecast,
     ListHeaderComponent,
     error,
     onRetry,
@@ -120,7 +133,48 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     (hash: string) => router.push(`/cast/${hash}`),
     [router],
   );
-  if (isLoading && casts.length === 0) {
+
+  const noopLike = useCallback((_id: string, _isLiked: boolean) => {}, []);
+  const noopRecast = useCallback((_id: string, _isRecasted: boolean) => {}, []);
+  const stableVoiceNoteLike = onVoiceNoteLike ?? noopLike;
+  const stableVoiceNoteRecast = onVoiceNoteRecast ?? noopRecast;
+
+  const renderItem = useCallback(
+    ({ item }: { item: FeedItem }) => {
+      if (item.type === "voice_note") {
+        return (
+          <VoiceNoteFeedItem
+            item={item.data}
+            onLike={stableVoiceNoteLike}
+            onRecast={stableVoiceNoteRecast}
+          />
+        );
+      }
+      return (
+        <CastCard
+          cast={item.data}
+          myFid={myFid}
+          onLike={onLike}
+          onRecast={onRecast}
+          onQuoteCast={onQuoteCast}
+          onReply={onReply}
+          onPress={() => handleCastPress(item.data.hash)}
+        />
+      );
+    },
+    [
+      myFid,
+      onLike,
+      onRecast,
+      onQuoteCast,
+      onReply,
+      stableVoiceNoteLike,
+      stableVoiceNoteRecast,
+      handleCastPress,
+    ],
+  );
+
+  if (isLoading && items.length === 0) {
     return (
       <View accessibilityLabel="Loading feed">
         {Array.from({ length: 5 }).map((_, i) => (
@@ -130,7 +184,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     );
   }
 
-  if (error && casts.length === 0) {
+  if (error && items.length === 0) {
     return <ErrorView message={error} onRetry={onRetry} fullScreen />;
   }
 
@@ -138,20 +192,12 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     <FlatList
       ref={ref}
       accessibilityRole="list"
-      data={casts}
-      keyExtractor={(item) => item.hash}
+      data={items}
+      keyExtractor={(item) =>
+        item.type === "cast" ? item.data.hash : `vn-${item.data.voice_note.id}`
+      }
       keyboardDismissMode="on-drag"
-      renderItem={({ item }) => (
-        <CastCard
-          cast={item}
-          myFid={myFid}
-          onLike={onLike}
-          onRecast={onRecast}
-          onQuoteCast={onQuoteCast}
-          onReply={onReply}
-          onPress={() => handleCastPress(item.hash)}
-        />
-      )}
+      renderItem={renderItem}
       refreshControl={
         <RefreshControl
           refreshing={isRefreshing}
@@ -163,7 +209,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
       onEndReachedThreshold={0.5}
       ListHeaderComponent={ListHeaderComponent}
       ListFooterComponent={
-        hasMore && casts.length > 0 ? (
+        hasMore && items.length > 0 ? (
           <View style={styles.footer}>
             <LoadingSpinner size="small" />
           </View>
@@ -172,12 +218,16 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
       ListEmptyComponent={
         !isLoading ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>No casts yet</Text>
-            <Text style={styles.emptySubtext}>Follow people to see their casts here</Text>
+            <Text style={styles.emptyText}>Nothing here yet</Text>
+            <Text style={styles.emptySubtext}>
+              Follow people to see their posts here
+            </Text>
           </View>
         ) : null
       }
-      contentContainerStyle={casts.length === 0 ? styles.emptyContainer : undefined}
+      contentContainerStyle={
+        items.length === 0 ? styles.emptyContainer : undefined
+      }
     />
   );
 });
@@ -185,17 +235,17 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
 const styles = StyleSheet.create({
   footer: {
     padding: 20,
-    alignItems: 'center',
+    alignItems: "center",
   },
   empty: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingTop: 60,
   },
   emptyText: {
     color: colors.text.primary,
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 8,
   },
   emptySubtext: {

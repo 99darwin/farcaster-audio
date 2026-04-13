@@ -9,6 +9,7 @@ dist/
 *.orig.*
 web-build/
 ios/
+!modules/*/ios/
 android/
 .env
 .env.*
