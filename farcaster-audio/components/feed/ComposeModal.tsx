@@ -55,8 +55,15 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
   const { ogData, isLoading: ogLoading, dismissPreview } = useOgPreview(text);
 
   // Seed text from draft when modal opens with defaultText or embeds.
+  // Only apply once per open — clear deps after seeding to prevent stale re-renders.
+  const seededRef = useRef(false);
   useEffect(() => {
-    if (!isVisible) return;
+    if (!isVisible) {
+      seededRef.current = false;
+      return;
+    }
+    if (seededRef.current) return;
+    seededRef.current = true;
     const parts: string[] = [];
     if (defaultText) parts.push(defaultText);
     if (defaultEmbeds?.length) parts.push(...defaultEmbeds);
@@ -290,7 +297,7 @@ export function ComposeModal({ isVisible, onClose, onPublish, replyTo, quoteCast
                 ) : null}
                 <View style={styles.ogPreviewText}>
                   <Text style={styles.ogPreviewDomain} numberOfLines={1}>
-                    {(() => { try { return new URL(ogData.url).hostname.replace(/^www\./, ''); } catch { return ogData.url; } })()}
+                    {ogData.url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]}
                   </Text>
                   {ogData.title ? (
                     <Text style={styles.ogPreviewTitle} numberOfLines={2}>{ogData.title}</Text>
