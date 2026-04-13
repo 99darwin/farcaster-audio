@@ -121,9 +121,8 @@ if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
         )
         logger.info("x402 payment middleware enabled (network=%s, toll=%s)",
                      settings.X402_NETWORK, settings.AGENT_JOIN_TOLL)
-    except ImportError:
-        logger.warning("x402 package not installed — agent payment gate disabled. "
-                       "Install with: pip install 'x402[fastapi,httpx,evm]'")
+    except ImportError as e:
+        logger.warning("x402 import failed: %s — agent payment gate disabled.", e, exc_info=True)
     except Exception as e:
         logger.error("x402 middleware setup failed: %s", e, exc_info=True)
 else:
