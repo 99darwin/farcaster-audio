@@ -13,10 +13,10 @@ class StorageService:
     def __init__(self) -> None:
         self._client = boto3.client(
             "s3",
-            endpoint_url=settings.S3_ENDPOINT_URL,
-            aws_access_key_id=settings.S3_ACCESS_KEY,
-            aws_secret_access_key=settings.S3_SECRET_KEY,
-            region_name=settings.S3_REGION,
+            endpoint_url=settings.AWS_ENDPOINT_URL,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_DEFAULT_REGION,
         )
 
     def generate_presigned_upload_url(
@@ -26,7 +26,7 @@ class StorageService:
         return self._client.generate_presigned_url(
             "put_object",
             Params={
-                "Bucket": settings.S3_BUCKET,
+                "Bucket": settings.AWS_S3_BUCKET_NAME,
                 "Key": key,
                 "ContentType": content_type,
             },
@@ -35,7 +35,7 @@ class StorageService:
 
     def get_object_size(self, key: str) -> int:
         """Return the size in bytes of an S3 object via HEAD request."""
-        resp = self._client.head_object(Bucket=settings.S3_BUCKET, Key=key)
+        resp = self._client.head_object(Bucket=settings.AWS_S3_BUCKET_NAME, Key=key)
         return resp["ContentLength"]
 
     def generate_presigned_get_url(
@@ -45,7 +45,7 @@ class StorageService:
         return self._client.generate_presigned_url(
             "get_object",
             Params={
-                "Bucket": settings.S3_BUCKET,
+                "Bucket": settings.AWS_S3_BUCKET_NAME,
                 "Key": key,
             },
             ExpiresIn=expires_in,
@@ -53,8 +53,8 @@ class StorageService:
 
     def delete_object(self, key: str) -> None:
         """Delete an object from the bucket."""
-        self._client.delete_object(Bucket=settings.S3_BUCKET, Key=key)
+        self._client.delete_object(Bucket=settings.AWS_S3_BUCKET_NAME, Key=key)
 
     def download_file(self, key: str, local_path: str) -> None:
         """Download an object to a local file path."""
-        self._client.download_file(settings.S3_BUCKET, key, local_path)
+        self._client.download_file(settings.AWS_S3_BUCKET_NAME, key, local_path)
