@@ -72,7 +72,12 @@ public class JukeVoiceRecorder: Module {
 
             recorder.stop()
 
-            let durationMs = Int(recorder.currentTime * 1000)
+            let durationMs: Int
+            if let startTime = self.recordingStartTime {
+                durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+            } else {
+                durationMs = 0
+            }
             let rawURL = recorder.url
             self.recorder = nil
 
