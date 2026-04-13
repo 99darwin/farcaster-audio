@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     FARCASTER_APP_MNEMONIC: str = ""
     FARCASTER_APP_FID: int = 0
 
+    # Spam filtering
+    SPAM_FILTER_ENABLED: bool = True
+    QUOTIENT_API_KEY: str = ""
+    QUOTIENT_API_URL: str = ""
+
     # x402 agent payment settings
     X402_ENABLED: bool = False
     X402_PAYMENT_ADDRESS: str = ""  # payTo address for receiving USDC

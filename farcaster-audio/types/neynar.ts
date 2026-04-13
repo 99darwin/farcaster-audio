@@ -30,6 +30,7 @@ export interface NeynarCastAuthor {
   display_name: string;
   pfp_url: string | null;
   pro?: NeynarProStatus;
+  is_spam?: boolean;
 }
 
 export interface NeynarReactions {
