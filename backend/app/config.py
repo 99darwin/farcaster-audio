@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # x402 agent payment settings
     X402_ENABLED: bool = False
     X402_PAYMENT_ADDRESS: str = ""  # payTo address for receiving USDC
-    X402_FACILITATOR_URL: str = "https://api.cdp.coinbase.com/platform/v2/x402"
+    X402_FACILITATOR_URL: str = "https://facilitator.corbits.dev"
     X402_NETWORK: str = "eip155:8453"  # Base mainnet (CAIP-2)
     X402_USDC_ASSET: str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC on Base
     AGENT_JOIN_TOLL: str = "1000"  # Amount in atomic units (1000 = 0.001 USDC)
