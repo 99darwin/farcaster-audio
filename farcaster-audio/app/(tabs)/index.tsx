@@ -46,6 +46,7 @@ export default function HomeScreen() {
   // Listen for compose requests from the tab bar or snap compose intents
   const composeSignal = useComposeStore((s) => s.composeSignal);
   const composeDraft = useComposeStore((s) => s.draft);
+  const clearDraft = useComposeStore((s) => s.clearDraft);
   const composeSignalRef = useRef(composeSignal);
   useEffect(() => {
     if (composeSignal > composeSignalRef.current) {
@@ -72,7 +73,8 @@ export default function HomeScreen() {
     setIsComposeVisible(false);
     setReplyTarget(null);
     setQuoteCastTarget(null);
-  }, []);
+    clearDraft();
+  }, [clearDraft]);
 
   return (
     <View style={styles.container}>

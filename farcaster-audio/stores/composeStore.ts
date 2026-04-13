@@ -11,6 +11,7 @@ interface ComposeStore {
   /** Optional pre-filled content for the next compose open */
   draft: ComposeDraft | null;
   requestCompose: (draft?: ComposeDraft) => void;
+  clearDraft: () => void;
 }
 
 export const useComposeStore = create<ComposeStore>((set) => ({
@@ -21,4 +22,5 @@ export const useComposeStore = create<ComposeStore>((set) => ({
       composeSignal: s.composeSignal + 1,
       draft: draft ?? null,
     })),
+  clearDraft: () => set({ draft: null }),
 }));

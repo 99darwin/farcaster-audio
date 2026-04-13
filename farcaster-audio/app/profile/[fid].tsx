@@ -28,6 +28,7 @@ export default function ProfileScreen() {
   // Listen for compose intents from snap buttons
   const composeSignal = useComposeStore((s) => s.composeSignal);
   const composeDraft = useComposeStore((s) => s.draft);
+  const clearDraft = useComposeStore((s) => s.clearDraft);
   const composeSignalRef = useRef(composeSignal);
   useEffect(() => {
     if (composeSignal > composeSignalRef.current) {
@@ -176,6 +177,7 @@ export default function ProfileScreen() {
         onClose={() => {
           setComposeVisible(false);
           setQuoteCastTarget(null);
+          clearDraft();
         }}
         onPublish={handlePublish}
         quoteCast={quoteCastTarget}
