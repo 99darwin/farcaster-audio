@@ -124,6 +124,11 @@ if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
     except ImportError:
         logger.warning("x402 package not installed — agent payment gate disabled. "
                        "Install with: pip install 'x402[fastapi,httpx,evm]'")
+    except Exception as e:
+        logger.error("x402 middleware setup failed: %s", e, exc_info=True)
+else:
+    logger.warning("x402 middleware NOT enabled (X402_ENABLED=%s, X402_PAYMENT_ADDRESS=%s)",
+                   settings.X402_ENABLED, bool(settings.X402_PAYMENT_ADDRESS))
 
 # ---------------------------------------------------------------------------
 # Routes
