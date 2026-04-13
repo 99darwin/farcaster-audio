@@ -247,21 +247,6 @@ export function CastCard({
   hideThreadLine,
 }: CastCardProps) {
   const router = useRouter();
-  const [slopRevealed, setSlopRevealed] = useState(false);
-  const isSpam = cast.author.is_spam === true;
-
-  // If spam and not revealed, show collapsed slop banner
-  if (isSpam && !slopRevealed) {
-    return (
-      <Pressable
-        style={[styles.container, styles.slopBanner, threaded && styles.threadedContainer]}
-        onPress={() => setSlopRevealed(true)}
-      >
-        <Text style={styles.slopText}>See probable slop</Text>
-      </Pressable>
-    );
-  }
-
   const isLiked = cast.viewer_context?.liked ?? cast.reactions.likes.some((l) => l.fid === myFid);
   const isRecasted = cast.viewer_context?.recasted ?? cast.reactions.recasts.some((r) => r.fid === myFid);
   const truncatedText = cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text;
@@ -310,7 +295,7 @@ export function CastCard({
 
   const card = (
     <View
-      style={[styles.container, threaded && styles.threadedContainer, isSpam && styles.slopMuted]}
+      style={[styles.container, threaded && styles.threadedContainer]}
       accessibilityRole="summary"
       accessibilityLabel={`${cast.author.display_name}: ${truncatedText}`}
     >
@@ -461,19 +446,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.border,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  // Spam / slop styles
-  slopBanner: {
-    paddingVertical: 12,
-    justifyContent: 'center',
-  },
-  slopText: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    fontStyle: 'italic',
-  },
-  slopMuted: {
-    opacity: 0.5,
   },
   // Threaded reply styles
   threadedContainer: {

@@ -174,14 +174,10 @@ function ReplyNode({
   );
 }
 
-/**
- * Groups consecutive spam replies into a collapsible banner.
- * Non-spam replies render individually as ReplyNodes.
- */
-function SpamGroup({
+export function ThreadedReplies({
   replies,
-  depth,
-  maxDepth,
+  depth = 0,
+  maxDepth = DEFAULT_MAX_DEPTH,
   myFid,
   onLike,
   onRecast,
@@ -189,38 +185,26 @@ function SpamGroup({
   onReply,
   onCastPress,
   focusHash,
-}: {
-  replies: NeynarCastWithReplies[];
-  depth: number;
-  maxDepth: number;
-  myFid: number;
-  onLike: (hash: string, isLiked: boolean) => void;
-  onRecast: (hash: string, isRecasted: boolean) => void;
-  onQuoteCast: (cast: NeynarCast) => void;
-  onReply: (cast: NeynarCast) => void;
-  onCastPress: (hash: string) => void;
-  focusHash?: string;
-}) {
-  const [revealed, setRevealed] = useState(false);
-  const extraIndent = depth > 0 ? Math.min(depth * INDENT_PX, MAX_EXTRA_INDENT_PX) : 0;
-  const paddingStyle = useMemo(() => ({ paddingLeft: extraIndent + 68 }), [extraIndent]);
+}: ThreadedRepliesProps) {
+  const [slopRevealed, setSlopRevealed] = useState(false);
 
-  if (!revealed) {
-    return (
-      <Pressable
-        style={[styles.spamGroupBanner, paddingStyle]}
-        onPress={() => setRevealed(true)}
-      >
-        <Text style={styles.spamGroupText}>
-          {replies.length} probable slop {replies.length === 1 ? 'reply' : 'replies'}
-        </Text>
-      </Pressable>
-    );
-  }
+  // Separate spam from non-spam replies
+  const { clean, spam } = useMemo(() => {
+    const clean: NeynarCastWithReplies[] = [];
+    const spam: NeynarCastWithReplies[] = [];
+    for (const reply of replies) {
+      if (reply.author?.is_spam === true) {
+        spam.push(reply);
+      } else {
+        clean.push(reply);
+      }
+    }
+    return { clean, spam };
+  }, [replies]);
 
   return (
     <View>
-      {replies.map((reply) => (
+      {clean.map((reply) => (
         <ReplyNode
           key={reply.hash}
           reply={reply}
@@ -235,73 +219,38 @@ function SpamGroup({
           focusHash={focusHash}
         />
       ))}
-    </View>
-  );
-}
 
-export function ThreadedReplies({
-  replies,
-  depth = 0,
-  maxDepth = DEFAULT_MAX_DEPTH,
-  myFid,
-  onLike,
-  onRecast,
-  onQuoteCast,
-  onReply,
-  onCastPress,
-  focusHash,
-}: ThreadedRepliesProps) {
-  // Group consecutive spam replies into batches
-  const groups = useMemo(() => {
-    const result: Array<{ isSpam: boolean; items: NeynarCastWithReplies[] }> = [];
-    for (const reply of replies) {
-      const spam = reply.author?.is_spam === true;
-      const last = result[result.length - 1];
-      if (last && last.isSpam === spam) {
-        last.items.push(reply);
-      } else {
-        result.push({ isSpam: spam, items: [reply] });
-      }
-    }
-    return result;
-  }, [replies]);
+      {spam.length > 0 && !slopRevealed && (
+        <Pressable
+          style={styles.slopBanner}
+          onPress={() => setSlopRevealed(true)}
+        >
+          <Text style={styles.slopText}>
+            See {spam.length} probable slop {spam.length === 1 ? 'reply' : 'replies'}
+          </Text>
+        </Pressable>
+      )}
 
-  return (
-    <View>
-      {groups.map((group) => {
-        if (group.isSpam) {
-          return (
-            <SpamGroup
-              key={`spam-${group.items[0].hash}`}
-              replies={group.items}
-              depth={depth}
-              maxDepth={maxDepth}
-              myFid={myFid}
-              onLike={onLike}
-              onRecast={onRecast}
-              onQuoteCast={onQuoteCast}
-              onReply={onReply}
-              onCastPress={onCastPress}
-              focusHash={focusHash}
-            />
-          );
-        }
-        return group.items.map((reply) => (
-          <ReplyNode
-            key={reply.hash}
-            reply={reply}
-            depth={depth}
-            maxDepth={maxDepth}
-            myFid={myFid}
-            onLike={onLike}
-            onRecast={onRecast}
-            onQuoteCast={onQuoteCast}
-            onReply={onReply}
-            onCastPress={onCastPress}
-            focusHash={focusHash}
-          />
-        ));
-      })}
+      {spam.length > 0 && slopRevealed && (
+        <View style={styles.slopSection}>
+          {spam.map((reply) => (
+            <View key={reply.hash} style={styles.slopMuted}>
+              <ReplyNode
+                reply={reply}
+                depth={depth}
+                maxDepth={maxDepth}
+                myFid={myFid}
+                onLike={onLike}
+                onRecast={onRecast}
+                onQuoteCast={onQuoteCast}
+                onReply={onReply}
+                onCastPress={onCastPress}
+                focusHash={focusHash}
+              />
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -321,13 +270,22 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: colors.purple,
   },
-  spamGroupBanner: {
+  slopBanner: {
     paddingVertical: 12,
+    paddingLeft: 68,
     minHeight: 44,
   },
-  spamGroupText: {
+  slopText: {
     color: colors.text.secondary,
     fontSize: 14,
     fontStyle: 'italic',
+  },
+  slopSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.background.border,
+    marginTop: 4,
+  },
+  slopMuted: {
+    opacity: 0.5,
   },
 });
