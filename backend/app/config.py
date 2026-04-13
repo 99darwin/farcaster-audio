@@ -27,11 +27,11 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     CORS_ORIGINS: list[str] = []
     LOG_LEVEL: str = "INFO"
-    S3_BUCKET: str = ""
-    S3_REGION: str = "us-east-1"
-    S3_ACCESS_KEY: str = ""
-    S3_SECRET_KEY: str = ""
-    S3_ENDPOINT_URL: str = "https://your-s3-endpoint.example.com"
+    AWS_S3_BUCKET_NAME: str = ""
+    AWS_DEFAULT_REGION: str = "us-east-1"
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_ENDPOINT_URL: str = "https://your-s3-endpoint.example.com"
     DEEPGRAM_API_KEY: str = ""
     RECORDING_ENABLED: bool = False
     SENTRY_DSN: str = ""
