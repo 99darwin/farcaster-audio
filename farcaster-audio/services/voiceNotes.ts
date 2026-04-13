@@ -41,7 +41,7 @@ export async function createVoiceNote(params: {
   post_to_farcaster: boolean;
   cast_text: string;
 }): Promise<{ voice_note: VoiceNote }> {
-  const { data } = await apiClient.post("/v1/voice-notes", params);
+  const { data } = await apiClient.post("/v1/voice-notes/", params);
   return data;
 }
 
