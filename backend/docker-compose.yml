@@ -15,14 +15,5 @@ services:
     ports:
       - "6379:6379"
 
-  worker:
-    build: .
-    command: arq app.workers.voice_note_worker.WorkerSettings
-    depends_on:
-      - postgres
-      - redis
-    env_file:
-      - .env
-
 volumes:
   pgdata:

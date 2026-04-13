@@ -2,6 +2,7 @@
 Voice Notes router — upload, create, feed, playback tracking, reactions.
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -202,18 +203,10 @@ async def create_voice_note(
     # Clean up Redis upload token
     await redis.delete(upload_key)
 
-    # Enqueue background jobs (waveform + transcription) via arq
-    try:
-        from arq.connections import ArqRedis, RedisSettings, create_pool
+    # Fire-and-forget background processing (waveform + transcription)
+    from app.workers.voice_note_worker import process_voice_note
 
-        pool: ArqRedis = await create_pool(
-            RedisSettings.from_dsn(settings.REDIS_URL)
-        )
-        await pool.enqueue_job("generate_waveform", str(vn.id))
-        await pool.enqueue_job("transcribe", str(vn.id))
-        await pool.close()
-    except Exception:
-        logger.warning("[voice_notes] Failed to enqueue background jobs for %s", vn.id, exc_info=True)
+    asyncio.create_task(process_voice_note(str(vn.id)))
 
     # Optionally post to Farcaster
     if body.post_to_farcaster:

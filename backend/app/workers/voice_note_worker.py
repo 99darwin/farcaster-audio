@@ -1,7 +1,7 @@
 """
-arq worker for voice note background jobs: waveform generation and transcription.
+Background tasks for voice note processing: waveform generation and transcription.
 
-Run with: arq app.workers.voice_note_worker.WorkerSettings
+Called via asyncio.create_task() from the API router — no separate worker process needed.
 """
 
 import logging
@@ -9,7 +9,6 @@ import tempfile
 import uuid
 
 import httpx
-from arq.connections import RedisSettings
 
 from app.config import settings
 
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 MAX_WORKER_FILE_SIZE_BYTES = 10_485_760  # 10 MB
 
 
-async def generate_waveform(ctx: dict, voice_note_id: str) -> None:
+async def generate_waveform(voice_note_id: str) -> None:
     """Download audio from S3, extract 200 peaks via pydub, update DB."""
     from pydub import AudioSegment
 
@@ -93,7 +92,7 @@ async def generate_waveform(ctx: dict, voice_note_id: str) -> None:
     logger.info("[worker] Waveform generated for %s (%d peaks)", voice_note_id, len(peaks))
 
 
-async def transcribe(ctx: dict, voice_note_id: str) -> None:
+async def transcribe(voice_note_id: str) -> None:
     """Download audio from S3, POST to Deepgram Nova-3, update DB."""
     from app.database import async_session
     from app.models.voice_note import VoiceNote
@@ -211,7 +210,14 @@ async def transcribe(ctx: dict, voice_note_id: str) -> None:
     logger.info("[worker] Transcription complete for %s (%d chars)", voice_note_id, len(transcript))
 
 
-class WorkerSettings:
-    functions = [generate_waveform, transcribe]
-    redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-    max_jobs = 10
+async def process_voice_note(voice_note_id: str) -> None:
+    """Run waveform generation and transcription for a voice note."""
+    try:
+        await generate_waveform(voice_note_id)
+    except Exception:
+        logger.error("[worker] Waveform generation failed for %s", voice_note_id, exc_info=True)
+
+    try:
+        await transcribe(voice_note_id)
+    except Exception:
+        logger.error("[worker] Transcription failed for %s", voice_note_id, exc_info=True)
