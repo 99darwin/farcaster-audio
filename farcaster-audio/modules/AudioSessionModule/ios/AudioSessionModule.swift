@@ -13,7 +13,7 @@ public class AudioSessionModule: Module {
                     .playAndRecord,
                     mode: .voiceChat,
                     options: [
-                        .allowBluetooth,
+                        .allowBluetoothHFP,
                         .allowBluetoothA2DP,
                         .defaultToSpeaker
                     ]

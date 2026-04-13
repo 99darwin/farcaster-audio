@@ -1,13 +1,14 @@
-import { View, Text, Pressable, ActionSheetIOS, Share, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { colors, touchTarget } from '@/constants/theme';
-
-function formatCount(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
-  if (n < 1000000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1000000).toFixed(1)}M`;
-}
+import {
+  View,
+  Text,
+  Pressable,
+  ActionSheetIOS,
+  Share,
+  StyleSheet,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { colors, touchTarget } from "@/constants/theme";
+import { formatCount } from "@/utils/format";
 
 interface CastActionsProps {
   likesCount: number;
@@ -43,7 +44,11 @@ export function CastActions({
   const handleRecastPress = () => {
     ActionSheetIOS.showActionSheetWithOptions(
       {
-        options: ['Cancel', isRecasted ? 'Undo Recast' : 'Recast', 'Quote Cast'],
+        options: [
+          "Cancel",
+          isRecasted ? "Undo Recast" : "Recast",
+          "Quote Cast",
+        ],
         cancelButtonIndex: 0,
       },
       (buttonIndex) => {
@@ -67,7 +72,11 @@ export function CastActions({
         accessibilityLabel={`Reply, ${formatCount(repliesCount)}`}
         accessibilityRole="button"
       >
-        <Ionicons name="chatbubble-outline" size={16} color={colors.text.secondary} />
+        <Ionicons
+          name="chatbubble-outline"
+          size={16}
+          color={colors.text.secondary}
+        />
         <Text style={styles.count}>{formatCount(repliesCount)}</Text>
       </Pressable>
 
@@ -82,7 +91,9 @@ export function CastActions({
           size={18}
           color={isRecasted ? colors.success : colors.text.secondary}
         />
-        <Text style={[styles.count, isRecasted && styles.recastActive]}>{formatCount(recastsCount)}</Text>
+        <Text style={[styles.count, isRecasted && styles.recastActive]}>
+          {formatCount(recastsCount)}
+        </Text>
       </Pressable>
 
       <Pressable
@@ -92,11 +103,13 @@ export function CastActions({
         accessibilityRole="button"
       >
         <Ionicons
-          name={isLiked ? 'heart' : 'heart-outline'}
+          name={isLiked ? "heart" : "heart-outline"}
           size={18}
           color={isLiked ? colors.error : colors.text.secondary}
         />
-        <Text style={[styles.count, isLiked && styles.activeCount]}>{formatCount(likesCount)}</Text>
+        <Text style={[styles.count, isLiked && styles.activeCount]}>
+          {formatCount(likesCount)}
+        </Text>
       </Pressable>
 
       {authorUsername && castHash && (
@@ -106,7 +119,11 @@ export function CastActions({
           accessibilityLabel="Share"
           accessibilityRole="button"
         >
-          <Ionicons name="share-outline" size={16} color={colors.text.secondary} />
+          <Ionicons
+            name="share-outline"
+            size={16}
+            color={colors.text.secondary}
+          />
         </Pressable>
       )}
     </View>
@@ -115,14 +132,14 @@ export function CastActions({
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 24,
     paddingTop: 8,
   },
   action: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 4,
     minWidth: touchTarget.min,
     minHeight: touchTarget.min,

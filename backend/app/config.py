@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     S3_REGION: str = "us-east-1"
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""
+    S3_ENDPOINT_URL: str = "https://your-s3-endpoint.example.com"
+    DEEPGRAM_API_KEY: str = ""
     RECORDING_ENABLED: bool = False
     SENTRY_DSN: str = ""
     DEMO_LOGIN_ENABLED: bool = False

@@ -8,6 +8,7 @@ from app.models.room_rsvp import RoomRsvp
 from app.models.snap_signer import SnapSigner
 from app.models.auth_address import AuthAddress
 from app.models.trust_score import TrustScore
+from app.models.voice_note import VoiceNote, VoiceNotePlay, VoiceNoteReaction
 
 __all__ = [
     "User",
@@ -20,4 +21,7 @@ __all__ = [
     "SnapSigner",
     "AuthAddress",
     "TrustScore",
+    "VoiceNote",
+    "VoiceNotePlay",
+    "VoiceNoteReaction",
 ]

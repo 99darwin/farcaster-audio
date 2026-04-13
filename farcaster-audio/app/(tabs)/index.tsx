@@ -1,23 +1,23 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { View, FlatList, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useScrollToTop } from '@react-navigation/native';
-import { useAuthStore } from '@/stores/authStore';
-import { useComposeStore } from '@/stores/composeStore';
-import { useFeed } from '@/hooks/useFeed';
-import { useLiveSpaces } from '@/hooks/useLiveSpaces';
-import { SpacesRail } from '@/components/spaces/SpacesRail';
-import { FeedList } from '@/components/feed/FeedList';
-import { ComposeModal } from '@/components/feed/ComposeModal';
-import { colors } from '@/constants/theme';
-import type { NeynarCast } from '@/types/neynar';
+import { useEffect, useState, useCallback, useRef } from "react";
+import { View, FlatList, StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
+import { useScrollToTop } from "@react-navigation/native";
+import { useAuthStore } from "@/stores/authStore";
+import { useComposeStore } from "@/stores/composeStore";
+import { useFeed } from "@/hooks/useFeed";
+import { useLiveSpaces } from "@/hooks/useLiveSpaces";
+import { SpacesRail } from "@/components/spaces/SpacesRail";
+import { FeedList } from "@/components/feed/FeedList";
+import { ComposeModal } from "@/components/feed/ComposeModal";
+import { colors } from "@/constants/theme";
+import type { NeynarCast } from "@/types/neynar";
 
 export default function HomeScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
 
   const {
-    casts,
+    feedItems,
     isLoading,
     isRefreshing,
     hasMore,
@@ -27,6 +27,8 @@ export default function HomeScreen() {
     refresh,
     handleLike,
     handleRecast,
+    handleVoiceNoteLike,
+    handleVoiceNoteRecast,
     handlePublishCast,
   } = useFeed();
 
@@ -39,9 +41,12 @@ export default function HomeScreen() {
     fetch();
   }, [fetch]);
 
+  // Compose modal state
   const [isComposeVisible, setIsComposeVisible] = useState(false);
   const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+    null,
+  );
 
   // Listen for compose requests from the tab bar or snap compose intents
   const composeSignal = useComposeStore((s) => s.composeSignal);
@@ -80,7 +85,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <FeedList
         ref={feedRef}
-        casts={casts}
+        items={feedItems}
         myFid={user?.fid ?? 0}
         isLoading={isLoading}
         isRefreshing={isRefreshing}
@@ -91,6 +96,8 @@ export default function HomeScreen() {
         onRecast={handleRecast}
         onQuoteCast={openQuoteCast}
         onReply={openReply}
+        onVoiceNoteLike={handleVoiceNoteLike}
+        onVoiceNoteRecast={handleVoiceNoteRecast}
         ListHeaderComponent={<SpacesRail />}
         error={error}
         onRetry={fetch}
