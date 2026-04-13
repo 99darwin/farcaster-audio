@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 SPAM_THRESHOLD = 0.40
 CACHE_TTL_SECONDS = 3600  # 1 hour
-WARPCAST_LABELS_URL = "https://raw.githubusercontent.com/merkle-team/labels/main/labels.jsonl"
+WARPCAST_LABELS_URL = "https://github.com/warpcast/labels/raw/main/spam.jsonl"
 
 # Warpcast label constants
 LABEL_SPAM = 0
@@ -157,8 +157,8 @@ class SpamService:
         """
         logger.info("[spam] Syncing Warpcast labels from GitHub...")
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(WARPCAST_LABELS_URL, timeout=60.0)
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await client.get(WARPCAST_LABELS_URL, timeout=120.0)
                 resp.raise_for_status()
         except httpx.HTTPError as e:
             logger.error("[spam] Failed to fetch Warpcast labels: %s", e)
@@ -182,11 +182,12 @@ class SpamService:
             except json.JSONDecodeError:
                 continue
 
-            fid = _validate_fid(entry.get("fid"))
+            # JSONL format: {"type": {"target": "user", "fid": 123}, "label_value": 0, ...}
+            fid = _validate_fid(entry.get("type", {}).get("fid"))
             if fid is None:
                 continue
 
-            label = entry.get("label")
+            label = entry.get("label_value")
             if label not in KNOWN_LABELS:
                 continue
 
