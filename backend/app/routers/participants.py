@@ -118,6 +118,11 @@ async def agent_join_room(
 
     # Check for x402 payment (set by middleware on request.state)
     # The x402 middleware sets payment_payload and payment_requirements on verified payment.
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    _state_attrs = {k: type(getattr(request.state, k)).__name__ for k in vars(request.state)}
+    _log.info("agent-join request.state: %s", _state_attrs)
+
     if not hasattr(request.state, "payment_payload"):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
