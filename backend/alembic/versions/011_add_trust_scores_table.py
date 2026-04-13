@@ -1,7 +1,7 @@
 """Add trust_scores table for spam filtering
 
-Stores per-FID trust signals (Neynar score, Quotient score, Warpcast label)
-and a composite score used to flag spam accounts.
+Stores per-FID trust signals (Neynar score, Warpcast label) and a composite
+score used to flag spam accounts.
 
 Revision ID: 011
 Revises: 010
@@ -22,7 +22,6 @@ def upgrade() -> None:
         "trust_scores",
         sa.Column("fid", sa.BigInteger(), primary_key=True),
         sa.Column("neynar_score", sa.Float(), nullable=True),
-        sa.Column("quotient_score", sa.Float(), nullable=True),
         sa.Column("warpcast_label", sa.SmallInteger(), nullable=True),
         sa.Column("composite", sa.Float(), nullable=False),
         sa.Column("is_spam", sa.Boolean(), nullable=False, server_default="false"),

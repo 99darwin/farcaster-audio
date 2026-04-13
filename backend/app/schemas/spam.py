@@ -6,7 +6,6 @@ from pydantic import BaseModel
 class TrustScoreResponse(BaseModel):
     fid: int
     neynar_score: float | None = None
-    quotient_score: float | None = None
     warpcast_label: int | None = None
     composite: float
     is_spam: bool

@@ -49,8 +49,6 @@ class Settings(BaseSettings):
 
     # Spam filtering
     SPAM_FILTER_ENABLED: bool = True
-    QUOTIENT_API_KEY: str = ""
-    QUOTIENT_API_URL: str = ""
 
     # x402 agent payment settings
     X402_ENABLED: bool = False

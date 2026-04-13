@@ -1,9 +1,8 @@
 """
 Spam filtering service — multi-signal trust scoring for Farcaster users.
 
-Combines Neynar user scores, Warpcast labels, and Quotient reputation scores
-into a single composite trust score per FID. Results are cached in Redis and
-backed by the trust_scores Postgres table.
+Combines Neynar user scores and Warpcast labels into a composite trust score
+per FID. Results are cached in Redis and backed by the trust_scores Postgres table.
 """
 
 import json
@@ -192,7 +191,7 @@ class SpamService:
                 continue
 
             composite, is_spam = self._compute_composite(
-                neynar=None, quotient=None, warpcast_label=label
+                neynar=None, warpcast_label=label
             )
 
             stmt = pg_insert(TrustScore).values(
@@ -232,81 +231,6 @@ class SpamService:
         logger.info("[spam] Synced %d Warpcast labels", count)
         return count
 
-    async def refresh_quotient_scores(self, fids: list[int]) -> int:
-        """Batch-fetch Quotient reputation scores and upsert results."""
-        if not settings.QUOTIENT_API_KEY or not settings.QUOTIENT_API_URL:
-            logger.debug("[spam] Quotient API not configured, skipping refresh")
-            return 0
-
-        # Validate Quotient URL is HTTPS in production
-        if settings.ENVIRONMENT != "development" and not settings.QUOTIENT_API_URL.startswith("https://"):
-            logger.error("[spam] QUOTIENT_API_URL must be HTTPS in production")
-            return 0
-
-        count = 0
-        # Process in batches of 1000
-        for i in range(0, len(fids), 1000):
-            batch = fids[i : i + 1000]
-            try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.post(
-                        f"{settings.QUOTIENT_API_URL}/v1/user-reputation",
-                        json={"fids": batch},
-                        headers={"Authorization": f"Bearer {settings.QUOTIENT_API_KEY}"},
-                        timeout=30.0,
-                    )
-                    resp.raise_for_status()
-            except httpx.HTTPError as e:
-                logger.error("[spam] Quotient batch request failed: %s", e)
-                continue
-
-            results = resp.json()
-            for entry in results.get("scores", []):
-                fid = _validate_fid(entry.get("fid"))
-                if fid is None:
-                    continue
-
-                score = _clamp_score(entry.get("score"))
-                if score is None:
-                    continue
-
-                # Use COALESCE in the upsert to read existing values atomically,
-                # avoiding TOCTOU races with concurrent updates.
-                stmt = pg_insert(TrustScore).values(
-                    fid=fid,
-                    quotient_score=score,
-                    composite=0.0,  # placeholder, overwritten below
-                    is_spam=False,  # placeholder, overwritten below
-                    updated_at=datetime.now(timezone.utc),
-                ).on_conflict_do_update(
-                    index_elements=["fid"],
-                    set_={
-                        "quotient_score": score,
-                        "updated_at": datetime.now(timezone.utc),
-                    },
-                )
-                await self._db.execute(stmt)
-
-                # Recompute composite from the now-current row
-                row = (await self._db.execute(
-                    select(TrustScore).where(TrustScore.fid == fid).with_for_update()
-                )).scalar_one()
-                composite, is_spam = self._compute_composite(
-                    row.neynar_score, row.quotient_score, row.warpcast_label
-                )
-                row.composite = composite
-                row.is_spam = is_spam
-                count += 1
-
-                try:
-                    await self._redis.delete(f"trust:{fid}")
-                except Exception:
-                    logger.warning("[spam] Redis cache invalidation failed for fid=%d", fid)
-
-        await self._db.commit()
-        logger.info("[spam] Refreshed %d Quotient scores", count)
-        return count
-
     async def upsert_neynar_score(self, fid: int, score: float) -> None:
         """Opportunistically upsert a Neynar score from API response data."""
         if not settings.SPAM_FILTER_ENABLED:
@@ -337,7 +261,7 @@ class SpamService:
             select(TrustScore).where(TrustScore.fid == fid).with_for_update()
         )).scalar_one()
         composite, is_spam = self._compute_composite(
-            row.neynar_score, row.quotient_score, row.warpcast_label
+            row.neynar_score, row.warpcast_label
         )
         row.composite = composite
         row.is_spam = is_spam
@@ -375,7 +299,7 @@ class SpamService:
             is_spam = row.is_spam
         elif neynar_score is not None:
             # No DB row yet — compute from the neynar score alone
-            _, is_spam = self._compute_composite(neynar_score, None, None)
+            _, is_spam = self._compute_composite(neynar_score, None)
         else:
             # No data at all — assume not spam
             is_spam = False
@@ -395,7 +319,6 @@ class SpamService:
     @staticmethod
     def _compute_composite(
         neynar: float | None,
-        quotient: float | None,
         warpcast_label: int | None,
     ) -> tuple[float, bool]:
         """Compute composite trust score and spam flag.
@@ -403,6 +326,7 @@ class SpamService:
         Hard block: Warpcast label 0 (spam) or 3 (nerfed) → always spam.
 
         Composite: weighted average of available signals.
+          - neynar 65% + warpcast 35%
         """
         # Hard blocks
         if warpcast_label in (LABEL_SPAM, LABEL_NERFED):
@@ -416,21 +340,12 @@ class SpamService:
         else:
             warpcast_bonus = 0.0
 
-        # Clamp scores defensively
+        # Clamp score defensively
         if neynar is not None:
             neynar = max(0.0, min(1.0, neynar))
-        if quotient is not None:
-            quotient = max(0.0, min(1.0, quotient))
 
-        if neynar is not None and quotient is not None:
-            # Full composite: neynar 40% + quotient 40% + warpcast 20%
-            composite = (neynar * 0.4) + (quotient * 0.4) + (warpcast_bonus * 0.2)
-        elif neynar is not None:
-            # Quotient unavailable: neynar 65% + warpcast 35%
+        if neynar is not None:
             composite = (neynar * 0.65) + (warpcast_bonus * 0.35)
-        elif quotient is not None:
-            # Neynar unavailable: quotient 65% + warpcast 35%
-            composite = (quotient * 0.65) + (warpcast_bonus * 0.35)
         else:
             # No scores — use warpcast bonus alone
             composite = warpcast_bonus
