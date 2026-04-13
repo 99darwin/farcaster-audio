@@ -1,5 +1,5 @@
 """
-Notifications router — proxies Neynar notifications API with quality filtering.
+Notifications router — proxies Neynar notifications API with spam filtering.
 """
 
 import json
@@ -10,14 +10,14 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.config import settings
-from app.dependencies import get_current_user, get_redis
+from app.dependencies import get_current_user, get_redis, get_spam_service
+from app.services.spam_service import SpamService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/notifications", tags=["notifications"])
 
 NEYNAR_BASE = "https://api.neynar.com/v2"
-MIN_USER_SCORE = 0.5
 CACHE_TTL_SECONDS = 10
 
 
@@ -28,18 +28,15 @@ def _neynar_headers() -> dict[str, str]:
     }
 
 
-def _user_score(user: dict) -> float:
-    return user.get("experimental", {}).get("neynar_user_score", 1.0)
-
-
 @router.get("")
 async def get_notifications(
     limit: int = Query(default=25, ge=1, le=50),
     cursor: str | None = Query(default=None, max_length=500, pattern=r"^[a-zA-Z0-9_\-=.%]+$"),
     current_user: int = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
+    spam_service: SpamService = Depends(get_spam_service),
 ):
-    """Proxy Neynar notifications endpoint with quality filtering."""
+    """Proxy Neynar notifications endpoint with spam filtering."""
     cache_key = f"notif:{current_user}:{limit}:{cursor or 'none'}"
 
     # Try cache first; fall through on any Redis error.
@@ -74,16 +71,19 @@ async def get_notifications(
 
     data = resp.json()
 
-    # Filter out low-quality actors from notifications
+    # Filter out spam actors from notifications
     notifications = data.get("notifications", [])
     filtered = []
     for n in notifications:
         ntype = n.get("type")
         if ntype in ("likes", "recasts"):
-            # Strip low-score reactors; drop notification if none remain
+            # Strip spam reactors; drop notification if none remain
             good = [
                 r for r in n.get("reactions", [])
-                if _user_score(r.get("user", {})) > MIN_USER_SCORE
+                if not await spam_service.is_spam(
+                    r.get("user", {}).get("fid", 0),
+                    r.get("user", {}).get("experimental", {}).get("neynar_user_score"),
+                )
             ]
             if not good:
                 continue
@@ -91,14 +91,19 @@ async def get_notifications(
         elif ntype == "follows":
             good = [
                 f for f in n.get("follows", [])
-                if _user_score(f.get("user", {})) > MIN_USER_SCORE
+                if not await spam_service.is_spam(
+                    f.get("user", {}).get("fid", 0),
+                    f.get("user", {}).get("experimental", {}).get("neynar_user_score"),
+                )
             ]
             if not good:
                 continue
             n = {**n, "follows": good, "count": len(good)}
         elif ntype in ("reply", "mention"):
             author = n.get("cast", {}).get("author", {})
-            if _user_score(author) <= MIN_USER_SCORE:
+            fid = author.get("fid", 0)
+            neynar_score = author.get("experimental", {}).get("neynar_user_score")
+            if await spam_service.is_spam(fid, neynar_score):
                 continue
         filtered.append(n)
 

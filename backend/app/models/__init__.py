@@ -7,6 +7,7 @@ from app.models.notification_preference import NotificationPreference
 from app.models.room_rsvp import RoomRsvp
 from app.models.snap_signer import SnapSigner
 from app.models.auth_address import AuthAddress
+from app.models.trust_score import TrustScore
 
 __all__ = [
     "User",
@@ -18,4 +19,5 @@ __all__ = [
     "RoomRsvp",
     "SnapSigner",
     "AuthAddress",
+    "TrustScore",
 ]

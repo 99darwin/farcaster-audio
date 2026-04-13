@@ -65,6 +65,25 @@ async def lifespan(app: FastAPI):
 
     # Startup: init redis pool
     app.state.redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+
+    # Sync Warpcast labels at startup (fire-and-forget)
+    if settings.SPAM_FILTER_ENABLED:
+        import asyncio
+
+        from app.database import async_session as _session_factory
+        from app.services.spam_service import SpamService
+
+        async def _sync_labels():
+            try:
+                async with _session_factory() as db:
+                    svc = SpamService(db, app.state.redis)
+                    count = await svc.sync_warpcast_labels()
+                    logger.info("[spam] Startup label sync complete: %d labels", count)
+            except Exception as e:
+                logger.error("[spam] Startup label sync failed: %s", e, exc_info=True)
+
+        asyncio.create_task(_sync_labels())
+
     yield
     # Shutdown: close redis
     await app.state.redis.close()

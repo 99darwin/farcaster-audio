@@ -174,10 +174,14 @@ function ReplyNode({
   );
 }
 
-export function ThreadedReplies({
+/**
+ * Groups consecutive spam replies into a collapsible banner.
+ * Non-spam replies render individually as ReplyNodes.
+ */
+function SpamGroup({
   replies,
-  depth = 0,
-  maxDepth = DEFAULT_MAX_DEPTH,
+  depth,
+  maxDepth,
   myFid,
   onLike,
   onRecast,
@@ -185,7 +189,35 @@ export function ThreadedReplies({
   onReply,
   onCastPress,
   focusHash,
-}: ThreadedRepliesProps) {
+}: {
+  replies: NeynarCastWithReplies[];
+  depth: number;
+  maxDepth: number;
+  myFid: number;
+  onLike: (hash: string, isLiked: boolean) => void;
+  onRecast: (hash: string, isRecasted: boolean) => void;
+  onQuoteCast: (cast: NeynarCast) => void;
+  onReply: (cast: NeynarCast) => void;
+  onCastPress: (hash: string) => void;
+  focusHash?: string;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const extraIndent = depth > 0 ? Math.min(depth * INDENT_PX, MAX_EXTRA_INDENT_PX) : 0;
+  const paddingStyle = useMemo(() => ({ paddingLeft: extraIndent + 68 }), [extraIndent]);
+
+  if (!revealed) {
+    return (
+      <Pressable
+        style={[styles.spamGroupBanner, paddingStyle]}
+        onPress={() => setRevealed(true)}
+      >
+        <Text style={styles.spamGroupText}>
+          {replies.length} probable slop {replies.length === 1 ? 'reply' : 'replies'}
+        </Text>
+      </Pressable>
+    );
+  }
+
   return (
     <View>
       {replies.map((reply) => (
@@ -207,6 +239,73 @@ export function ThreadedReplies({
   );
 }
 
+export function ThreadedReplies({
+  replies,
+  depth = 0,
+  maxDepth = DEFAULT_MAX_DEPTH,
+  myFid,
+  onLike,
+  onRecast,
+  onQuoteCast,
+  onReply,
+  onCastPress,
+  focusHash,
+}: ThreadedRepliesProps) {
+  // Group consecutive spam replies into batches
+  const groups = useMemo(() => {
+    const result: Array<{ isSpam: boolean; items: NeynarCastWithReplies[] }> = [];
+    for (const reply of replies) {
+      const spam = reply.author?.is_spam === true;
+      const last = result[result.length - 1];
+      if (last && last.isSpam === spam) {
+        last.items.push(reply);
+      } else {
+        result.push({ isSpam: spam, items: [reply] });
+      }
+    }
+    return result;
+  }, [replies]);
+
+  return (
+    <View>
+      {groups.map((group) => {
+        if (group.isSpam) {
+          return (
+            <SpamGroup
+              key={`spam-${group.items[0].hash}`}
+              replies={group.items}
+              depth={depth}
+              maxDepth={maxDepth}
+              myFid={myFid}
+              onLike={onLike}
+              onRecast={onRecast}
+              onQuoteCast={onQuoteCast}
+              onReply={onReply}
+              onCastPress={onCastPress}
+              focusHash={focusHash}
+            />
+          );
+        }
+        return group.items.map((reply) => (
+          <ReplyNode
+            key={reply.hash}
+            reply={reply}
+            depth={depth}
+            maxDepth={maxDepth}
+            myFid={myFid}
+            onLike={onLike}
+            onRecast={onRecast}
+            onQuoteCast={onQuoteCast}
+            onReply={onReply}
+            onCastPress={onCastPress}
+            focusHash={focusHash}
+          />
+        ));
+      })}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   unfurlButton: {
     paddingVertical: 15,
@@ -221,5 +320,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.purple + '14',
     borderLeftWidth: 2,
     borderLeftColor: colors.purple,
+  },
+  spamGroupBanner: {
+    paddingVertical: 12,
+    minHeight: 44,
+  },
+  spamGroupText: {
+    color: colors.text.secondary,
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 });

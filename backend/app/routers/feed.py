@@ -20,8 +20,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_current_user, get_db
+from app.dependencies import get_current_user, get_db, get_spam_service
 from app.models.user import User
+from app.services.spam_service import SpamService
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ async def feed_following(
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=500, pattern=r"^[a-zA-Z0-9_\-=.%]+$"),
     current_user: int = Depends(get_current_user),
+    spam_service: SpamService = Depends(get_spam_service),
 ):
     """Proxy Neynar feed/following endpoint."""
     params: dict[str, str | int] = {"fid": current_user, "limit": limit, "viewer_fid": current_user}
@@ -99,7 +101,9 @@ async def feed_following(
     if resp.status_code != 200:
         _raise_upstream_error(resp)
 
-    return resp.json()
+    data = resp.json()
+    await spam_service.annotate_casts(data.get("casts", []))
+    return data
 
 
 @router.post("/cast")
@@ -146,6 +150,7 @@ async def get_cast_thread(
     hash: str = Query(..., pattern=r"^0x[a-fA-F0-9]+$"),
     reply_depth: int = Query(default=2, ge=1, le=5),
     current_user: int = Depends(get_current_user),
+    spam_service: SpamService = Depends(get_spam_service),
 ):
     """Proxy Neynar cast conversation endpoint to fetch a thread."""
     params: dict[str, str | int] = {
@@ -166,7 +171,9 @@ async def get_cast_thread(
     if resp.status_code != 200:
         _raise_upstream_error(resp)
 
-    return resp.json()
+    data = resp.json()
+    await spam_service.annotate_thread(data)
+    return data
 
 
 @router.delete("/cast/{cast_hash}")

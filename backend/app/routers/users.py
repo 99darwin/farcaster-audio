@@ -8,8 +8,9 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from app.config import settings
-from app.dependencies import get_current_user, get_db
+from app.dependencies import get_current_user, get_db, get_spam_service
 from app.routers.feed import _neynar_headers, _raise_upstream_error, _get_signer_uuid
+from app.services.spam_service import SpamService
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ async def search_users(
     q: str = Query(..., min_length=1, max_length=64),
     limit: int = Query(default=5, ge=1, le=10),
     _current_user: int = Depends(get_current_user),
+    spam_service: SpamService = Depends(get_spam_service),
 ):
     """Search for users by username prefix via Neynar."""
     async with httpx.AsyncClient() as client:
@@ -39,17 +41,22 @@ async def search_users(
 
     data = resp.json()
     users = data.get("result", {}).get("users", [])
-    return {
-        "users": [
-            {
-                "fid": u.get("fid"),
-                "username": u.get("username"),
-                "display_name": u.get("display_name"),
-                "pfp_url": u.get("pfp_url"),
-            }
-            for u in users
-        ]
-    }
+    # Pass neynar_user_score through so annotate_users can use it for fresh FIDs
+    user_list = [
+        {
+            "fid": u.get("fid"),
+            "username": u.get("username"),
+            "display_name": u.get("display_name"),
+            "pfp_url": u.get("pfp_url"),
+            "experimental": u.get("experimental"),
+        }
+        for u in users
+    ]
+    await spam_service.annotate_users(user_list)
+    # Strip internal experimental data before returning to client
+    for u in user_list:
+        u.pop("experimental", None)
+    return {"users": user_list}
 
 
 @router.get("/by-username/{username}")
