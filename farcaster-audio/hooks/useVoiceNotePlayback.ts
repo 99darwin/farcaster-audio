@@ -39,15 +39,20 @@ export function useVoiceNotePlayback(
     if (!isActive) playTrackedRef.current = false;
   }, [isActive]);
 
-  // Configure audio session for playback and auto-play once loaded
-  const pendingPlayRef = useRef(false);
+  // Configure audio session when a voice note becomes active
+  // and play once loaded (user already tapped play to activate)
+  const wantsPlayRef = useRef(false);
   useEffect(() => {
-    if (isActive && !isLoaded) {
-      pendingPlayRef.current = true;
+    if (isActive) {
       AudioSession.configureForPlayback().catch(() => {});
+    } else {
+      wantsPlayRef.current = false;
     }
-    if (isActive && isLoaded && pendingPlayRef.current) {
-      pendingPlayRef.current = false;
+  }, [isActive]);
+
+  useEffect(() => {
+    if (isActive && isLoaded && wantsPlayRef.current) {
+      wantsPlayRef.current = false;
       player.play();
     }
   }, [isActive, isLoaded, player]);
@@ -69,9 +74,9 @@ export function useVoiceNotePlayback(
 
   const togglePlay = useCallback(() => {
     if (!isActive) {
-      // Become the active voice note and start playing
+      // Become the active voice note; play will start once loaded
+      wantsPlayRef.current = true;
       setActive(voiceNoteId, audioUrl, durationMs);
-      // Player will load on next render; play is triggered after load
       return;
     }
     if (isPlaying) {
@@ -97,6 +102,7 @@ export function useVoiceNotePlayback(
 
   const play = useCallback(() => {
     if (!isActive) {
+      wantsPlayRef.current = true;
       setActive(voiceNoteId, audioUrl, durationMs);
       return;
     }
