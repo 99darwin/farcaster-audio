@@ -53,8 +53,11 @@ export async function generateMetadata({
         button: {
           title: "\u25B6 Play Voice Note",
           action: {
-            type: "launch_miniapp",
+            type: "launch_frame",
+            name: "Juke Audio",
             url: `https://juke.audio/miniapp/v/${id}`,
+            splashImageUrl: "https://juke.audio/app-icon.png",
+            splashBackgroundColor: "#6a3cff",
           },
         },
       }),
