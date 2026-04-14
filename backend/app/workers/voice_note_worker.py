@@ -129,25 +129,35 @@ async def transcribe(voice_note_id: str) -> None:
         logger.error("[worker] Failed to HEAD %s from S3", object_key, exc_info=True)
         return
 
-    # Download to temp file and read bytes
-    tmp_path = None
+    # Download to temp file, convert M4A → WAV for Deepgram compatibility
+    import os
+    from pydub import AudioSegment
+
+    m4a_path = None
+    wav_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tmp:
-            tmp_path = tmp.name
-        storage.download_file(object_key, tmp_path)
-        with open(tmp_path, "rb") as f:
+            m4a_path = tmp.name
+        storage.download_file(object_key, m4a_path)
+
+        # Convert to WAV — Deepgram has known issues with some M4A containers
+        wav_path = m4a_path.replace(".m4a", ".wav")
+        audio = AudioSegment.from_file(m4a_path)
+        audio.export(wav_path, format="wav")
+
+        with open(wav_path, "rb") as f:
             audio_bytes = f.read()
-        logger.info("[worker] Downloaded %s (%d bytes) for transcription", object_key, len(audio_bytes))
+        logger.info("[worker] Converted %s to WAV (%d bytes) for transcription", object_key, len(audio_bytes))
     except Exception:
-        logger.error("[worker] Failed to download %s from S3", object_key, exc_info=True)
+        logger.error("[worker] Failed to download/convert %s from S3", object_key, exc_info=True)
         return
     finally:
-        if tmp_path:
-            import os
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+        for p in (m4a_path, wav_path):
+            if p:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
 
     # Call Deepgram
     try:
@@ -161,7 +171,7 @@ async def transcribe(voice_note_id: str) -> None:
                     "detect_language": "true",
                 },
                 headers={
-                    "Content-Type": "audio/m4a",
+                    "Content-Type": "audio/wav",
                     "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
                 },
                 content=audio_bytes,

@@ -27,6 +27,8 @@ export function useVoiceNotePlayback(
   const isPlaying = isActive && status.playing;
   const isLoaded = isActive && status.isLoaded;
 
+  const isFinished = isActive && !status.playing && positionMs >= durationMs - 200;
+
   const togglePlay = useCallback(() => {
     if (!isActive) {
       // Become the active voice note and start playing
@@ -37,11 +39,16 @@ export function useVoiceNotePlayback(
     if (isPlaying) {
       player.pause();
     } else {
+      // If finished, seek to start before replaying
+      if (isFinished) {
+        player.seekTo(0);
+      }
       player.play();
     }
   }, [
     isActive,
     isPlaying,
+    isFinished,
     player,
     voiceNoteId,
     audioUrl,
@@ -75,7 +82,7 @@ export function useVoiceNotePlayback(
     const nextSpeed = SPEEDS[(currentIdx + 1) % SPEEDS.length];
     setSpeed(nextSpeed);
     if (isActive) {
-      player.playbackRate = nextSpeed;
+      player.setPlaybackRate(nextSpeed);
     }
   }, [speed, isActive, player]);
 
