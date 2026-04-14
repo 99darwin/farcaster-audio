@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Waveform,
+  downsamplePeaks,
+  BAR_COUNT,
+} from "@/components/waveform";
 
 interface WebPlayerProps {
   audioUrl: string;
@@ -15,38 +20,19 @@ function formatTime(ms: number): string {
   return `${mins}:${remainSecs.toString().padStart(2, "0")}`;
 }
 
-/** Downsample peaks to a target bar count for display. */
-function downsamplePeaks(peaks: number[], targetCount: number): number[] {
-  if (peaks.length <= targetCount) return peaks;
-  const result: number[] = [];
-  const bucketSize = peaks.length / targetCount;
-  for (let i = 0; i < targetCount; i++) {
-    const start = Math.floor(i * bucketSize);
-    const end = Math.floor((i + 1) * bucketSize);
-    let max = 0;
-    for (let j = start; j < end; j++) {
-      if (peaks[j] > max) max = peaks[j];
-    }
-    result.push(max);
-  }
-  return result;
-}
-
-const BAR_COUNT = 60;
-const BAR_GAP = 2;
-const BAR_MIN_HEIGHT = 2;
-const WAVEFORM_HEIGHT = 64;
-
-export function WebPlayer({ audioUrl, durationMs, waveformPeaks }: WebPlayerProps) {
+export function WebPlayer({
+  audioUrl,
+  durationMs,
+  waveformPeaks,
+}: WebPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const waveformRef = useRef<SVGSVGElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const rafRef = useRef<number>(0);
 
   const peaks = waveformPeaks
-    ? downsamplePeaks(waveformPeaks, BAR_COUNT)
+    ? waveformPeaks
     : Array.from({ length: BAR_COUNT }, () => Math.random() * 0.6 + 0.1);
 
   const progress = durationMs > 0 ? currentTimeMs / durationMs : 0;
@@ -81,15 +67,10 @@ export function WebPlayer({ audioUrl, durationMs, waveformPeaks }: WebPlayerProp
     }
   }, [updateTime]);
 
-  const handleWaveformClick = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
+  const handleSeek = useCallback(
+    (fraction: number) => {
       const audio = audioRef.current;
-      const svg = waveformRef.current;
-      if (!audio || !svg) return;
-
-      const rect = svg.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const fraction = Math.max(0, Math.min(1, clickX / rect.width));
+      if (!audio) return;
       audio.currentTime = (fraction * durationMs) / 1000;
       setCurrentTimeMs(fraction * durationMs);
     },
@@ -105,8 +86,6 @@ export function WebPlayer({ audioUrl, durationMs, waveformPeaks }: WebPlayerProp
   const handleLoadedMetadata = useCallback(() => {
     setIsLoaded(true);
   }, []);
-
-  const barWidth = `calc((100% - ${(BAR_COUNT - 1) * BAR_GAP}px) / ${BAR_COUNT})`;
 
   return (
     <div>
@@ -159,42 +138,7 @@ export function WebPlayer({ audioUrl, durationMs, waveformPeaks }: WebPlayerProp
 
         {/* Waveform visualization */}
         <div className="flex-1">
-          <svg
-            ref={waveformRef}
-            viewBox={`0 0 ${BAR_COUNT * (4 + BAR_GAP)} ${WAVEFORM_HEIGHT}`}
-            preserveAspectRatio="none"
-            className="h-16 w-full cursor-pointer"
-            onClick={handleWaveformClick}
-            role="slider"
-            aria-label="Audio progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(progress * 100)}
-          >
-            {peaks.map((peak, i) => {
-              const barHeight = Math.max(
-                BAR_MIN_HEIGHT,
-                peak * (WAVEFORM_HEIGHT - 4),
-              );
-              const x = i * (4 + BAR_GAP);
-              const y = (WAVEFORM_HEIGHT - barHeight) / 2;
-              const barProgress = i / peaks.length;
-              const isPlayed = barProgress < progress;
-
-              return (
-                <rect
-                  key={i}
-                  x={x}
-                  y={y}
-                  width={4}
-                  height={barHeight}
-                  rx={1.5}
-                  fill={isPlayed ? "#D85A30" : "#2a2a4a"}
-                  className="transition-[fill] duration-75"
-                />
-              );
-            })}
-          </svg>
+          <Waveform peaks={peaks} progress={progress} onSeek={handleSeek} />
         </div>
       </div>
 

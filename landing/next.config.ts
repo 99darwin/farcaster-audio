@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
           { key: "Content-Type", value: "application/json" },
         ],
       },
+      {
+        source: "/.well-known/farcaster.json",
+        headers: [
+          { key: "Content-Type", value: "application/json" },
+        ],
+      },
     ];
   },
 };

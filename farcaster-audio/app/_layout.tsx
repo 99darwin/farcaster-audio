@@ -1,38 +1,41 @@
-import '@/utils/cryptoPolyfill';
-import * as Sentry from '@sentry/react-native';
-import { registerGlobals } from '@livekit/react-native';
-import { useEffect, useRef } from 'react';
-import { StyleSheet } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import * as Linking from 'expo-linking';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuthStore } from '@/stores/authStore';
-import { useSpaceStore } from '@/stores/spaceStore';
-import { useMiniAppStore } from '@/stores/miniappStore';
-import { usePrefsStore } from '@/stores/prefsStore';
-import { SpaceMiniBar } from '@/components/spaces/SpaceMiniBar';
-import { MiniAppModal, MiniAppMiniBar } from '@/components/miniapp/MiniAppModal';
-import { TAB_BAR_TOTAL_HEIGHT } from '@/components/navigation/GlassTabBar';
-import { UpdateBanner } from '@/components/common/UpdateBanner';
-import { useOTAUpdate } from '@/hooks/useOTAUpdate';
-import { useNotificationBadge } from '@/hooks/useNotificationBadge';
-import { usePushNotifications } from '@/hooks/usePushNotifications';
-import { colors } from '@/constants/theme';
-import Toast from 'react-native-toast-message';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import * as livekitService from '@/services/livekit';
-import * as api from '@/services/api';
-import { Config } from '@/constants/config';
+import "@/utils/cryptoPolyfill";
+import * as Sentry from "@sentry/react-native";
+import { registerGlobals } from "@livekit/react-native";
+import { useEffect, useRef } from "react";
+import { StyleSheet } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import * as Linking from "expo-linking";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuthStore } from "@/stores/authStore";
+import { useSpaceStore } from "@/stores/spaceStore";
+import { useMiniAppStore } from "@/stores/miniappStore";
+import { usePrefsStore } from "@/stores/prefsStore";
+import { SpaceMiniBar } from "@/components/spaces/SpaceMiniBar";
+import {
+  MiniAppModal,
+  MiniAppMiniBar,
+} from "@/components/miniapp/MiniAppModal";
+import { TAB_BAR_TOTAL_HEIGHT } from "@/components/navigation/GlassTabBar";
+import { UpdateBanner } from "@/components/common/UpdateBanner";
+import { useOTAUpdate } from "@/hooks/useOTAUpdate";
+import { useNotificationBadge } from "@/hooks/useNotificationBadge";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { colors } from "@/constants/theme";
+import Toast from "react-native-toast-message";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import * as livekitService from "@/services/livekit";
+import * as api from "@/services/api";
+import { Config } from "@/constants/config";
 
 // Must be called before any LiveKit Room usage
 registerGlobals();
 
 Sentry.init({
   dsn: Config.SENTRY_DSN,
-  environment: __DEV__ ? 'development' : 'production',
+  environment: __DEV__ ? "development" : "production",
   enabled: !__DEV__,
   tracesSampleRate: 0.1,
 });
@@ -45,7 +48,8 @@ export default function RootLayout() {
   const setMuted = useSpaceStore((s) => s.setMuted);
   const router = useRouter();
   const segments = useSegments();
-  const { isUpdateAvailable, isRestarting, applyUpdate, dismiss } = useOTAUpdate();
+  const { isUpdateAvailable, isRestarting, applyUpdate, dismiss } =
+    useOTAUpdate();
   const hydrateAddedMiniApps = useMiniAppStore((s) => s.hydrateAddedMiniApps);
   const loadPrefs = usePrefsStore((s) => s.loadPrefs);
 
@@ -62,11 +66,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (isLoading) return;
-    const inAuthGroup = segments[0] === 'login';
+    const inAuthGroup = segments[0] === "login";
     if (!isAuthenticated && !inAuthGroup) {
-      router.replace('/login');
+      router.replace("/login");
     } else if (isAuthenticated && inAuthGroup) {
-      router.replace('/');
+      router.replace("/");
       // Process any deep link that arrived before auth completed
       if (pendingDeepLink.current) {
         const url = pendingDeepLink.current;
@@ -78,7 +82,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     // Handle deep links when app is already open
-    const subscription = Linking.addEventListener('url', ({ url }) => {
+    const subscription = Linking.addEventListener("url", ({ url }) => {
       handleDeepLink(url);
     });
 
@@ -93,12 +97,20 @@ export default function RootLayout() {
   const isValidMiniAppUrl = (url: string): boolean => {
     try {
       const parsed = new URL(url);
-      if (parsed.protocol !== 'https:') return false;
-      const host = parsed.hostname;
-      // Reject private/local IPs
-      if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return false;
-      if (host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) return false;
-      if (host.endsWith('.local')) return false;
+      if (parsed.protocol !== "https:") return false;
+      const host = parsed.hostname.toLowerCase();
+      // Reject private/local IPs and hostnames
+      if (host === "localhost" || host.endsWith(".local")) return false;
+      // IPv4 private/reserved ranges
+      if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)) return false;
+      if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+      // IPv6 loopback, link-local, private
+      if (/^\[?(::1|fe80:|fc00:|fd00:)/.test(host)) return false;
+      // Reject bare IPs (require a real domain)
+      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return false;
+      if (host.startsWith("[")) return false;
+      // Must have a dot (real domain)
+      if (!host.includes(".")) return false;
       return true;
     } catch {
       return false;
@@ -115,30 +127,48 @@ export default function RootLayout() {
       return;
     }
 
-    if (path.startsWith('space/')) {
-      const roomId = path.replace('space/', '');
+    if (path.startsWith("space/")) {
+      const roomId = path.replace("space/", "");
       if (roomId) router.push(`/space/${roomId}`);
-    } else if (path.startsWith('cast/')) {
-      const hash = path.replace('cast/', '');
+    } else if (path.startsWith("voice-note/")) {
+      const vnId = path.replace("voice-note/", "");
+      if (vnId) {
+        // Fetch voice note to get cast_hash, then open cast detail
+        fetch(`${Config.API_BASE_URL}/v1/voice-notes/${vnId}`)
+          .then((res) => res.json())
+          .then((data) => {
+            const castHash = data?.voice_note?.cast_hash;
+            if (castHash) {
+              router.push(`/cast/${castHash}`);
+            } else {
+              // No cast — navigate to author's profile
+              const fid = data?.voice_note?.fid;
+              if (fid) router.push(`/profile/${fid}`);
+            }
+          })
+          .catch(() => {});
+      }
+    } else if (path.startsWith("cast/")) {
+      const hash = path.replace("cast/", "");
       if (hash) router.push(`/cast/${hash}`);
-    } else if (path.startsWith('profile/')) {
-      const fid = path.replace('profile/', '');
+    } else if (path.startsWith("profile/")) {
+      const fid = path.replace("profile/", "");
       if (fid) router.push(`/profile/${fid}`);
     }
     // Parse: juke://miniapp?url={encoded_url}
-    if (parsed.path === 'miniapp' && parsed.queryParams?.url) {
+    if (parsed.path === "miniapp" && parsed.queryParams?.url) {
       const miniAppUrl = parsed.queryParams.url as string;
       // Validate: must be HTTPS, no private IPs
       if (!isValidMiniAppUrl(miniAppUrl)) return;
       if (isAuthenticated) {
-        import('@/services/manifest').then(({ resolveMiniApp }) => {
+        import("@/services/manifest").then(({ resolveMiniApp }) => {
           resolveMiniApp(miniAppUrl).then((resolved) => {
             useMiniAppStore.getState().openMiniApp({
               url: resolved.launchUrl,
               domain: resolved.domain,
               manifest: resolved.manifest,
               config: resolved.config,
-              location: { type: 'launcher' },
+              location: { type: "launcher" },
             });
           });
         });
@@ -175,19 +205,31 @@ export default function RootLayout() {
           screenOptions={{
             headerStyle: { backgroundColor: colors.background.surface },
             headerTintColor: colors.text.primary,
-            headerBackButtonDisplayMode: 'minimal',
+            headerBackButtonDisplayMode: "minimal",
             contentStyle: { backgroundColor: colors.background.main },
           }}
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
-          <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
-          <Stack.Screen name="notification-settings" options={{ title: 'Notifications', presentation: 'modal' }} />
-          <Stack.Screen name="admin" options={{ title: 'Admin', presentation: 'modal' }} />
-          <Stack.Screen name="cast/[hash]" options={{ title: 'Thread' }} />
-          <Stack.Screen name="profile/[fid]" options={{ title: 'Profile' }} />
+          <Stack.Screen
+            name="settings"
+            options={{ title: "Settings", presentation: "modal" }}
+          />
+          <Stack.Screen
+            name="notification-settings"
+            options={{ title: "Notifications", presentation: "modal" }}
+          />
+          <Stack.Screen
+            name="admin"
+            options={{ title: "Admin", presentation: "modal" }}
+          />
+          <Stack.Screen name="cast/[hash]" options={{ title: "Thread" }} />
+          <Stack.Screen name="profile/[fid]" options={{ title: "Profile" }} />
           <Stack.Screen name="space/[id]" options={{ headerShown: false }} />
-          <Stack.Screen name="space/create" options={{ title: 'Create Space' }} />
+          <Stack.Screen
+            name="space/create"
+            options={{ title: "Create Space" }}
+          />
         </Stack>
         {isUpdateAvailable && (
           <UpdateBanner
@@ -196,18 +238,26 @@ export default function RootLayout() {
             onDismiss={dismiss}
           />
         )}
-        {room && segments[0] !== 'space' && (
+        {room && segments[0] !== "space" && (
           <SpaceMiniBar
             onToggleMute={handleToggleMute}
             onLeave={handleLeave}
-            bottomOffset={segments[0] === '(tabs)' ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16 : insets.bottom + 8}
+            bottomOffset={
+              segments[0] === "(tabs)"
+                ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16
+                : insets.bottom + 8
+            }
           />
         )}
         <MiniAppMiniBar
           bottomOffset={
-            room && segments[0] !== 'space'
-              ? (segments[0] === '(tabs)' ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16 : insets.bottom + 8) + 56
-              : segments[0] === '(tabs)' ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16 : insets.bottom + 8
+            room && segments[0] !== "space"
+              ? (segments[0] === "(tabs)"
+                  ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16
+                  : insets.bottom + 8) + 56
+              : segments[0] === "(tabs)"
+                ? insets.bottom + TAB_BAR_TOTAL_HEIGHT + 16
+                : insets.bottom + 8
           }
         />
         <MiniAppModal />

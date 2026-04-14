@@ -1,8 +1,11 @@
 import logging
 import re
 
+from eth_account.messages import encode_defunct
+from eth_account import Account
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from jose import JWTError, jwt
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
@@ -420,3 +423,157 @@ async def invalidate_auth_address(
 
     await mark_auth_address_revoked(db, address)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Miniapp SIWF token exchange
+# ---------------------------------------------------------------------------
+
+import secrets
+from datetime import datetime, timedelta, timezone
+
+
+class MiniAppNonceResponse(BaseModel):
+    nonce: str
+
+
+class MiniAppVerifyRequest(BaseModel):
+    message: str
+    signature: str
+    nonce: str
+
+
+class MiniAppVerifyResponse(BaseModel):
+    token: str
+    fid: int
+
+
+MINIAPP_JWT_EXPIRY_HOURS = 1
+MINIAPP_NONCE_TTL_SECONDS = 300  # 5 minutes
+MINIAPP_NONCE_PREFIX = "miniapp_nonce:"
+MINIAPP_VERIFY_RATE_PREFIX = "miniapp_verify_rate:"
+MINIAPP_VERIFY_RATE_LIMIT = 10  # per minute per IP
+MINIAPP_VERIFY_RATE_WINDOW = 60
+
+
+@router.get("/miniapp-nonce", response_model=MiniAppNonceResponse)
+async def get_miniapp_nonce(
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Generate a server-side nonce for SIWF sign-in."""
+    nonce = secrets.token_urlsafe(32)
+    await redis.set(f"{MINIAPP_NONCE_PREFIX}{nonce}", "1", ex=MINIAPP_NONCE_TTL_SECONDS)
+    return MiniAppNonceResponse(nonce=nonce)
+
+
+@router.post("/miniapp-verify", response_model=MiniAppVerifyResponse)
+async def miniapp_verify(
+    body: MiniAppVerifyRequest,
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Verify a SIWF credential from a Farcaster miniapp and issue a short-lived JWT.
+
+    The miniapp calls `sdk.actions.signIn({ nonce })` which produces a SIWE-style
+    message + signature. We recover the signer address, extract the FID, then
+    verify the address is a custody or verified signer for that FID via Neynar.
+    """
+    # Rate limit by IP
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+        request.client.host if request.client else "unknown"
+    )
+    rate_key = f"{MINIAPP_VERIFY_RATE_PREFIX}{client_ip}"
+    pipe = redis.pipeline()
+    pipe.incr(rate_key)
+    pipe.expire(rate_key, MINIAPP_VERIFY_RATE_WINDOW)
+    count, _ = await pipe.execute()
+    if count > MINIAPP_VERIFY_RATE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many verification attempts",
+        )
+
+    # Verify nonce was server-issued and consume it (one-time use)
+    nonce_key = f"{MINIAPP_NONCE_PREFIX}{body.nonce}"
+    consumed = await redis.delete(nonce_key)
+    if not consumed:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired nonce",
+        )
+
+    # Verify the SIWE signature
+    try:
+        signable = encode_defunct(text=body.message)
+        recovered_address = Account.recover_message(signable, signature=body.signature)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid signature",
+        )
+
+    # Verify nonce appears in the signed message (prevents nonce substitution)
+    if body.nonce not in body.message:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Nonce mismatch in message",
+        )
+
+    # Extract FID from the SIWF message (farcaster://fid/{fid})
+    fid_match = re.search(r"farcaster://fid/(\d+)", body.message)
+    if not fid_match:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No FID found in message",
+        )
+    fid = int(fid_match.group(1))
+
+    # Verify the recovered address is a custody or verified address for this FID
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.neynar.com/v2/farcaster/user/bulk",
+                params={"fids": str(fid)},
+                headers={"x-api-key": settings.NEYNAR_API_KEY},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            users = resp.json().get("users", [])
+            if not users:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="FID not found",
+                )
+
+            user = users[0]
+            custody_address = (user.get("custody_address") or "").lower()
+            verified_addresses = [
+                a.lower()
+                for a in user.get("verified_addresses", {}).get("eth_addresses", [])
+            ]
+            recovered_lower = recovered_address.lower()
+
+            if recovered_lower != custody_address and recovered_lower not in verified_addresses:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Signer is not authorized for this FID",
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to verify FID ownership",
+        )
+
+    # Issue a short-lived JWT (1 hour)
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=MINIAPP_JWT_EXPIRY_HOURS)
+    payload = {
+        "fid": fid,
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    token = jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+    return MiniAppVerifyResponse(token=token, fid=fid)

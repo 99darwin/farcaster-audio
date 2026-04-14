@@ -212,15 +212,13 @@ async def create_voice_note(
     if body.post_to_farcaster:
         try:
             signer_uuid = await _get_signer_uuid(db, current_user)
-            storage = _get_storage()
-            audio_public_url = storage.generate_presigned_get_url(object_key, expires_in=604800)
 
             cast_text = body.cast_text or ""
-            # Append voice note link as embed
+            embed_url = f"https://juke.audio/v/{vn.id}"
             payload: dict = {
                 "signer_uuid": signer_uuid,
                 "text": cast_text,
-                "embeds": [{"url": audio_public_url}],
+                "embeds": [{"url": embed_url}],
             }
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
@@ -322,9 +320,15 @@ async def record_play(
 ):
     """Record a playback event."""
     # Deduplicate: 1 play per user (or IP) per voice note per 60s
-    identifier = str(current_user) if current_user else (
-        request.client.host if request and request.client else "unknown"
-    )
+    if current_user:
+        identifier = str(current_user)
+    elif request:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        identifier = forwarded.split(",")[0].strip() if forwarded else (
+            request.client.host if request.client else "unknown"
+        )
+    else:
+        identifier = "unknown"
     dedup_key = f"voice_notes:play_rate:{identifier}:{voice_note_id}"
     already_tracked = await redis.set(dedup_key, "1", ex=PLAY_DEDUP_SECONDS, nx=True)
     if not already_tracked:
