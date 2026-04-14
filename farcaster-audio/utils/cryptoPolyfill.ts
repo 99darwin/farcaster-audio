@@ -4,4 +4,4 @@
  *
  * react-native-get-random-values patches globalThis.crypto automatically on import.
  */
-import 'react-native-get-random-values';
+import "react-native-get-random-values";

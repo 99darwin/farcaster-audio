@@ -1,11 +1,11 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { Image } from 'expo-image';
-import { colors } from '@/constants/theme';
+import { View, Text, StyleSheet } from "react-native";
+import { Image } from "expo-image";
+import { colors } from "@/constants/theme";
 
 interface AvatarProps {
   pfpUrl: string | null;
   displayName: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: "sm" | "md" | "lg";
   isLive?: boolean;
 }
 
@@ -23,14 +23,19 @@ const FONT_SIZES = {
 
 const LIVE_RING_COLOR = colors.accent;
 
-export function Avatar({ pfpUrl, displayName, size = 'md', isLive = false }: AvatarProps) {
+export function Avatar({
+  pfpUrl,
+  displayName,
+  size = "md",
+  isLive = false,
+}: AvatarProps) {
   const dimension = SIZES[size];
   const fontSize = FONT_SIZES[size];
-  const initials = (displayName ?? '?')
-    .split(' ')
+  const initials = (displayName ?? "?")
+    .split(" ")
     .filter(Boolean)
     .map((n) => n[0])
-    .join('')
+    .join("")
     .toUpperCase()
     .slice(0, 2);
 
@@ -45,7 +50,7 @@ export function Avatar({ pfpUrl, displayName, size = 'md', isLive = false }: Ava
           height: dimension + (isLive ? 6 : 0),
           borderRadius: (dimension + (isLive ? 6 : 0)) / 2,
           borderWidth: isLive ? 3 : 0,
-          borderColor: isLive ? LIVE_RING_COLOR : 'transparent',
+          borderColor: isLive ? LIVE_RING_COLOR : "transparent",
         },
       ]}
     >
@@ -80,16 +85,16 @@ export function Avatar({ pfpUrl, displayName, size = 'md', isLive = false }: Ava
 
 const styles = StyleSheet.create({
   container: {
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   fallback: {
     backgroundColor: colors.background.border,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   initials: {
     color: colors.text.primary,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

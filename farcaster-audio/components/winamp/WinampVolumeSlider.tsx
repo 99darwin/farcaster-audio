@@ -1,6 +1,6 @@
-import React, { memo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
+import React, { memo } from "react";
+import { View, Text, StyleSheet } from "react-native";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
 
 export const WinampVolumeSlider = memo(function WinampVolumeSlider() {
   const value = 0.75;
@@ -50,8 +50,8 @@ export const WinampVolumeSlider = memo(function WinampVolumeSlider() {
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     paddingHorizontal: 4,
   },
@@ -74,8 +74,8 @@ const styles = StyleSheet.create({
   },
   track: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'stretch',
+    flexDirection: "row",
+    alignItems: "stretch",
     gap: 1,
   },
   segment: {
@@ -83,12 +83,12 @@ const styles = StyleSheet.create({
     borderRadius: 0,
   },
   thumbTrack: {
-    position: 'absolute',
+    position: "absolute",
     left: 26,
     top: 0,
     bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'flex-end',
+    justifyContent: "center",
+    alignItems: "flex-end",
   },
   thumb: {
     width: 12,
@@ -99,8 +99,8 @@ const styles = StyleSheet.create({
     borderLeftColor: WINAMP.bevel.light,
     borderBottomColor: WINAMP.bevel.dark,
     borderRightColor: WINAMP.bevel.dark,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     gap: 1,
   },
   thumbGroove: {

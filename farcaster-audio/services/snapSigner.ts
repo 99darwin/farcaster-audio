@@ -10,18 +10,18 @@
  * sign snap POST bodies locally using @noble/ed25519.
  */
 
-import '@/utils/cryptoPolyfill';
-import * as SecureStore from 'expo-secure-store';
-import * as Crypto from 'expo-crypto';
-import * as ed from '@noble/ed25519';
-import { sha512 } from '@noble/hashes/sha2.js';
-import * as api from '@/services/api';
+import "@/utils/cryptoPolyfill";
+import * as SecureStore from "expo-secure-store";
+import * as Crypto from "expo-crypto";
+import * as ed from "@noble/ed25519";
+import { sha512 } from "@noble/hashes/sha2.js";
+import * as api from "@/services/api";
 
 // Wire the hash implementation — required by @noble/ed25519 v3.
 ed.hashes.sha512 = sha512;
 
-const SNAP_KEY_PREFIX = 'snap_signer_key_';
-const SNAP_STATUS_PREFIX = 'snap_signer_status_';
+const SNAP_KEY_PREFIX = "snap_signer_key_";
+const SNAP_STATUS_PREFIX = "snap_signer_status_";
 
 /**
  * Keychain accessibility for all snap-signer items. `_THIS_DEVICE_ONLY`
@@ -32,21 +32,21 @@ const SECURE_STORE_OPTS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
 
-export type SnapSignerStatus = 'none' | 'pending_approval' | 'approved';
+export type SnapSignerStatus = "none" | "pending_approval" | "approved";
 
 // --- Encoding helpers ---
 
 function bytesToHex(bytes: Uint8Array): string {
-  let out = '';
+  let out = "";
   for (let i = 0; i < bytes.length; i++) {
-    out += bytes[i].toString(16).padStart(2, '0');
+    out += bytes[i].toString(16).padStart(2, "0");
   }
   return out;
 }
 
 function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  if (clean.length % 2 !== 0) throw new Error('Invalid hex length');
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (clean.length % 2 !== 0) throw new Error("Invalid hex length");
   const out = new Uint8Array(clean.length / 2);
   for (let i = 0; i < out.length; i++) {
     out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
@@ -60,11 +60,12 @@ function hexToBytes(hex: string): Uint8Array {
  * non-ASCII input (e.g. emoji in snap inputs) correctly.
  */
 function base64UrlEncode(input: string | Uint8Array): string {
-  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
-  let bin = '';
+  const bytes =
+    typeof input === "string" ? new TextEncoder().encode(input) : input;
+  let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   const b64 = globalThis.btoa(bin);
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 // --- Key management ---
@@ -94,7 +95,11 @@ export async function getOrCreateSnapKey(fid: number): Promise<{
 
   const privateKey = ed.utils.randomSecretKey();
   const publicKey = ed.getPublicKey(privateKey);
-  await SecureStore.setItemAsync(storageKey, bytesToHex(privateKey), SECURE_STORE_OPTS);
+  await SecureStore.setItemAsync(
+    storageKey,
+    bytesToHex(privateKey),
+    SECURE_STORE_OPTS,
+  );
   return {
     publicKey: `0x${bytesToHex(publicKey)}` as `0x${string}`,
     privateKey,
@@ -103,7 +108,11 @@ export async function getOrCreateSnapKey(fid: number): Promise<{
 }
 
 async function writeApprovedCache(fid: number): Promise<void> {
-  await SecureStore.setItemAsync(`${SNAP_STATUS_PREFIX}${fid}`, 'approved', SECURE_STORE_OPTS);
+  await SecureStore.setItemAsync(
+    `${SNAP_STATUS_PREFIX}${fid}`,
+    "approved",
+    SECURE_STORE_OPTS,
+  );
 }
 
 async function clearApprovedCache(fid: number): Promise<void> {
@@ -116,9 +125,11 @@ async function clearApprovedCache(fid: number): Promise<void> {
  * triggered and rare, so we rely on submit-failure feedback instead of
  * periodic refresh.
  */
-async function readApprovedCache(fid: number): Promise<SnapSignerStatus | null> {
+async function readApprovedCache(
+  fid: number,
+): Promise<SnapSignerStatus | null> {
   const cached = await SecureStore.getItemAsync(`${SNAP_STATUS_PREFIX}${fid}`);
-  return cached === 'approved' ? 'approved' : null;
+  return cached === "approved" ? "approved" : null;
 }
 
 /**
@@ -139,23 +150,23 @@ export async function getSnapSignerStatus(
 
   const storageKey = `${SNAP_KEY_PREFIX}${fid}`;
   const existing = await SecureStore.getItemAsync(storageKey);
-  if (!existing) return 'none';
+  if (!existing) return "none";
   if (!/^[0-9a-f]{64}$/i.test(existing)) {
     await SecureStore.deleteItemAsync(storageKey);
-    return 'none';
+    return "none";
   }
 
   const { publicKey } = await getOrCreateSnapKey(fid);
   try {
     const result = await api.getSnapSignerStatus(publicKey);
-    if (result.status === 'approved') {
+    if (result.status === "approved") {
       await writeApprovedCache(fid);
-      return 'approved';
+      return "approved";
     }
     await clearApprovedCache(fid);
-    return result.status === 'pending_approval' ? 'pending_approval' : 'none';
+    return result.status === "pending_approval" ? "pending_approval" : "none";
   } catch {
-    return 'none';
+    return "none";
   }
 }
 
@@ -168,7 +179,7 @@ export async function registerSnapSigner(fid: number): Promise<{
   const { publicKey } = await getOrCreateSnapKey(fid);
   const result = await api.registerSnapSigner(publicKey);
 
-  if (result.status === 'approved') {
+  if (result.status === "approved") {
     await writeApprovedCache(fid);
   }
 
@@ -234,7 +245,7 @@ export async function signSnapSubmit(
 
   const header = {
     fid,
-    type: 'app_key',
+    type: "app_key",
     key: publicKey,
   };
   const nonceBytes = await Crypto.getRandomBytesAsync(16);
@@ -286,7 +297,7 @@ export async function signSnapSubmitV1(
 
   const header = {
     fid,
-    type: 'app_key',
+    type: "app_key",
     key: publicKey,
   };
   const payload: SnapSubmitPayloadV1 = {

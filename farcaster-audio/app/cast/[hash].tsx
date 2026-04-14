@@ -1,28 +1,45 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { FlatList, View, Text, RefreshControl, StyleSheet } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useAuthStore } from '@/stores/authStore';
-import { useComposeStore } from '@/stores/composeStore';
-import { useCastThread } from '@/hooks/useCastThread';
-import { CastCard } from '@/components/feed/CastCard';
-import { ThreadedReplies, findTopLevelIndexContaining } from '@/components/feed/ThreadedReplies';
-import { ComposeModal } from '@/components/feed/ComposeModal';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { ErrorView } from '@/components/common/ErrorView';
-import { colors } from '@/constants/theme';
-import { likeCast, recastCast, removeLike, removeRecast, publishCast } from '@/services/neynar';
-import type { NeynarCast, NeynarCastWithReplies } from '@/types/neynar';
+import { useEffect, useRef, useState, useCallback } from "react";
+import { FlatList, View, Text, RefreshControl, StyleSheet } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useAuthStore } from "@/stores/authStore";
+import { useComposeStore } from "@/stores/composeStore";
+import { useCastThread } from "@/hooks/useCastThread";
+import { CastCard } from "@/components/feed/CastCard";
+import {
+  ThreadedReplies,
+  findTopLevelIndexContaining,
+} from "@/components/feed/ThreadedReplies";
+import { ComposeModal } from "@/components/feed/ComposeModal";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import { ErrorView } from "@/components/common/ErrorView";
+import { colors } from "@/constants/theme";
+import {
+  likeCast,
+  recastCast,
+  removeLike,
+  removeRecast,
+  publishCast,
+} from "@/services/neynar";
+import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
 
 export default function CastThreadScreen() {
-  const { hash, focusHash } = useLocalSearchParams<{ hash: string; focusHash?: string }>();
+  const { hash, focusHash } = useLocalSearchParams<{
+    hash: string;
+    focusHash?: string;
+  }>();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const myFid = user?.fid ?? 0;
-  const { rootCast, replies, isLoading, error, fetch } = useCastThread(hash!, myFid);
+  const { rootCast, replies, isLoading, error, fetch } = useCastThread(
+    hash!,
+    myFid,
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [composeVisible, setComposeVisible] = useState(false);
   const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+    null,
+  );
   const flatListRef = useRef<FlatList<NeynarCastWithReplies>>(null);
 
   // Listen for compose intents from snap buttons
@@ -50,13 +67,21 @@ export default function CastThreadScreen() {
     const index = findTopLevelIndexContaining(replies, focusHash);
     if (index < 0) return;
     const raf = requestAnimationFrame(() => {
-      flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });
+      flatListRef.current?.scrollToIndex({
+        index,
+        animated: true,
+        viewPosition: 0.2,
+      });
     });
     return () => cancelAnimationFrame(raf);
   }, [focusHash, replies, rootCast?.hash]);
 
   const handleScrollToIndexFailed = useCallback(
-    (info: { index: number; highestMeasuredFrameIndex: number; averageItemLength: number }) => {
+    (info: {
+      index: number;
+      highestMeasuredFrameIndex: number;
+      averageItemLength: number;
+    }) => {
       // Reply rows have variable height; retry after a short delay.
       setTimeout(() => {
         flatListRef.current?.scrollToIndex({
@@ -110,8 +135,18 @@ export default function CastThreadScreen() {
   }, []);
 
   const handlePublish = useCallback(
-    async (text: string, parentHash?: string, imageUris?: string[], quote?: { fid: number; hash: string }) => {
-      await publishCast(text, parentHash, imageUris && imageUris.length > 0 ? imageUris : undefined, quote);
+    async (
+      text: string,
+      parentHash?: string,
+      imageUris?: string[],
+      quote?: { fid: number; hash: string },
+    ) => {
+      await publishCast(
+        text,
+        parentHash,
+        imageUris && imageUris.length > 0 ? imageUris : undefined,
+        quote,
+      );
       await fetch();
     },
     [fetch],
@@ -205,7 +240,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.main,
   },
   empty: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: 40,
   },
   emptyText: {

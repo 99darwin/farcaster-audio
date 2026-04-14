@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import type { NeynarCast } from '@/types/neynar';
+import { create } from "zustand";
+import type { NeynarCast } from "@/types/neynar";
 
 interface FeedStore {
   casts: NeynarCast[];
@@ -15,7 +15,12 @@ interface FeedStore {
   setLoading: (loading: boolean) => void;
   setRefreshing: (refreshing: boolean) => void;
   setError: (error: string | null) => void;
-  updateCastReaction: (hash: string, type: 'like' | 'recast', added: boolean, myFid: number) => void;
+  updateCastReaction: (
+    hash: string,
+    type: "like" | "recast",
+    added: boolean,
+    myFid: number,
+  ) => void;
   reset: () => void;
 }
 
@@ -55,8 +60,12 @@ export const useFeedStore = create<FeedStore>((set) => ({
       casts: state.casts.map((cast) => {
         if (cast.hash !== hash) return cast;
         const reactions = { ...cast.reactions };
-        const viewerContext = { liked: false, recasted: false, ...cast.viewer_context };
-        if (type === 'like') {
+        const viewerContext = {
+          liked: false,
+          recasted: false,
+          ...cast.viewer_context,
+        };
+        if (type === "like") {
           reactions.likes_count = added
             ? reactions.likes_count + 1
             : Math.max(0, reactions.likes_count - 1);

@@ -1,7 +1,12 @@
-import { createContext, useContext } from 'react';
-import type { ReactNode } from 'react';
-import type { SnapAccent, SnapElement, SnapInputs, SnapInputValue } from '@/types/snap';
-import type { SnapSignerStatus } from '@/services/snapSigner';
+import { createContext, useContext } from "react";
+import type { ReactNode } from "react";
+import type {
+  SnapAccent,
+  SnapElement,
+  SnapInputs,
+  SnapInputValue,
+} from "@/types/snap";
+import type { SnapSignerStatus } from "@/services/snapSigner";
 
 export interface SnapContextValue {
   accent: SnapAccent;
@@ -21,13 +26,13 @@ export const SnapContext = createContext<SnapContextValue | null>(null);
 
 export function useSnapContext(): SnapContextValue {
   const ctx = useContext(SnapContext);
-  if (!ctx) throw new Error('useSnapContext must be used inside <SnapCard>');
+  if (!ctx) throw new Error("useSnapContext must be used inside <SnapCard>");
   return ctx;
 }
 
 export const MAX_RENDER_DEPTH = 10;
 
-export const GAP_VALUES: Record<'none' | 'sm' | 'md' | 'lg', number> = {
+export const GAP_VALUES: Record<"none" | "sm" | "md" | "lg", number> = {
   none: 0,
   sm: 4,
   md: 8,

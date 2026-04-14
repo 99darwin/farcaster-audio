@@ -1,5 +1,5 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
+import { View, Text, Pressable, StyleSheet } from "react-native";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
 
 interface WinampTitleBarProps {
   onClose: () => void;
@@ -20,24 +20,28 @@ const rivetStyles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#3d2060',
+    backgroundColor: "#3d2060",
     borderWidth: 1,
-    borderTopColor: '#2a1040',
-    borderLeftColor: '#2a1040',
-    borderBottomColor: '#855DCD',
-    borderRightColor: '#855DCD',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderTopColor: "#2a1040",
+    borderLeftColor: "#2a1040",
+    borderBottomColor: "#855DCD",
+    borderRightColor: "#855DCD",
+    alignItems: "center",
+    justifyContent: "center",
   },
   inner: {
     width: 2,
     height: 2,
     borderRadius: 1,
-    backgroundColor: '#855DCD',
+    backgroundColor: "#855DCD",
   },
 });
 
-export function WinampTitleBar({ onClose, onShade, isShaded }: WinampTitleBarProps) {
+export function WinampTitleBar({
+  onClose,
+  onShade,
+  isShaded,
+}: WinampTitleBarProps) {
   return (
     <View style={styles.outer}>
       <View style={styles.container}>
@@ -49,7 +53,7 @@ export function WinampTitleBar({ onClose, onShade, isShaded }: WinampTitleBarPro
           accessibilityLabel="Close"
           accessibilityRole="button"
         >
-          <Text style={styles.btnX}>{'\u2573'}</Text>
+          <Text style={styles.btnX}>{"\u2573"}</Text>
         </Pressable>
 
         {/* Left rivets */}
@@ -78,10 +82,10 @@ export function WinampTitleBar({ onClose, onShade, isShaded }: WinampTitleBarPro
           onPress={onShade}
           hitSlop={{ top: 11, bottom: 11, left: 11, right: 11 }}
           style={({ pressed }) => [styles.btn, pressed && styles.btnPressed]}
-          accessibilityLabel={isShaded ? 'Expand' : 'Minimize'}
+          accessibilityLabel={isShaded ? "Expand" : "Minimize"}
           accessibilityRole="button"
         >
-          <Text style={styles.btnIcon}>{isShaded ? '\u25B2' : '\u25BC'}</Text>
+          <Text style={styles.btnIcon}>{isShaded ? "\u25B2" : "\u25BC"}</Text>
         </Pressable>
       </View>
       {/* Bottom edge highlight */}
@@ -96,8 +100,8 @@ const styles = StyleSheet.create({
     marginTop: PANEL_MARGIN,
   },
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: WINAMP.titleBar,
     paddingHorizontal: 3,
     paddingVertical: 2,
@@ -110,12 +114,12 @@ const styles = StyleSheet.create({
   },
   titleArea: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
     gap: 1,
   },
   grooveRow: {
-    flexDirection: 'row',
-    width: '100%',
+    flexDirection: "row",
+    width: "100%",
     gap: 1,
   },
   groove: {
@@ -127,17 +131,17 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: WINAMP.fonts.pixel,
     fontSize: 8,
-    color: '#ffffff',
+    color: "#ffffff",
     letterSpacing: 3,
-    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowColor: "rgba(0,0,0,0.8)",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 0,
   },
   btn: {
     width: 22,
     height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: WINAMP.bevel.face,
     borderWidth: 2,
     borderTopColor: WINAMP.bevel.light,
@@ -155,11 +159,11 @@ const styles = StyleSheet.create({
   btnX: {
     fontSize: 10,
     color: WINAMP.accent.red,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   btnIcon: {
     fontSize: 8,
-    color: '#cccccc',
+    color: "#cccccc",
   },
   bottomEdge: {
     height: 1,

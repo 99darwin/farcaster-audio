@@ -5,14 +5,14 @@
  * via the backend + Neynar, and uses it to sign SIWF messages.
  */
 
-import '@/utils/cryptoPolyfill';
-import * as SecureStore from 'expo-secure-store';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { createSiweMessage } from 'viem/siwe';
-import * as api from '@/services/api';
+import "@/utils/cryptoPolyfill";
+import * as SecureStore from "expo-secure-store";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { createSiweMessage } from "viem/siwe";
+import * as api from "@/services/api";
 
-const AUTH_ADDRESS_KEY_PREFIX = 'auth_address_key_';
-const AUTH_ADDRESS_STATUS_PREFIX = 'auth_address_status_';
+const AUTH_ADDRESS_KEY_PREFIX = "auth_address_key_";
+const AUTH_ADDRESS_STATUS_PREFIX = "auth_address_status_";
 
 // --- Key management ---
 
@@ -42,7 +42,7 @@ export async function getOrCreateAuthAddress(fid: number): Promise<{
   return { address: account.address, privateKey, isNew: true };
 }
 
-export type AuthAddressStatus = 'none' | 'pending_approval' | 'approved';
+export type AuthAddressStatus = "none" | "pending_approval" | "approved";
 
 /**
  * Check if an auth address is registered and approved for this FID.
@@ -57,32 +57,37 @@ export async function getAuthAddressStatus(
   opts: { force?: boolean } = {},
 ): Promise<AuthAddressStatus> {
   if (!opts.force) {
-    const cached = await SecureStore.getItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`);
-    if (cached === 'approved') return 'approved';
+    const cached = await SecureStore.getItemAsync(
+      `${AUTH_ADDRESS_STATUS_PREFIX}${fid}`,
+    );
+    if (cached === "approved") return "approved";
   }
 
   // Check if we even have a key
   const storageKey = `${AUTH_ADDRESS_KEY_PREFIX}${fid}`;
   const existing = await SecureStore.getItemAsync(storageKey);
-  if (!existing) return 'none';
+  if (!existing) return "none";
 
   if (!/^0x[0-9a-f]{64}$/i.test(existing)) {
     await SecureStore.deleteItemAsync(storageKey);
-    return 'none';
+    return "none";
   }
 
   // Check with backend
   const account = privateKeyToAccount(existing as `0x${string}`);
   try {
     const result = await api.getAuthAddressStatus(account.address);
-    if (result.status === 'approved') {
-      await SecureStore.setItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`, 'approved');
-      return 'approved';
+    if (result.status === "approved") {
+      await SecureStore.setItemAsync(
+        `${AUTH_ADDRESS_STATUS_PREFIX}${fid}`,
+        "approved",
+      );
+      return "approved";
     }
     await SecureStore.deleteItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`);
-    return result.status === 'pending_approval' ? 'pending_approval' : 'none';
+    return result.status === "pending_approval" ? "pending_approval" : "none";
   } catch {
-    return 'none';
+    return "none";
   }
 }
 
@@ -116,8 +121,11 @@ export async function registerAuthAddress(fid: number): Promise<{
 
   const result = await api.registerAuthAddress(address);
 
-  if (result.status === 'approved') {
-    await SecureStore.setItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`, 'approved');
+  if (result.status === "approved") {
+    await SecureStore.setItemAsync(
+      `${AUTH_ADDRESS_STATUS_PREFIX}${fid}`,
+      "approved",
+    );
   }
 
   return {
@@ -141,22 +149,26 @@ export async function signSiwfMessage(
   },
 ): Promise<{ signature: string; message: string }> {
   if (!fid || fid <= 0) {
-    throw new Error('Invalid FID');
+    throw new Error("Invalid FID");
   }
 
   // Validate nonce is present and reasonable length
-  if (!options.nonce || options.nonce.length < 8 || options.nonce.length > 256) {
-    throw new Error('Invalid nonce format');
+  if (
+    !options.nonce ||
+    options.nonce.length < 8 ||
+    options.nonce.length > 256
+  ) {
+    throw new Error("Invalid nonce format");
   }
 
   const storageKey = `${AUTH_ADDRESS_KEY_PREFIX}${fid}`;
   const privateKey = await SecureStore.getItemAsync(storageKey);
   if (!privateKey) {
-    throw new Error('No auth address key found');
+    throw new Error("No auth address key found");
   }
 
   if (!/^0x[0-9a-f]{64}$/i.test(privateKey)) {
-    throw new Error('Corrupted auth address key');
+    throw new Error("Corrupted auth address key");
   }
 
   const account = privateKeyToAccount(privateKey as `0x${string}`);
@@ -167,8 +179,8 @@ export async function signSiwfMessage(
     domain: options.domain,
     nonce: options.nonce,
     uri: options.uri ?? `https://${options.domain}`,
-    version: '1',
-    statement: 'Farcaster Auth',
+    version: "1",
+    statement: "Farcaster Auth",
     resources: [`farcaster://fid/${fid}`],
     issuedAt: new Date(),
     notBefore: options.notBefore ? new Date(options.notBefore) : undefined,

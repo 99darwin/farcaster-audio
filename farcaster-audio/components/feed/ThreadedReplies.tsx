@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { CastCard } from '@/components/feed/CastCard';
-import { colors } from '@/constants/theme';
-import type { NeynarCast, NeynarCastWithReplies } from '@/types/neynar';
+import { useState, useMemo } from "react";
+import { View, Text, Pressable, StyleSheet } from "react-native";
+import { CastCard } from "@/components/feed/CastCard";
+import { colors } from "@/constants/theme";
+import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
 
 const INDENT_PX = 28;
 const MAX_EXTRA_INDENT_PX = 48; // Max additional indent beyond CastCard's built-in threaded padding
@@ -13,7 +13,10 @@ const MAX_RECURSION_DEPTH = 10;
  * Returns true if `hash` matches `reply.hash` or any cast in its nested
  * `direct_replies` subtree.
  */
-export function subtreeContainsHash(reply: NeynarCastWithReplies, hash: string): boolean {
+export function subtreeContainsHash(
+  reply: NeynarCastWithReplies,
+  hash: string,
+): boolean {
   if (reply.hash === hash) return true;
   const children = reply.direct_replies ?? [];
   for (const child of children) {
@@ -79,7 +82,9 @@ function ReplyNode({
   const childReplies = reply.direct_replies ?? [];
   const hasChildren = childReplies.length > 0;
   const isAtMaxDepth = depth >= maxDepth;
-  const subtreeContainsFocus = focusHash ? subtreeContainsHash(reply, focusHash) : false;
+  const subtreeContainsFocus = focusHash
+    ? subtreeContainsHash(reply, focusHash)
+    : false;
   const isFocused = !!focusHash && reply.hash === focusHash;
   // Auto-expand collapsed nodes whose subtree contains the focused reply,
   // so the focus target is actually rendered.
@@ -89,7 +94,8 @@ function ReplyNode({
 
   // CastCard's `threaded` prop already applies 52px left padding + thread line + sm avatar.
   // We only add extra indent for depth > 0 (nested replies beyond direct replies).
-  const extraIndent = depth > 0 ? Math.min(depth * INDENT_PX, MAX_EXTRA_INDENT_PX) : 0;
+  const extraIndent =
+    depth > 0 ? Math.min(depth * INDENT_PX, MAX_EXTRA_INDENT_PX) : 0;
 
   // L2: Memoize inline styles
   const wrapperStyle = useMemo(
@@ -102,10 +108,7 @@ function ReplyNode({
   );
 
   return (
-    <View
-      accessible
-      accessibilityLabel={`Thread reply, depth ${depth + 1}`}
-    >
+    <View accessible accessibilityLabel={`Thread reply, depth ${depth + 1}`}>
       <View style={wrapperStyle}>
         <View style={isFocused ? styles.focusHighlight : undefined}>
           <CastCard
@@ -143,7 +146,8 @@ function ReplyNode({
           onPress={() => setIsExpanded(true)}
         >
           <Text style={styles.unfurlText}>
-            View {childReplies.length} more {childReplies.length === 1 ? 'reply' : 'replies'}
+            View {childReplies.length} more{" "}
+            {childReplies.length === 1 ? "reply" : "replies"}
           </Text>
         </Pressable>
       )}
@@ -153,7 +157,10 @@ function ReplyNode({
           <ThreadedReplies
             replies={childReplies}
             depth={depth + 1}
-            maxDepth={Math.min(maxDepth + DEFAULT_MAX_DEPTH, MAX_RECURSION_DEPTH)}
+            maxDepth={Math.min(
+              maxDepth + DEFAULT_MAX_DEPTH,
+              MAX_RECURSION_DEPTH,
+            )}
             myFid={myFid}
             onLike={onLike}
             onRecast={onRecast}
@@ -226,7 +233,8 @@ export function ThreadedReplies({
           onPress={() => setSlopRevealed(true)}
         >
           <Text style={styles.slopText}>
-            See {spam.length} probable slop {spam.length === 1 ? 'reply' : 'replies'}
+            See {spam.length} probable slop{" "}
+            {spam.length === 1 ? "reply" : "replies"}
           </Text>
         </Pressable>
       )}
@@ -263,10 +271,10 @@ const styles = StyleSheet.create({
   unfurlText: {
     color: colors.purple,
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   focusHighlight: {
-    backgroundColor: colors.purple + '14',
+    backgroundColor: colors.purple + "14",
     borderLeftWidth: 2,
     borderLeftColor: colors.purple,
   },
@@ -278,7 +286,7 @@ const styles = StyleSheet.create({
   slopText: {
     color: colors.text.secondary,
     fontSize: 14,
-    fontStyle: 'italic',
+    fontStyle: "italic",
   },
   slopSection: {
     borderTopWidth: StyleSheet.hairlineWidth,

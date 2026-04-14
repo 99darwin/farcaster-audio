@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
 export function useElapsedTime(startedAt: string | null | undefined) {
   const [elapsed, setElapsed] = useState({ hours: 0, minutes: 0, seconds: 0 });
@@ -22,7 +22,7 @@ export function useElapsedTime(startedAt: string | null | undefined) {
     return () => clearInterval(interval);
   }, [startedAt]);
 
-  const formatted = `${String(elapsed.hours).padStart(2, '0')}:${String(elapsed.minutes).padStart(2, '0')}:${String(elapsed.seconds).padStart(2, '0')}`;
+  const formatted = `${String(elapsed.hours).padStart(2, "0")}:${String(elapsed.minutes).padStart(2, "0")}:${String(elapsed.seconds).padStart(2, "0")}`;
 
   return { ...elapsed, formatted };
 }

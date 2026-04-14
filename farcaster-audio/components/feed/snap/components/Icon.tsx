@@ -1,7 +1,7 @@
-import { Text, StyleSheet } from 'react-native';
-import type { IconProps } from '@/types/snap';
-import { useSnapContext } from '../context';
-import { resolvePaletteColor } from '@/constants/snapPalette';
+import { Text, StyleSheet } from "react-native";
+import type { IconProps } from "@/types/snap";
+import { useSnapContext } from "../context";
+import { resolvePaletteColor } from "@/constants/snapPalette";
 
 /**
  * Placeholder icon renderer. The snap spec defines a named IconName set, but
@@ -11,8 +11,8 @@ import { resolvePaletteColor } from '@/constants/snapPalette';
 export function SnapIcon({ props }: { props: IconProps }) {
   const { accent } = useSnapContext();
   const color = resolvePaletteColor(props.color, accent);
-  const dim = props.size === 'sm' ? 14 : 18;
-  const initial = (props.name ?? '?').charAt(0).toUpperCase();
+  const dim = props.size === "sm" ? 14 : 18;
+  const initial = (props.name ?? "?").charAt(0).toUpperCase();
 
   return (
     <Text
@@ -34,7 +34,7 @@ export function SnapIcon({ props }: { props: IconProps }) {
 
 const styles = StyleSheet.create({
   icon: {
-    textAlign: 'center',
-    fontWeight: '700',
+    textAlign: "center",
+    fontWeight: "700",
   },
 });

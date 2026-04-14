@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { NativeModules, NativeEventEmitter } from 'react-native';
-import { RoomEvent, DataPacket_Kind, DisconnectReason } from 'livekit-client';
-import type { Room, RemoteParticipant, Participant, TrackPublication } from 'livekit-client';
-import { useSpaceStore } from '@/stores/spaceStore';
-import { useAuthStore } from '@/stores/authStore';
-import * as livekitService from '@/services/livekit';
-import * as api from '@/services/api';
-import type { ParticipantRole } from '@/types/space';
-import { useReconnect } from '@/hooks/useReconnect';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { NativeModules, NativeEventEmitter } from "react-native";
+import { RoomEvent, DataPacket_Kind, DisconnectReason } from "livekit-client";
+import type {
+  Room,
+  RemoteParticipant,
+  Participant,
+  TrackPublication,
+} from "livekit-client";
+import { useSpaceStore } from "@/stores/spaceStore";
+import { useAuthStore } from "@/stores/authStore";
+import * as livekitService from "@/services/livekit";
+import * as api from "@/services/api";
+import type { ParticipantRole } from "@/types/space";
+import { useReconnect } from "@/hooks/useReconnect";
 
 const { AudioSessionModule } = NativeModules;
 
@@ -17,25 +22,29 @@ export function useSpace() {
   const roomRef = useRef<Room | null>(null);
   const { reconnect, setToken } = useReconnect();
   const reactionIdRef = useRef(0);
-  const [reactions, setReactions] = useState<Array<{ key: string; id: number; fid: number }>>([]);
+  const [reactions, setReactions] = useState<
+    Array<{ key: string; id: number; fid: number }>
+  >([]);
   const onRoomEndedRef = useRef<(() => void) | null>(null);
 
   const setupRoomListeners = useCallback(
     (room: Room) => {
       roomRef.current = room;
 
-      room.on('participantConnected', (participant: RemoteParticipant) => {
+      room.on("participantConnected", (participant: RemoteParticipant) => {
         const fid = parseInt(participant.identity, 10);
         if (isNaN(fid)) return;
         let metadata: { role?: string; pfp_url?: string } = {};
         try {
-          metadata = participant.metadata ? JSON.parse(participant.metadata) : {};
+          metadata = participant.metadata
+            ? JSON.parse(participant.metadata)
+            : {};
         } catch {
           // Ignore malformed metadata
         }
         store.addParticipant({
           fid,
-          role: (metadata.role as ParticipantRole) || 'listener',
+          role: (metadata.role as ParticipantRole) || "listener",
           is_muted: true,
           is_speaking: false,
           hand_raised: false,
@@ -44,33 +53,44 @@ export function useSpace() {
         });
       });
 
-      room.on('participantDisconnected', (participant: RemoteParticipant) => {
+      room.on("participantDisconnected", (participant: RemoteParticipant) => {
         const fid = parseInt(participant.identity, 10);
         store.removeParticipant(fid);
       });
 
-      room.on('trackMuted', (publication: TrackPublication, participant: Participant) => {
-        const fid = parseInt(participant.identity, 10);
-        store.updateParticipant(fid, { is_muted: true, is_speaking: false });
-      });
+      room.on(
+        "trackMuted",
+        (publication: TrackPublication, participant: Participant) => {
+          const fid = parseInt(participant.identity, 10);
+          store.updateParticipant(fid, { is_muted: true, is_speaking: false });
+        },
+      );
 
-      room.on('trackUnmuted', (publication: TrackPublication, participant: Participant) => {
-        const fid = parseInt(participant.identity, 10);
-        store.updateParticipant(fid, { is_muted: false });
-      });
+      room.on(
+        "trackUnmuted",
+        (publication: TrackPublication, participant: Participant) => {
+          const fid = parseInt(participant.identity, 10);
+          store.updateParticipant(fid, { is_muted: false });
+        },
+      );
 
-      room.on(RoomEvent.ActiveSpeakersChanged, (activeSpeakers: Participant[]) => {
-        const speakingFids = new Set(activeSpeakers.map((p) => parseInt(p.identity, 10)));
-        const allParticipants = useSpaceStore.getState().participants;
-        for (const p of allParticipants) {
-          const isSpeaking = speakingFids.has(p.fid);
-          if (p.is_speaking !== isSpeaking) {
-            store.updateParticipant(p.fid, { is_speaking: isSpeaking });
+      room.on(
+        RoomEvent.ActiveSpeakersChanged,
+        (activeSpeakers: Participant[]) => {
+          const speakingFids = new Set(
+            activeSpeakers.map((p) => parseInt(p.identity, 10)),
+          );
+          const allParticipants = useSpaceStore.getState().participants;
+          for (const p of allParticipants) {
+            const isSpeaking = speakingFids.has(p.fid);
+            if (p.is_speaking !== isSpeaking) {
+              store.updateParticipant(p.fid, { is_speaking: isSpeaking });
+            }
           }
-        }
-      });
+        },
+      );
 
-      room.on('disconnected', (reason?: DisconnectReason) => {
+      room.on("disconnected", (reason?: DisconnectReason) => {
         store.setConnected(false);
         // Server deleted the room (host ended the space) — auto-leave
         if (
@@ -83,11 +103,11 @@ export function useSpace() {
         }
       });
 
-      room.on('reconnecting', () => {
+      room.on("reconnecting", () => {
         store.setConnected(false);
       });
 
-      room.on('reconnected', () => {
+      room.on("reconnected", () => {
         store.setConnected(true);
       });
 
@@ -98,9 +118,13 @@ export function useSpace() {
           const fid = parseInt(participant.identity, 10);
           if (isNaN(fid)) return;
           try {
-            const metadata = participant.metadata ? JSON.parse(participant.metadata) : {};
+            const metadata = participant.metadata
+              ? JSON.parse(participant.metadata)
+              : {};
             if (metadata.role) {
-              store.updateParticipant(fid, { role: metadata.role as ParticipantRole });
+              store.updateParticipant(fid, {
+                role: metadata.role as ParticipantRole,
+              });
             }
           } catch {
             // Ignore malformed metadata
@@ -122,17 +146,23 @@ export function useSpace() {
 
           if (canPublish && !couldPublish) {
             // Promoted to speaker — update role and enable mic
-            console.log('[useSpace] Local participant promoted to speaker');
-            store.setMyRole('speaker');
-            store.updateParticipant(myFid, { role: 'speaker', is_muted: false });
+            console.log("[useSpace] Local participant promoted to speaker");
+            store.setMyRole("speaker");
+            store.updateParticipant(myFid, {
+              role: "speaker",
+              is_muted: false,
+            });
             livekitService.enableMicrophone().then(() => {
               store.setMuted(false);
             });
           } else if (!canPublish && couldPublish) {
             // Demoted to listener — update role and disable mic
-            console.log('[useSpace] Local participant demoted to listener');
-            store.setMyRole('listener');
-            store.updateParticipant(myFid, { role: 'listener', is_muted: true });
+            console.log("[useSpace] Local participant demoted to listener");
+            store.setMyRole("listener");
+            store.updateParticipant(myFid, {
+              role: "listener",
+              is_muted: true,
+            });
             livekitService.disableMicrophone().then(() => {
               store.setMuted(true);
             });
@@ -143,19 +173,32 @@ export function useSpace() {
       // Handle data messages (chat notifications + emoji reactions)
       room.on(
         RoomEvent.DataReceived,
-        (payload: Uint8Array, participant?: Participant, kind?: DataPacket_Kind, topic?: string) => {
+        (
+          payload: Uint8Array,
+          participant?: Participant,
+          kind?: DataPacket_Kind,
+          topic?: string,
+        ) => {
           try {
             const data = JSON.parse(new TextDecoder().decode(payload));
 
-            if (topic === 'space_chat' && data.type === 'new_reply') {
+            if (topic === "space_chat" && data.type === "new_reply") {
               store.bumpChatNewReply();
             }
 
-            if (topic === 'reactions' && data.type === 'reaction' && data.key && participant) {
+            if (
+              topic === "reactions" &&
+              data.type === "reaction" &&
+              data.key &&
+              participant
+            ) {
               const senderFid = parseInt(participant.identity, 10);
               if (!isNaN(senderFid)) {
                 reactionIdRef.current += 1;
-                setReactions((prev) => [...prev.slice(-19), { key: data.key, id: reactionIdRef.current, fid: senderFid }]);
+                setReactions((prev) => [
+                  ...prev.slice(-19),
+                  { key: data.key, id: reactionIdRef.current, fid: senderFid },
+                ]);
               }
             }
           } catch {
@@ -176,7 +219,7 @@ export function useSpace() {
 
       // Auto-enable mic for hosts/speakers/co-hosts
       const role = store.myRole;
-      if (role === 'host' || role === 'co_host' || role === 'speaker') {
+      if (role === "host" || role === "co_host" || role === "speaker") {
         await livekitService.enableMicrophone();
         store.setMuted(false);
       }
@@ -188,7 +231,7 @@ export function useSpace() {
     try {
       await livekitService.disconnectFromRoom();
     } catch (e) {
-      console.warn('[useSpace] LiveKit disconnect error:', e);
+      console.warn("[useSpace] LiveKit disconnect error:", e);
     }
     roomRef.current = null;
     store.leaveSpace();
@@ -202,7 +245,7 @@ export function useSpace() {
       // Seed the reconnect engine with the initial token.
       // expires_at is not returned by /join, so pass empty string;
       // useReconnect will refresh proactively on the next minute-interval check.
-      setToken(response.livekit_token, '');
+      setToken(response.livekit_token, "");
       return response;
     },
     [connect, store, setToken],
@@ -228,7 +271,10 @@ export function useSpace() {
     const myFid = useAuthStore.getState().user?.fid;
     if (myFid) {
       reactionIdRef.current += 1;
-      setReactions((prev) => [...prev.slice(-19), { key, id: reactionIdRef.current, fid: myFid }]);
+      setReactions((prev) => [
+        ...prev.slice(-19),
+        { key, id: reactionIdRef.current, fid: myFid },
+      ]);
     }
   }, []);
 
@@ -246,18 +292,18 @@ export function useSpace() {
     const emitter = new NativeEventEmitter(AudioSessionModule);
 
     const interruptionSub = emitter.addListener(
-      'onAudioInterruption',
-      (event: { type: 'began' | 'ended'; shouldResume?: boolean }) => {
-        if (event.type === 'ended' && event.shouldResume) {
+      "onAudioInterruption",
+      (event: { type: "began" | "ended"; shouldResume?: boolean }) => {
+        if (event.type === "ended" && event.shouldResume) {
           reconnect();
         }
       },
     );
 
     const routeChangeSub = emitter.addListener(
-      'onRouteChange',
+      "onRouteChange",
       (event: { reason: number; outputType: string }) => {
-        console.log('[AudioSession] Route changed — output:', event.outputType);
+        console.log("[AudioSession] Route changed — output:", event.outputType);
       },
     );
 

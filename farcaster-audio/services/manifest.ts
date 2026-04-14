@@ -1,13 +1,16 @@
-import type { MiniAppManifest, MiniAppConfig } from '@/types/miniapp';
+import type { MiniAppManifest, MiniAppConfig } from "@/types/miniapp";
 
-const MANIFEST_CACHE = new Map<string, { manifest: MiniAppManifest; fetchedAt: number }>();
+const MANIFEST_CACHE = new Map<
+  string,
+  { manifest: MiniAppManifest; fetchedAt: number }
+>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const INTERMEDIARY_PREFIXES = [
-  'https://warpcast.com/~/mini-app/',
-  'https://farcaster.com/~/mini-app/',
-  'https://farcaster.xyz/miniapps/',
-  'https://farcaster.xyz/~/mini-app/',
+  "https://warpcast.com/~/mini-app/",
+  "https://farcaster.com/~/mini-app/",
+  "https://farcaster.xyz/miniapps/",
+  "https://farcaster.xyz/~/mini-app/",
 ];
 
 function getDomain(url: string): string {
@@ -18,16 +21,21 @@ function getDomain(url: string): string {
   }
 }
 
-export async function fetchManifest(domain: string): Promise<MiniAppManifest | null> {
+export async function fetchManifest(
+  domain: string,
+): Promise<MiniAppManifest | null> {
   const cached = MANIFEST_CACHE.get(domain);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return cached.manifest;
   }
 
   try {
-    const response = await fetch(`https://${domain}/.well-known/farcaster.json`, {
-      headers: { Accept: 'application/json' },
-    });
+    const response = await fetch(
+      `https://${domain}/.well-known/farcaster.json`,
+      {
+        headers: { Accept: "application/json" },
+      },
+    );
     if (!response.ok) return null;
 
     const manifest: MiniAppManifest = await response.json();
@@ -38,7 +46,9 @@ export async function fetchManifest(domain: string): Promise<MiniAppManifest | n
   }
 }
 
-export function extractMiniAppConfig(manifest: MiniAppManifest): MiniAppConfig | undefined {
+export function extractMiniAppConfig(
+  manifest: MiniAppManifest,
+): MiniAppConfig | undefined {
   return manifest.miniapp ?? manifest.frame;
 }
 
@@ -58,7 +68,10 @@ function isIntermediaryUrl(url: string): boolean {
  * Resolve a miniapp URL to its launch URL and manifest config.
  * Handles direct URLs, intermediary URLs, and manifest homeUrl overrides.
  */
-export async function resolveMiniApp(url: string, domainHint?: string): Promise<{
+export async function resolveMiniApp(
+  url: string,
+  domainHint?: string,
+): Promise<{
   domain: string;
   launchUrl: string;
   manifest: MiniAppManifest | null;
@@ -71,25 +84,41 @@ export async function resolveMiniApp(url: string, domainHint?: string): Promise<
     // Try domain hint first (extracted from frame image/icon URLs)
     if (domainHint) {
       const manifest = await fetchManifest(domainHint);
-      const config = manifest ? extractMiniAppConfig(manifest) ?? null : null;
+      const config = manifest ? (extractMiniAppConfig(manifest) ?? null) : null;
       if (config?.homeUrl) {
-        return { domain: domainHint, launchUrl: config.homeUrl, manifest, config };
+        return {
+          domain: domainHint,
+          launchUrl: config.homeUrl,
+          manifest,
+          config,
+        };
       }
       // Even without homeUrl, use the hint domain root
       if (manifest) {
-        return { domain: domainHint, launchUrl: `https://${domainHint}`, manifest, config };
+        return {
+          domain: domainHint,
+          launchUrl: `https://${domainHint}`,
+          manifest,
+          config,
+        };
       }
     }
 
     // Fallback: try following HTTP redirects
     try {
-      const response = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+      const response = await fetch(url, { method: "HEAD", redirect: "follow" });
       const finalUrl = response.url;
       const finalDomain = getDomain(finalUrl);
 
-      if (finalDomain !== getDomain(url) && finalDomain !== 'farcaster.xyz' && finalDomain !== 'warpcast.com') {
+      if (
+        finalDomain !== getDomain(url) &&
+        finalDomain !== "farcaster.xyz" &&
+        finalDomain !== "warpcast.com"
+      ) {
         const manifest = await fetchManifest(finalDomain);
-        const config = manifest ? extractMiniAppConfig(manifest) ?? null : null;
+        const config = manifest
+          ? (extractMiniAppConfig(manifest) ?? null)
+          : null;
         return {
           domain: finalDomain,
           launchUrl: config?.homeUrl ?? finalUrl,
@@ -102,12 +131,17 @@ export async function resolveMiniApp(url: string, domainHint?: string): Promise<
     }
 
     // Can't resolve — return as-is but mark no config
-    return { domain: getDomain(url), launchUrl: url, manifest: null, config: null };
+    return {
+      domain: getDomain(url),
+      launchUrl: url,
+      manifest: null,
+      config: null,
+    };
   }
 
   const domain = getDomain(url);
   const manifest = await fetchManifest(domain);
-  const config = manifest ? extractMiniAppConfig(manifest) ?? null : null;
+  const config = manifest ? (extractMiniAppConfig(manifest) ?? null) : null;
 
   // Use homeUrl from manifest if available and it's on the same domain
   if (config?.homeUrl) {

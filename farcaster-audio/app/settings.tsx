@@ -1,14 +1,14 @@
-import { View, Text, Pressable, Switch, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useAuthStore } from '@/stores/authStore';
-import { useSpaceStore } from '@/stores/spaceStore';
-import { usePrefsStore } from '@/stores/prefsStore';
-import { Avatar } from '@/components/common/Avatar';
-import { colors, spacing } from '@/constants/theme';
-import * as livekitService from '@/services/livekit';
-import * as api from '@/services/api';
-import { unregisterPushToken } from '@/hooks/usePushNotifications';
+import { View, Text, Pressable, Switch, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useAuthStore } from "@/stores/authStore";
+import { useSpaceStore } from "@/stores/spaceStore";
+import { usePrefsStore } from "@/stores/prefsStore";
+import { Avatar } from "@/components/common/Avatar";
+import { colors, spacing } from "@/constants/theme";
+import * as livekitService from "@/services/livekit";
+import * as api from "@/services/api";
+import { unregisterPushToken } from "@/hooks/usePushNotifications";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -21,7 +21,9 @@ export default function SettingsScreen() {
 
   const handleLogout = async () => {
     if (room) {
-      try { await api.leaveRoom(room.id); } catch {}
+      try {
+        await api.leaveRoom(room.id);
+      } catch {}
       await livekitService.disconnectFromRoom();
       leaveSpace();
     }
@@ -42,25 +44,42 @@ export default function SettingsScreen() {
           accessibilityRole="button"
           accessibilityLabel="View your profile"
         >
-          <Avatar pfpUrl={user.pfp_url ?? null} displayName={user.display_name || user.username || ''} size="lg" />
+          <Avatar
+            pfpUrl={user.pfp_url ?? null}
+            displayName={user.display_name || user.username || ""}
+            size="lg"
+          />
           <View style={styles.profileText}>
             <Text style={styles.displayName}>{user.display_name}</Text>
             <Text style={styles.username}>@{user.username}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
+          <Ionicons
+            name="chevron-forward"
+            size={20}
+            color={colors.text.secondary}
+          />
         </Pressable>
       )}
 
       <View style={styles.section}>
         <Pressable
           style={styles.row}
-          onPress={() => router.push('/notification-settings')}
+          onPress={() => router.push("/notification-settings")}
           accessibilityRole="button"
           accessibilityLabel="Notification settings"
         >
-          <Ionicons name="notifications-outline" size={20} color={colors.purple} />
+          <Ionicons
+            name="notifications-outline"
+            size={20}
+            color={colors.purple}
+          />
           <Text style={styles.rowText}>Notifications</Text>
-          <Ionicons name="chevron-forward" size={16} color={colors.text.secondary} style={{ marginLeft: 'auto' }} />
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.secondary}
+            style={{ marginLeft: "auto" }}
+          />
         </Pressable>
       </View>
 
@@ -70,37 +89,60 @@ export default function SettingsScreen() {
             style={styles.row}
             onPress={() => {
               router.dismiss();
-              router.push('/admin');
+              router.push("/admin");
             }}
             accessibilityRole="button"
             accessibilityLabel="Admin panel"
           >
-            <Ionicons name="shield-checkmark-outline" size={20} color={colors.purple} />
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={20}
+              color={colors.purple}
+            />
             <Text style={styles.rowText}>Admin</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.text.secondary} style={{ marginLeft: 'auto' }} />
+            <Ionicons
+              name="chevron-forward"
+              size={16}
+              color={colors.text.secondary}
+              style={{ marginLeft: "auto" }}
+            />
           </Pressable>
         </View>
       )}
 
       <View style={styles.section}>
         <View style={styles.row}>
-          <Ionicons name="musical-notes-outline" size={20} color={colors.purple} />
+          <Ionicons
+            name="musical-notes-outline"
+            size={20}
+            color={colors.purple}
+          />
           <View style={styles.rowLabelWrap}>
             <Text style={styles.rowText}>Winamp Mode</Text>
-            <Text style={styles.rowHint}>Retro player skin for audio spaces</Text>
+            <Text style={styles.rowHint}>
+              Retro player skin for audio spaces
+            </Text>
           </View>
           <Switch
             value={winampMode}
             onValueChange={setWinampMode}
-            trackColor={{ false: colors.background.border, true: colors.purple }}
+            trackColor={{
+              false: colors.background.border,
+              true: colors.purple,
+            }}
             thumbColor="#ffffff"
-            style={{ marginLeft: 'auto' }}
+            style={{ marginLeft: "auto" }}
           />
         </View>
       </View>
 
       <View style={styles.section}>
-        <Pressable style={styles.row} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Log out">
+        <Pressable
+          style={styles.row}
+          onPress={handleLogout}
+          accessibilityRole="button"
+          accessibilityLabel="Log out"
+        >
           <Ionicons name="log-out-outline" size={20} color={colors.danger} />
           <Text style={styles.rowTextDanger}>Log Out</Text>
         </Pressable>
@@ -115,9 +157,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.main,
   },
   profile: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing['2xl'],
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing["2xl"],
     gap: spacing.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.background.border,
@@ -128,7 +170,7 @@ const styles = StyleSheet.create({
   displayName: {
     color: colors.text.primary,
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   username: {
     color: colors.text.secondary,
@@ -144,10 +186,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.surface,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
-    paddingHorizontal: spacing['2xl'],
+    paddingHorizontal: spacing["2xl"],
     paddingVertical: 14,
   },
   rowLabelWrap: {

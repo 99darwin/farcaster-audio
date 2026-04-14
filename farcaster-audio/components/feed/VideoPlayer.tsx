@@ -1,11 +1,17 @@
-import { useState, useEffect } from 'react';
-import { View, Pressable, Modal, StyleSheet, ActivityIndicator } from 'react-native';
-import { Image } from 'expo-image';
-import { useVideoPlayer, VideoView } from 'expo-video';
-import { Ionicons } from '@expo/vector-icons';
-import { useEvent } from 'expo';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '@/constants/theme';
+import { useState, useEffect } from "react";
+import {
+  View,
+  Pressable,
+  Modal,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
+import { Image } from "expo-image";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { Ionicons } from "@expo/vector-icons";
+import { useEvent } from "expo";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { colors } from "@/constants/theme";
 
 const MAX_INLINE_ASPECT = 4 / 3; // widest
 const MIN_INLINE_ASPECT = 3 / 4; // tallest in feed
@@ -16,7 +22,11 @@ interface VideoPlayerProps {
   aspectRatio?: number;
 }
 
-export function VideoPlayer({ url, thumbnailUrl, aspectRatio = 16 / 9 }: VideoPlayerProps) {
+export function VideoPlayer({
+  url,
+  thumbnailUrl,
+  aspectRatio = 16 / 9,
+}: VideoPlayerProps) {
   const [isStarted, setIsStarted] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isBuffering, setIsBuffering] = useState(false);
@@ -24,21 +34,26 @@ export function VideoPlayer({ url, thumbnailUrl, aspectRatio = 16 / 9 }: VideoPl
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Clamp aspect ratio for inline display so tall videos don't dominate the feed
-  const inlineAspect = Math.max(MIN_INLINE_ASPECT, Math.min(MAX_INLINE_ASPECT, aspectRatio));
+  const inlineAspect = Math.max(
+    MIN_INLINE_ASPECT,
+    Math.min(MAX_INLINE_ASPECT, aspectRatio),
+  );
 
   const player = useVideoPlayer(url, (p) => {
     p.muted = true;
     p.loop = true;
   });
 
-  const { status } = useEvent(player, 'statusChange', { status: player.status });
+  const { status } = useEvent(player, "statusChange", {
+    status: player.status,
+  });
 
   useEffect(() => {
-    if (status === 'readyToPlay' && isStarted) {
+    if (status === "readyToPlay" && isStarted) {
       setIsBuffering(false);
-    } else if (status === 'loading' && isStarted) {
+    } else if (status === "loading" && isStarted) {
       setIsBuffering(true);
-    } else if (status === 'error') {
+    } else if (status === "error") {
       setHasError(true);
       setIsBuffering(false);
     }
@@ -145,10 +160,22 @@ export function VideoPlayer({ url, thumbnailUrl, aspectRatio = 16 / 9 }: VideoPl
           </View>
         )}
         <View style={styles.controls}>
-          <Pressable onPress={handleToggleMute} hitSlop={8} style={styles.controlButton}>
-            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={18} color="#fff" />
+          <Pressable
+            onPress={handleToggleMute}
+            hitSlop={8}
+            style={styles.controlButton}
+          >
+            <Ionicons
+              name={isMuted ? "volume-mute" : "volume-high"}
+              size={18}
+              color="#fff"
+            />
           </Pressable>
-          <Pressable onPress={handleOpenFullscreen} hitSlop={8} style={styles.controlButton}>
+          <Pressable
+            onPress={handleOpenFullscreen}
+            hitSlop={8}
+            style={styles.controlButton}
+          >
             <Ionicons name="expand" size={18} color="#fff" />
           </Pressable>
         </View>
@@ -185,7 +212,12 @@ function FullscreenModal({
   if (!visible) return null;
 
   return (
-    <Modal visible animationType="fade" transparent={false} onRequestClose={onClose}>
+    <Modal
+      visible
+      animationType="fade"
+      transparent={false}
+      onRequestClose={onClose}
+    >
       <View style={fsStyles.backdrop}>
         <VideoView
           player={player}
@@ -206,8 +238,16 @@ function FullscreenModal({
           <Ionicons name="close" size={28} color="#fff" />
         </Pressable>
         <View style={[fsStyles.controls, { bottom: insets.bottom + 20 }]}>
-          <Pressable onPress={onToggleMute} hitSlop={8} style={fsStyles.controlButton}>
-            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={22} color="#fff" />
+          <Pressable
+            onPress={onToggleMute}
+            hitSlop={8}
+            style={fsStyles.controlButton}
+          >
+            <Ionicons
+              name={isMuted ? "volume-mute" : "volume-high"}
+              size={22}
+              color="#fff"
+            />
           </Pressable>
         </View>
       </View>
@@ -217,9 +257,9 @@ function FullscreenModal({
 
 const styles = StyleSheet.create({
   container: {
-    width: '100%',
+    width: "100%",
     borderRadius: 12,
-    overflow: 'hidden',
+    overflow: "hidden",
     backgroundColor: colors.background.surface,
     marginTop: 8,
   },
@@ -228,81 +268,81 @@ const styles = StyleSheet.create({
   },
   playOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   playButton: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
     paddingLeft: 4,
   },
   retryButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   bufferOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.3)",
   },
   controls: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 8,
     right: 8,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   controlButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
   },
 });
 
 const fsStyles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.95)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   closeButton: {
-    position: 'absolute',
+    position: "absolute",
     right: 16,
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(255,255,255,0.15)",
+    justifyContent: "center",
+    alignItems: "center",
     zIndex: 10,
   },
   controls: {
-    position: 'absolute',
+    position: "absolute",
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     gap: 12,
   },
   controlButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

@@ -1,8 +1,8 @@
-import { View, ScrollView, Pressable, Text, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-import { SpaceAvatar } from '@/components/spaces/SpaceAvatar';
-import { useSpaceStore } from '@/stores/spaceStore';
-import { colors } from '@/constants/theme';
+import { View, ScrollView, Pressable, Text, StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
+import { SpaceAvatar } from "@/components/spaces/SpaceAvatar";
+import { useSpaceStore } from "@/stores/spaceStore";
+import { colors } from "@/constants/theme";
 
 export function SpacesRail() {
   const router = useRouter();
@@ -14,7 +14,12 @@ export function SpacesRail() {
 
   return (
     <View style={styles.container}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollContent} accessibilityLabel="Live spaces">
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        accessibilityLabel="Live spaces"
+      >
         {activeLiveSpaces.map((room) => (
           <SpaceAvatar
             key={room.id}
@@ -31,7 +36,12 @@ export function SpacesRail() {
             onPress={() => router.push(`/space/${room.id}`)}
           />
         ))}
-        <Pressable onPress={() => router.push('/space/create')} style={styles.createButton} accessibilityRole="button" accessibilityLabel="Create a space">
+        <Pressable
+          onPress={() => router.push("/space/create")}
+          style={styles.createButton}
+          accessibilityRole="button"
+          accessibilityLabel="Create a space"
+        >
           <View style={styles.createCircle}>
             <Text style={styles.createPlus}>+</Text>
           </View>
@@ -50,17 +60,17 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    alignItems: 'flex-start',
+    alignItems: "flex-start",
   },
   divider: {
     width: 1,
     height: 48,
     backgroundColor: colors.background.border,
     marginHorizontal: 8,
-    alignSelf: 'center',
+    alignSelf: "center",
   },
   createButton: {
-    alignItems: 'center',
+    alignItems: "center",
     width: 72,
   },
   createCircle: {
@@ -69,9 +79,9 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     borderWidth: 2,
     borderColor: colors.background.subtle,
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderStyle: "dashed",
+    justifyContent: "center",
+    alignItems: "center",
   },
   createPlus: {
     color: colors.text.secondary,

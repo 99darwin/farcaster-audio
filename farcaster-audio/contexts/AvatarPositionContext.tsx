@@ -1,5 +1,5 @@
-import { createContext, useContext, useRef, useCallback } from 'react';
-import { type View } from 'react-native';
+import { createContext, useContext, useRef, useCallback } from "react";
+import { type View } from "react-native";
 
 interface Position {
   x: number;
@@ -11,9 +11,15 @@ interface AvatarPositionContextValue {
   measure: (fid: number) => Promise<Position | null>;
 }
 
-const AvatarPositionContext = createContext<AvatarPositionContextValue | null>(null);
+const AvatarPositionContext = createContext<AvatarPositionContextValue | null>(
+  null,
+);
 
-export function AvatarPositionProvider({ children }: { children: React.ReactNode }) {
+export function AvatarPositionProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const refs = useRef<Map<number, View>>(new Map());
 
   const register = useCallback((fid: number, ref: View) => {
@@ -44,6 +50,9 @@ export function AvatarPositionProvider({ children }: { children: React.ReactNode
 
 export function useAvatarPosition() {
   const ctx = useContext(AvatarPositionContext);
-  if (!ctx) throw new Error('useAvatarPosition must be used within AvatarPositionProvider');
+  if (!ctx)
+    throw new Error(
+      "useAvatarPosition must be used within AvatarPositionProvider",
+    );
   return ctx;
 }

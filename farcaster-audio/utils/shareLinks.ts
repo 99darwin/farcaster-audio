@@ -1,4 +1,4 @@
-import { Config } from '@/constants/config';
+import { Config } from "@/constants/config";
 
 export const buildSpaceUrl = (roomId: string) =>
   `${Config.WEB_BASE_URL}/space/${roomId}`;

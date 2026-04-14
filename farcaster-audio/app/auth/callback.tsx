@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Redirect } from 'expo-router';
+import { useEffect } from "react";
+import { Redirect } from "expo-router";
 
 // This route catches the juke://auth/callback deep link from SIWN.
 // The NeynarSigninButton WebView handles the actual callback internally;

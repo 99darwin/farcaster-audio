@@ -1,8 +1,8 @@
-import { useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
-import { WinampPlaylistItem } from './WinampPlaylistItem';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
-import type { Participant } from '@/types/space';
+import { useCallback } from "react";
+import { View, Text, FlatList, StyleSheet } from "react-native";
+import { WinampPlaylistItem } from "./WinampPlaylistItem";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
+import type { Participant } from "@/types/space";
 
 interface WinampPlaylistProps {
   participants: Participant[];
@@ -18,12 +18,17 @@ const ROLE_ORDER: Record<string, number> = {
   listener: 3,
 };
 
-export function WinampPlaylist({ participants, hostFid, elapsedFormatted, onParticipantPress }: WinampPlaylistProps) {
+export function WinampPlaylist({
+  participants,
+  hostFid,
+  elapsedFormatted,
+  onParticipantPress,
+}: WinampPlaylistProps) {
   const sorted = [...participants].sort(
     (a, b) => (ROLE_ORDER[a.role] ?? 4) - (ROLE_ORDER[b.role] ?? 4),
   );
   const speakerCount = participants.filter(
-    (p) => p.role === 'host' || p.role === 'co_host' || p.role === 'speaker',
+    (p) => p.role === "host" || p.role === "co_host" || p.role === "speaker",
   ).length;
 
   const renderItem = useCallback(
@@ -46,9 +51,7 @@ export function WinampPlaylist({ participants, hostFid, elapsedFormatted, onPart
           <View style={styles.cornerDot} />
         </View>
         <View style={styles.titleCenter}>
-          <Text style={styles.titleText}>
-            JUKE PLAYLIST EDITOR
-          </Text>
+          <Text style={styles.titleText}>JUKE PLAYLIST EDITOR</Text>
         </View>
         <View style={styles.titleCorner}>
           <View style={styles.cornerDot} />
@@ -101,8 +104,8 @@ const styles = StyleSheet.create({
     marginBottom: PANEL_MARGIN,
   },
   titleBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: WINAMP.titleBar,
     borderWidth: 1,
     borderTopColor: WINAMP.titleBarActive,
@@ -113,8 +116,8 @@ const styles = StyleSheet.create({
   titleCorner: {
     width: 16,
     height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   cornerDot: {
     width: 4,
@@ -129,25 +132,25 @@ const styles = StyleSheet.create({
   },
   titleCenter: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: 2,
   },
   titleText: {
     fontFamily: WINAMP.fonts.pixel,
     fontSize: 7,
-    color: '#ffffff',
+    color: "#ffffff",
     letterSpacing: 2,
-    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowColor: "rgba(0,0,0,0.8)",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 0,
   },
   headerRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderBottomWidth: 1,
     borderBottomColor: WINAMP.bevel.dark,
-    backgroundColor: 'rgba(75, 40, 120, 0.08)',
+    backgroundColor: "rgba(75, 40, 120, 0.08)",
   },
   headerText: {
     fontFamily: WINAMP.fonts.pixel,
@@ -163,7 +166,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   footerBar: {
-    flexDirection: 'row',
+    flexDirection: "row",
     borderTopWidth: 1,
     borderTopColor: WINAMP.bevel.dark,
     backgroundColor: WINAMP.chrome,
@@ -172,7 +175,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 3,
     paddingHorizontal: 6,
-    alignItems: 'center',
+    alignItems: "center",
   },
   footerDivider: {
     width: 1,
@@ -187,7 +190,7 @@ const styles = StyleSheet.create({
     fontFamily: WINAMP.fonts.pixel,
     fontSize: 5,
     color: WINAMP.accent.cyan,
-    textShadowColor: 'rgba(0, 229, 255, 0.3)',
+    textShadowColor: "rgba(0, 229, 255, 0.3)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 3,
   },

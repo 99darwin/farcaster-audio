@@ -1,13 +1,13 @@
-import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
-import { useRouter } from 'expo-router';
-import { useAuthStore } from '@/stores/authStore';
-import * as api from '@/services/api';
-import * as storage from '@/services/storage';
+import { useEffect, useRef } from "react";
+import { Platform } from "react-native";
+import * as Notifications from "expo-notifications";
+import * as Device from "expo-device";
+import { useRouter } from "expo-router";
+import { useAuthStore } from "@/stores/authStore";
+import * as api from "@/services/api";
+import * as storage from "@/services/storage";
 
-const PROJECT_ID = 'YOUR_EAS_PROJECT_ID';
+const PROJECT_ID = "YOUR_EAS_PROJECT_ID";
 
 // Show notifications when app is in foreground
 Notifications.setNotificationHandler({
@@ -51,39 +51,42 @@ export function usePushNotifications() {
 
   async function registerForPushNotifications() {
     if (!Device.isDevice) {
-      if (__DEV__) console.log('[Push] Skipping — not a physical device');
+      if (__DEV__) console.log("[Push] Skipping — not a physical device");
       return;
     }
 
-    if (Platform.OS !== 'ios') return;
+    if (Platform.OS !== "ios") return;
 
     // Check existing token to avoid redundant registration
     const existingToken = await storage.getPushToken();
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    const { status: existingStatus } =
+      await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
-    if (existingStatus !== 'granted') {
+    if (existingStatus !== "granted") {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
 
-    if (finalStatus !== 'granted') {
-      if (__DEV__) console.log('[Push] Permission not granted');
+    if (finalStatus !== "granted") {
+      if (__DEV__) console.log("[Push] Permission not granted");
       return;
     }
 
     try {
-      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: PROJECT_ID });
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: PROJECT_ID,
+      });
       const token = tokenData.data;
 
       // Always register with backend (upserts + syncs webhook filters)
       await api.registerPushToken({ expo_push_token: token });
       await storage.savePushToken(token);
       registeredRef.current = true;
-      if (__DEV__) console.log('[Push] Registered token:', token);
+      if (__DEV__) console.log("[Push] Registered token:", token);
     } catch (error) {
-      if (__DEV__) console.error('[Push] Failed to register:', error);
+      if (__DEV__) console.error("[Push] Failed to register:", error);
     }
   }
 }
@@ -96,6 +99,6 @@ export async function unregisterPushToken() {
       await storage.clearPushToken();
     }
   } catch (error) {
-    if (__DEV__) console.error('[Push] Failed to unregister:', error);
+    if (__DEV__) console.error("[Push] Failed to unregister:", error);
   }
 }

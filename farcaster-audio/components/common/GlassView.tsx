@@ -1,5 +1,5 @@
-import { View, StyleSheet, type ViewStyle, type StyleProp } from 'react-native';
-import { glass } from '@/constants/theme';
+import { View, StyleSheet, type ViewStyle, type StyleProp } from "react-native";
+import { glass } from "@/constants/theme";
 
 interface GlassViewProps {
   children: React.ReactNode;
@@ -31,7 +31,7 @@ export function GlassView({
         style={[
           StyleSheet.absoluteFill,
           {
-            overflow: 'hidden',
+            overflow: "hidden",
             borderRadius,
             backgroundColor: overlayColor,
             borderWidth: 1,

@@ -1,16 +1,16 @@
-import { View, StyleSheet } from 'react-native';
-import type { SeparatorProps } from '@/types/snap';
-import { colors } from '@/constants/theme';
+import { View, StyleSheet } from "react-native";
+import type { SeparatorProps } from "@/types/snap";
+import { colors } from "@/constants/theme";
 
 export function SnapSeparator({ props }: { props: SeparatorProps }) {
-  const vertical = props.orientation === 'vertical';
+  const vertical = props.orientation === "vertical";
   return (
     <View
       style={[
         styles.base,
         vertical
-          ? { width: StyleSheet.hairlineWidth, alignSelf: 'stretch' }
-          : { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
+          ? { width: StyleSheet.hairlineWidth, alignSelf: "stretch" }
+          : { height: StyleSheet.hairlineWidth, alignSelf: "stretch" },
       ]}
     />
   );

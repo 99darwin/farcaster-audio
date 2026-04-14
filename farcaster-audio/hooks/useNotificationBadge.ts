@@ -1,10 +1,10 @@
-import { useEffect, useCallback } from 'react';
-import { AppState } from 'react-native';
-import { useAuthStore } from '@/stores/authStore';
-import { useNotificationStore } from '@/stores/notificationStore';
-import * as api from '@/services/api';
-import { getLastSeenNotificationTimestamp } from '@/services/storage';
-import type { NeynarNotification } from '@/types/neynar';
+import { useEffect, useCallback } from "react";
+import { AppState } from "react-native";
+import { useAuthStore } from "@/stores/authStore";
+import { useNotificationStore } from "@/stores/notificationStore";
+import * as api from "@/services/api";
+import { getLastSeenNotificationTimestamp } from "@/services/storage";
+import type { NeynarNotification } from "@/types/neynar";
 
 function computeUnreadCount(
   notifications: NeynarNotification[],
@@ -44,10 +44,14 @@ export function useNotificationBadge() {
 
     fetchBadge();
 
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') return;
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
       const lastFetchedAt = useNotificationStore.getState().lastFetchedAt;
-      if (lastFetchedAt && Date.now() - lastFetchedAt <= BADGE_REFETCH_THROTTLE_MS) return;
+      if (
+        lastFetchedAt &&
+        Date.now() - lastFetchedAt <= BADGE_REFETCH_THROTTLE_MS
+      )
+        return;
       fetchBadge();
     });
 

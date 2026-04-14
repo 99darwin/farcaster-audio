@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,17 +11,23 @@ import {
   StyleSheet,
   type NativeSyntheticEvent,
   type TextInputSelectionChangeEventData,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import Toast from 'react-native-toast-message';
-import { useSpaceChat } from '@/hooks/useSpaceChat';
-import { ThreadedReplies } from '@/components/feed/ThreadedReplies';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { MentionSuggestions } from '@/components/common/MentionSuggestions';
-import { publishCast, likeCast, removeLike, recastCast, removeRecast } from '@/services/neynar';
-import { colors, glass } from '@/constants/theme';
-import type { NeynarCast, NeynarCastWithReplies } from '@/types/neynar';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import Toast from "react-native-toast-message";
+import { useSpaceChat } from "@/hooks/useSpaceChat";
+import { ThreadedReplies } from "@/components/feed/ThreadedReplies";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import { MentionSuggestions } from "@/components/common/MentionSuggestions";
+import {
+  publishCast,
+  likeCast,
+  removeLike,
+  recastCast,
+  removeRecast,
+} from "@/services/neynar";
+import { colors, glass } from "@/constants/theme";
+import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
 
 interface SpaceChatProps {
   castHash: string;
@@ -30,10 +36,18 @@ interface SpaceChatProps {
   bottomInset?: number;
 }
 
-export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bottomInset = 0 }: SpaceChatProps) {
+export function SpaceChat({
+  castHash,
+  viewerFid,
+  keyboardVerticalOffset = 0,
+  bottomInset = 0,
+}: SpaceChatProps) {
   const router = useRouter();
-  const { rootCast, replies, isLoading, refreshThread } = useSpaceChat(castHash, viewerFid);
-  const [text, setText] = useState('');
+  const { rootCast, replies, isLoading, refreshThread } = useSpaceChat(
+    castHash,
+    viewerFid,
+  );
+  const [text, setText] = useState("");
   const [cursorPosition, setCursorPosition] = useState(0);
   const [isSending, setIsSending] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -69,10 +83,14 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bot
     setIsSending(true);
     try {
       await publishCast(trimmed, castHash);
-      setText('');
+      setText("");
       await refreshThread();
     } catch {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to send reply' });
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Failed to send reply",
+      });
     } finally {
       setIsSending(false);
     }
@@ -121,7 +139,7 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bot
   return (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={keyboardVerticalOffset}
     >
       <FlatList<NeynarCastWithReplies>
@@ -141,7 +159,11 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bot
                 <Text style={styles.threadHeaderText} numberOfLines={2}>
                   {rootCast.text}
                 </Text>
-                <Ionicons name="open-outline" size={14} color={colors.text.secondary} />
+                <Ionicons
+                  name="open-outline"
+                  size={14}
+                  color={colors.text.secondary}
+                />
               </View>
             </Pressable>
           ) : null
@@ -163,7 +185,9 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bot
             <LoadingSpinner />
           ) : (
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>No comments yet — be the first to reply.</Text>
+              <Text style={styles.emptyText}>
+                No comments yet — be the first to reply.
+              </Text>
             </View>
           )
         }
@@ -177,11 +201,19 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bot
       />
 
       {/* Compose bar */}
-      <View style={[styles.composeBar, bottomInset > 0 && { paddingBottom: bottomInset + 8 }]}>
+      <View
+        style={[
+          styles.composeBar,
+          bottomInset > 0 && { paddingBottom: bottomInset + 8 },
+        ]}
+      >
         <TextInput
           style={styles.input}
           value={text}
-          onChangeText={(t) => { setText(t); setCursorPosition(t.length); }}
+          onChangeText={(t) => {
+            setText(t);
+            setCursorPosition(t.length);
+          }}
           onSelectionChange={handleSelectionChange}
           placeholder="Reply to this space..."
           placeholderTextColor={colors.text.secondary}
@@ -192,14 +224,19 @@ export function SpaceChat({ castHash, viewerFid, keyboardVerticalOffset = 0, bot
         <Pressable
           onPress={handleSend}
           disabled={!text.trim() || isSending}
-          style={[styles.sendButton, (!text.trim() || isSending) && styles.sendButtonDisabled]}
+          style={[
+            styles.sendButton,
+            (!text.trim() || isSending) && styles.sendButtonDisabled,
+          ]}
           accessibilityLabel="Send reply"
           accessibilityRole="button"
         >
           <Ionicons
             name="send"
             size={20}
-            color={!text.trim() || isSending ? colors.text.secondary : colors.accent}
+            color={
+              !text.trim() || isSending ? colors.text.secondary : colors.accent
+            }
           />
         </Pressable>
       </View>
@@ -211,8 +248,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   listContent: { flexGrow: 1 },
   threadHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -226,7 +263,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   empty: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: 40,
   },
   emptyText: {
@@ -234,8 +271,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   composeBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    alignItems: "flex-end",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderTopWidth: 1,
@@ -250,7 +287,7 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
     borderRadius: 20,
     borderWidth: 1,
     borderColor: glass.borderColor,
@@ -259,8 +296,8 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   sendButtonDisabled: {
     opacity: 0.5,

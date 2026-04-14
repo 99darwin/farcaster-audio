@@ -1,21 +1,25 @@
-import { useCallback } from 'react';
-import { Pressable } from 'react-native';
-import { Tabs, useRouter } from 'expo-router';
-import { useAuthStore } from '@/stores/authStore';
-import { useComposeStore } from '@/stores/composeStore';
-import { Avatar } from '@/components/common/Avatar';
-import { GlassTabBar } from '@/components/navigation/GlassTabBar';
-import { colors } from '@/constants/theme';
+import { useCallback } from "react";
+import { Pressable } from "react-native";
+import { Tabs, useRouter } from "expo-router";
+import { useAuthStore } from "@/stores/authStore";
+import { useComposeStore } from "@/stores/composeStore";
+import { Avatar } from "@/components/common/Avatar";
+import { GlassTabBar } from "@/components/navigation/GlassTabBar";
+import { colors } from "@/constants/theme";
 
 function HeaderAvatar() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
 
   return (
-    <Pressable onPress={() => router.push('/settings')} hitSlop={8} accessibilityLabel="Settings">
+    <Pressable
+      onPress={() => router.push("/settings")}
+      hitSlop={8}
+      accessibilityLabel="Settings"
+    >
       <Avatar
         pfpUrl={user?.pfp_url ?? null}
-        displayName={user?.display_name || user?.username || ''}
+        displayName={user?.display_name || user?.username || ""}
         size="sm"
       />
     </Pressable>
@@ -32,19 +36,13 @@ export default function TabLayout() {
       screenOptions={{
         headerStyle: { backgroundColor: colors.background.surface },
         headerTintColor: colors.text.primary,
-        tabBarStyle: { position: 'absolute' },
+        tabBarStyle: { position: "absolute" },
         headerRight: () => <HeaderAvatar />,
         headerRightContainerStyle: { paddingRight: 16 },
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{ title: 'Home' }}
-      />
-      <Tabs.Screen
-        name="notifications"
-        options={{ title: 'Notifications' }}
-      />
+      <Tabs.Screen name="index" options={{ title: "Home" }} />
+      <Tabs.Screen name="notifications" options={{ title: "Notifications" }} />
     </Tabs>
   );
 }

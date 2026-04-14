@@ -1,12 +1,18 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
-import { View, FlatList, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { useNavigation } from 'expo-router';
-import { useNotifications } from '@/hooks/useNotifications';
-import { useNotificationStore } from '@/stores/notificationStore';
-import { NotificationItem } from '@/components/notifications/NotificationItem';
-import { getLastSeenNotificationTimestamp } from '@/services/storage';
-import { colors, typography } from '@/constants/theme';
-import type { NeynarNotification } from '@/types/neynar';
+import { useEffect, useCallback, useRef, useState } from "react";
+import {
+  View,
+  FlatList,
+  Text,
+  ActivityIndicator,
+  StyleSheet,
+} from "react-native";
+import { useNavigation } from "expo-router";
+import { useNotifications } from "@/hooks/useNotifications";
+import { useNotificationStore } from "@/stores/notificationStore";
+import { NotificationItem } from "@/components/notifications/NotificationItem";
+import { getLastSeenNotificationTimestamp } from "@/services/storage";
+import { colors, typography } from "@/constants/theme";
+import type { NeynarNotification } from "@/types/neynar";
 
 export default function NotificationsScreen() {
   const {
@@ -29,7 +35,8 @@ export default function NotificationsScreen() {
     if (hasFetched.current) return;
     hasFetched.current = true;
     const lastFetchedAt = useNotificationStore.getState().lastFetchedAt;
-    const isFresh = lastFetchedAt !== null && Date.now() - lastFetchedAt < 60_000;
+    const isFresh =
+      lastFetchedAt !== null && Date.now() - lastFetchedAt < 60_000;
     if (!isFresh) {
       fetch();
     }
@@ -38,7 +45,7 @@ export default function NotificationsScreen() {
 
   // Mark as read when the tab gains focus
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+    const unsubscribe = navigation.addListener("focus", () => {
       markAsRead();
     });
     return unsubscribe;
@@ -55,7 +62,10 @@ export default function NotificationsScreen() {
   const isUnread = useCallback(
     (notification: NeynarNotification) => {
       if (!lastSeenTs) return true;
-      return new Date(notification.most_recent_timestamp).getTime() > new Date(lastSeenTs).getTime();
+      return (
+        new Date(notification.most_recent_timestamp).getTime() >
+        new Date(lastSeenTs).getTime()
+      );
     },
     [lastSeenTs],
   );
@@ -89,7 +99,9 @@ export default function NotificationsScreen() {
     <View style={styles.container}>
       <FlatList
         data={notifications}
-        keyExtractor={(item, index) => `${item.type}-${item.most_recent_timestamp}-${index}`}
+        keyExtractor={(item, index) =>
+          `${item.type}-${item.most_recent_timestamp}-${index}`
+        }
         renderItem={renderItem}
         onEndReached={handleEndReached}
         onEndReachedThreshold={0.3}
@@ -107,7 +119,9 @@ export default function NotificationsScreen() {
             <Text style={styles.emptyText}>No notifications yet</Text>
           </View>
         }
-        contentContainerStyle={notifications.length === 0 ? styles.emptyContainer : undefined}
+        contentContainerStyle={
+          notifications.length === 0 ? styles.emptyContainer : undefined
+        }
       />
     </View>
   );
@@ -120,8 +134,8 @@ const styles = StyleSheet.create({
   },
   centered: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyContainer: {
     flex: 1,

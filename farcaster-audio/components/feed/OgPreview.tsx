@@ -1,20 +1,20 @@
-import { useEffect, useState } from 'react';
-import { View, Text, Pressable, Linking, StyleSheet } from 'react-native';
-import { Image } from 'expo-image';
-import { colors } from '@/constants/theme';
-import { useMiniAppStore } from '@/stores/miniappStore';
-import { resolveMiniApp } from '@/services/manifest';
-import { fetchSnap, getCachedSnap } from '@/services/snapClient';
-import type { SnapResponse } from '@/types/snap';
-import { SnapCard } from '@/components/feed/snap/SnapCard';
-import type { NeynarEmbed } from '@/types/neynar';
-import type { CastEmbedLocationContext } from '@/types/miniapp';
+import { useEffect, useState } from "react";
+import { View, Text, Pressable, Linking, StyleSheet } from "react-native";
+import { Image } from "expo-image";
+import { colors } from "@/constants/theme";
+import { useMiniAppStore } from "@/stores/miniappStore";
+import { resolveMiniApp } from "@/services/manifest";
+import { fetchSnap, getCachedSnap } from "@/services/snapClient";
+import type { SnapResponse } from "@/types/snap";
+import { SnapCard } from "@/components/feed/snap/SnapCard";
+import type { NeynarEmbed } from "@/types/neynar";
+import type { CastEmbedLocationContext } from "@/types/miniapp";
 
 const MINIAPP_URL_PREFIXES = [
-  'https://warpcast.com/~/mini-app/',
-  'https://farcaster.com/~/mini-app/',
-  'https://farcaster.xyz/miniapps/',
-  'https://farcaster.xyz/~/mini-app/',
+  "https://warpcast.com/~/mini-app/",
+  "https://farcaster.com/~/mini-app/",
+  "https://farcaster.xyz/miniapps/",
+  "https://farcaster.xyz/~/mini-app/",
 ];
 
 /** Get frame metadata — Neynar uses both `fc_frame` and `frame` keys */
@@ -28,43 +28,47 @@ function isIntermediaryMiniAppUrl(url: string): boolean {
 
 function isMiniApp(embed: NeynarEmbed): boolean {
   if (getFrameMeta(embed)) return true;
-  const url = embed.url ?? '';
+  const url = embed.url ?? "";
   return isIntermediaryMiniAppUrl(url);
 }
 
 function getMiniAppUrl(embed: NeynarEmbed): string {
   const frame = getFrameMeta(embed);
-  if (!frame) return embed.url ?? '';
+  if (!frame) return embed.url ?? "";
 
   // Frames v2 / miniapp: button.action.url is the launch URL
-  const button = frame.button as { action?: { type?: string; url?: string } } | undefined;
-  if (button?.action?.type === 'launch_frame' && button.action.url) {
+  const button = frame.button as
+    | { action?: { type?: string; url?: string } }
+    | undefined;
+  if (button?.action?.type === "launch_frame" && button.action.url) {
     return button.action.url;
   }
 
   // Neynar may also use `buttons` array
-  const buttons = frame.buttons as Array<{ action_type?: string; target?: string }> | undefined;
+  const buttons = frame.buttons as
+    | Array<{ action_type?: string; target?: string }>
+    | undefined;
   if (buttons?.length) {
-    const launchButton = buttons.find((b) => b.action_type === 'launch_frame');
+    const launchButton = buttons.find((b) => b.action_type === "launch_frame");
     if (launchButton?.target) return launchButton.target;
   }
 
   // Miniapp manifest fields that Neynar may inline
-  if (typeof frame.homeUrl === 'string' && frame.homeUrl) {
+  if (typeof frame.homeUrl === "string" && frame.homeUrl) {
     return frame.homeUrl;
   }
-  if (typeof frame.home_url === 'string' && frame.home_url) {
+  if (typeof frame.home_url === "string" && frame.home_url) {
     return frame.home_url;
   }
 
   // Some embeds use a top-level url field
-  if (typeof frame.url === 'string' && frame.url) {
+  if (typeof frame.url === "string" && frame.url) {
     return frame.url;
   }
 
   // For intermediary URLs (farcaster.xyz/miniapps/...), try to derive the
   // actual miniapp domain from other frame fields like image or splash
-  return embed.url ?? '';
+  return embed.url ?? "";
 }
 
 /** Extract a domain hint from frame metadata (image URL, splash URL, etc.) */
@@ -73,14 +77,26 @@ function getFrameDomainHint(embed: NeynarEmbed): string | undefined {
   if (!frame) return undefined;
 
   // Check image, splashImageUrl, iconUrl for a non-intermediary domain
-  const candidates = [frame.image, frame.splashImageUrl, frame.splash_image_url, frame.iconUrl, frame.icon_url]
-    .filter((v): v is string => typeof v === 'string' && v.startsWith('https://'));
+  const candidates = [
+    frame.image,
+    frame.splashImageUrl,
+    frame.splash_image_url,
+    frame.iconUrl,
+    frame.icon_url,
+  ].filter(
+    (v): v is string => typeof v === "string" && v.startsWith("https://"),
+  );
 
   for (const url of candidates) {
     try {
       const host = new URL(url).hostname;
       // Skip intermediary domains
-      if (host === 'farcaster.xyz' || host === 'warpcast.com' || host === 'farcaster.com') continue;
+      if (
+        host === "farcaster.xyz" ||
+        host === "warpcast.com" ||
+        host === "farcaster.com"
+      )
+        continue;
       return host;
     } catch {
       continue;
@@ -107,7 +123,7 @@ function getOgDescription(embed: NeynarEmbed): string | undefined {
 
 function getDomain(url: string): string {
   try {
-    return new URL(url).hostname.replace(/^www\./, '');
+    return new URL(url).hostname.replace(/^www\./, "");
   } catch {
     return url;
   }
@@ -115,10 +131,13 @@ function getDomain(url: string): string {
 
 function isTwitterUrl(url: string): boolean {
   const domain = getDomain(url);
-  return domain === 'x.com' || domain === 'twitter.com';
+  return domain === "x.com" || domain === "twitter.com";
 }
 
-function getTwitterInfo(embed: NeynarEmbed): { author?: string; text?: string } {
+function getTwitterInfo(embed: NeynarEmbed): {
+  author?: string;
+  text?: string;
+} {
   const oembed = embed.metadata?.html?.oembed;
   if (!oembed) return {};
 
@@ -129,15 +148,15 @@ function getTwitterInfo(embed: NeynarEmbed): { author?: string; text?: string } 
   let text: string | undefined;
   if (blockquoteMatch) {
     text = blockquoteMatch[1]
-      .replace(/<br\s*\/?>/g, '\n')
-      .replace(/<a[^>]*>(.*?)<\/a>/g, '$1')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
+      .replace(/<br\s*\/?>/g, "\n")
+      .replace(/<a[^>]*>(.*?)<\/a>/g, "$1")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
-      .replace(/\u2026/g, '...')
+      .replace(/\u2026/g, "...")
       .trim();
   }
 
@@ -147,7 +166,12 @@ function getTwitterInfo(embed: NeynarEmbed): { author?: string; text?: string } 
 interface OgPreviewProps {
   embed: NeynarEmbed;
   /** Cast context for miniapp location — pass hash + author for cast_embed context */
-  castContext?: { hash: string; authorFid: number; authorUsername: string; text: string };
+  castContext?: {
+    hash: string;
+    authorFid: number;
+    authorUsername: string;
+    text: string;
+  };
 }
 
 export function OgPreview({ embed, castContext }: OgPreviewProps) {
@@ -190,21 +214,23 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
         const domainHint = getFrameDomainHint(embed);
         const resolved = await resolveMiniApp(miniAppUrl, domainHint);
         // Guard against invalid resolved URLs (e.g. about:blank from bad manifests)
-        if (!resolved.launchUrl || !resolved.launchUrl.startsWith('https://')) {
+        if (!resolved.launchUrl || !resolved.launchUrl.startsWith("https://")) {
           return;
         }
-        const location: CastEmbedLocationContext | undefined = castContext ? {
-          type: 'cast_embed',
-          embed: miniAppUrl,
-          cast: {
-            hash: castContext.hash,
-            text: castContext.text,
-            author: {
-              fid: castContext.authorFid,
-              username: castContext.authorUsername,
-            },
-          },
-        } : undefined;
+        const location: CastEmbedLocationContext | undefined = castContext
+          ? {
+              type: "cast_embed",
+              embed: miniAppUrl,
+              cast: {
+                hash: castContext.hash,
+                text: castContext.text,
+                author: {
+                  fid: castContext.authorFid,
+                  username: castContext.authorUsername,
+                },
+              },
+            }
+          : undefined;
         openMiniApp({
           url: resolved.launchUrl,
           domain: resolved.domain,
@@ -227,9 +253,7 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
     return (
       <Pressable onPress={handlePress} style={styles.twitterContainer}>
         <View style={styles.twitterHeader}>
-          {author ? (
-            <Text style={styles.twitterHandle}>{author}</Text>
-          ) : null}
+          {author ? <Text style={styles.twitterHandle}>{author}</Text> : null}
           <Text style={styles.twitterLogo}>𝕏</Text>
         </View>
         {tweetText ? (
@@ -257,7 +281,9 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
         />
         {title ? (
           <View style={styles.miniAppLabel}>
-            <Text style={styles.miniAppTitle} numberOfLines={1}>{title}</Text>
+            <Text style={styles.miniAppTitle} numberOfLines={1}>
+              {title}
+            </Text>
             <Text style={styles.miniAppBadge}>Mini App</Text>
           </View>
         ) : null}
@@ -301,10 +327,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.background.border,
     borderRadius: 12,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   ogImage: {
-    width: '100%',
+    width: "100%",
     aspectRatio: 1.91,
   },
   textContainer: {
@@ -318,7 +344,7 @@ const styles = StyleSheet.create({
   title: {
     color: colors.text.primary,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   description: {
     color: colors.text.secondary,
@@ -334,15 +360,15 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   twitterHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 4,
   },
   twitterHandle: {
     color: colors.text.primary,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   twitterText: {
     color: colors.text.body,
@@ -352,7 +378,7 @@ const styles = StyleSheet.create({
   twitterLogo: {
     fontSize: 18,
     color: colors.text.primary,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   twitterDomain: {
     color: colors.text.secondary,
@@ -363,36 +389,36 @@ const styles = StyleSheet.create({
   miniAppContainer: {
     marginTop: 8,
     borderRadius: 12,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.background.border,
   },
   miniAppImage: {
-    width: '100%',
+    width: "100%",
     aspectRatio: 1.91,
   },
   miniAppLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     padding: 10,
   },
   miniAppTitle: {
     color: colors.text.primary,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     flex: 1,
     marginRight: 8,
   },
   miniAppBadge: {
     color: colors.purple,
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
     borderWidth: 1,
     borderColor: colors.purple,
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
 });

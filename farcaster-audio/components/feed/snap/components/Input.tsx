@@ -1,16 +1,16 @@
-import { useState } from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
-import type { InputProps } from '@/types/snap';
-import { useSnapContext } from '../context';
-import { colors } from '@/constants/theme';
+import { useState } from "react";
+import { View, Text, TextInput, StyleSheet } from "react-native";
+import type { InputProps } from "@/types/snap";
+import { useSnapContext } from "../context";
+import { colors } from "@/constants/theme";
 
 export function SnapInput({ props }: { props: InputProps }) {
   const { setInput } = useSnapContext();
-  const [value, setValue] = useState(props.defaultValue ?? '');
+  const [value, setValue] = useState(props.defaultValue ?? "");
 
   const handleChange = (next: string) => {
     setValue(next);
-    if (props.type === 'number') {
+    if (props.type === "number") {
       const n = Number(next);
       setInput(props.name, Number.isFinite(n) ? n : next);
     } else {
@@ -27,7 +27,7 @@ export function SnapInput({ props }: { props: InputProps }) {
         placeholder={props.placeholder}
         placeholderTextColor={colors.text.placeholder}
         maxLength={props.maxLength ?? 280}
-        keyboardType={props.type === 'number' ? 'numeric' : 'default'}
+        keyboardType={props.type === "number" ? "numeric" : "default"}
         style={styles.input}
       />
     </View>

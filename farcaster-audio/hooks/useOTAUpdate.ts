@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
-import * as Updates from 'expo-updates';
+import { useState, useEffect, useCallback, useRef } from "react";
+import { AppState, AppStateStatus } from "react-native";
+import * as Updates from "expo-updates";
 
 interface OTAUpdateState {
   isUpdateAvailable: boolean;
@@ -51,11 +51,11 @@ export function useOTAUpdate() {
   // Check when app comes back to foreground
   useEffect(() => {
     const handleAppState = (next: AppStateStatus) => {
-      if (next === 'active') {
+      if (next === "active") {
         checkForUpdate();
       }
     };
-    const subscription = AppState.addEventListener('change', handleAppState);
+    const subscription = AppState.addEventListener("change", handleAppState);
     return () => subscription.remove();
   }, [checkForUpdate]);
 

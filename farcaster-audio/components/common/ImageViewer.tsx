@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -7,19 +7,19 @@ import {
   FlatList,
   useWindowDimensions,
   type ViewToken,
-} from 'react-native';
-import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+} from "react-native";
+import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
   runOnJS,
-} from 'react-native-reanimated';
-import { colors } from '@/constants/theme';
+} from "react-native-reanimated";
+import { colors } from "@/constants/theme";
 
 interface MediaViewerProps {
   images: string[];
@@ -31,7 +31,17 @@ interface MediaViewerProps {
 const SPRING_CONFIG = { damping: 20, stiffness: 200 };
 const DISMISS_THRESHOLD = 150;
 
-function ZoomableImage({ uri, width, height, onClose }: { uri: string; width: number; height: number; onClose: () => void }) {
+function ZoomableImage({
+  uri,
+  width,
+  height,
+  onClose,
+}: {
+  uri: string;
+  width: number;
+  height: number;
+  onClose: () => void;
+}) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -113,7 +123,17 @@ function ZoomableImage({ uri, width, height, onClose }: { uri: string; width: nu
     // gesture from the parent horizontal FlatList.
     const activePan = isZoomed ? zoomPan : dismissPan;
     return Gesture.Exclusive(doubleTap, Gesture.Simultaneous(pinch, activePan));
-  }, [isZoomed, onClose, scale, savedScale, translateX, translateY, savedTranslateX, savedTranslateY, opacity]);
+  }, [
+    isZoomed,
+    onClose,
+    scale,
+    savedScale,
+    translateX,
+    translateY,
+    savedTranslateX,
+    savedTranslateY,
+    opacity,
+  ]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -126,7 +146,12 @@ function ZoomableImage({ uri, width, height, onClose }: { uri: string; width: nu
 
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View style={[{ width, height, justifyContent: 'center', alignItems: 'center' }, animatedStyle]}>
+      <Animated.View
+        style={[
+          { width, height, justifyContent: "center", alignItems: "center" },
+          animatedStyle,
+        ]}
+      >
         <Image
           source={{ uri }}
           style={{ width, height: height * 0.8 }}
@@ -138,17 +163,25 @@ function ZoomableImage({ uri, width, height, onClose }: { uri: string; width: nu
   );
 }
 
-export function MediaViewer({ images, initialIndex, visible, onClose }: MediaViewerProps) {
+export function MediaViewer({
+  images,
+  initialIndex,
+  visible,
+  onClose,
+}: MediaViewerProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const currentIndex = useSharedValue(initialIndex);
   const flatListRef = useRef<FlatList>(null);
 
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    if (viewableItems.length > 0 && viewableItems[0].index != null) {
-      currentIndex.value = viewableItems[0].index;
-    }
-  }, [currentIndex]);
+  const onViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      if (viewableItems.length > 0 && viewableItems[0].index != null) {
+        currentIndex.value = viewableItems[0].index;
+      }
+    },
+    [currentIndex],
+  );
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
 
@@ -163,13 +196,22 @@ export function MediaViewer({ images, initialIndex, visible, onClose }: MediaVie
           horizontal
           pagingEnabled
           initialScrollIndex={initialIndex}
-          getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+          getItemLayout={(_, index) => ({
+            length: width,
+            offset: width * index,
+            index,
+          })}
           showsHorizontalScrollIndicator={false}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           keyExtractor={(item) => item}
           renderItem={({ item }) => (
-            <ZoomableImage uri={item} width={width} height={height} onClose={onClose} />
+            <ZoomableImage
+              uri={item}
+              width={width}
+              height={height}
+              onClose={onClose}
+            />
           )}
         />
         {images.length > 1 && (
@@ -191,7 +233,13 @@ export function MediaViewer({ images, initialIndex, visible, onClose }: MediaVie
   );
 }
 
-function PageDot({ index, currentIndex }: { index: number; currentIndex: { value: number } }) {
+function PageDot({
+  index,
+  currentIndex,
+}: {
+  index: number;
+  currentIndex: { value: number };
+}) {
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: currentIndex.value === index ? 1 : 0.4,
     transform: [{ scale: currentIndex.value === index ? 1.2 : 1 }],
@@ -203,30 +251,30 @@ function PageDot({ index, currentIndex }: { index: number; currentIndex: { value
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
+    backgroundColor: "rgba(0,0,0,0.95)",
   },
   closeButton: {
-    position: 'absolute',
+    position: "absolute",
     right: 16,
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(255,255,255,0.15)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   dotsContainer: {
-    position: 'absolute',
+    position: "absolute",
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     gap: 6,
   },
   dot: {
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
 });

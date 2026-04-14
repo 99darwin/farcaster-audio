@@ -1,11 +1,11 @@
-export type RoomStatus = 'active' | 'ended' | 'cancelled' | 'scheduled';
-export type ParticipantRole = 'host' | 'co_host' | 'speaker' | 'listener';
+export type RoomStatus = "active" | "ended" | "cancelled" | "scheduled";
+export type ParticipantRole = "host" | "co_host" | "speaker" | "listener";
 
 export interface Room {
   id: string;
   title: string;
   host_fid: number;
-  host: import('./user').UserProfile;
+  host: import("./user").UserProfile;
   status: RoomStatus;
   started_at: string;
   ended_at: string | null;
@@ -49,15 +49,15 @@ export interface RsvpSummary {
 
 export interface RoomEvent {
   type:
-    | 'participant_joined'
-    | 'participant_left'
-    | 'role_changed'
-    | 'hand_raised'
-    | 'hand_lowered'
-    | 'mute_changed'
-    | 'room_ended'
-    | 'recording_started'
-    | 'recording_stopped';
+    | "participant_joined"
+    | "participant_left"
+    | "role_changed"
+    | "hand_raised"
+    | "hand_lowered"
+    | "mute_changed"
+    | "room_ended"
+    | "recording_started"
+    | "recording_stopped";
   fid?: number;
   role?: ParticipantRole;
   old_role?: ParticipantRole;

@@ -1,7 +1,7 @@
-import React, { memo } from 'react';
-import { Pressable, Text, View, Image, StyleSheet } from 'react-native';
-import { WINAMP } from './winampTheme';
-import type { Participant } from '@/types/space';
+import React, { memo } from "react";
+import { Pressable, Text, View, Image, StyleSheet } from "react-native";
+import { WINAMP } from "./winampTheme";
+import type { Participant } from "@/types/space";
 
 const AVATAR_SIZE = 24;
 
@@ -12,43 +12,52 @@ interface WinampPlaylistItemProps {
   onPress: (participant: Participant) => void;
 }
 
-export const WinampPlaylistItem = memo(function WinampPlaylistItem({ participant, index, isHost, onPress }: WinampPlaylistItemProps) {
+export const WinampPlaylistItem = memo(function WinampPlaylistItem({
+  participant,
+  index,
+  isHost,
+  onPress,
+}: WinampPlaylistItemProps) {
   const isSpeaking = participant.is_speaking;
   const isSpeakerRole =
-    participant.role === 'host' || participant.role === 'co_host' || participant.role === 'speaker';
+    participant.role === "host" ||
+    participant.role === "co_host" ||
+    participant.role === "speaker";
   const isMutedSpeaker = participant.is_muted && isSpeakerRole;
   const isEven = index % 2 === 0;
 
   const getTextColor = () => {
     if (isSpeaking) return WINAMP.playlist.speaking;
     if (isHost) return WINAMP.playlist.host;
-    if (participant.role === 'co_host') return WINAMP.accent.purple;
-    if (participant.role === 'speaker') return WINAMP.playlist.current;
+    if (participant.role === "co_host") return WINAMP.accent.purple;
+    if (participant.role === "speaker") return WINAMP.playlist.current;
     return WINAMP.playlist.text;
   };
 
   const getGlow = () => {
     if (isSpeaking) return WINAMP.playlist.speakingGlow;
     if (isHost) return WINAMP.playlist.hostGlow;
-    return 'transparent';
+    return "transparent";
   };
 
   const getBorderColor = () => {
     if (isSpeaking) return WINAMP.accent.cyan;
     if (isHost) return WINAMP.playlist.host;
-    if (participant.role === 'co_host') return WINAMP.accent.purple;
+    if (participant.role === "co_host") return WINAMP.accent.purple;
     return WINAMP.bevel.dark;
   };
 
-  const roleTag =
-    isHost ? 'HOST' :
-    participant.role === 'co_host' ? 'CO' :
-    participant.role === 'speaker' ? 'SPK' :
-    '';
+  const roleTag = isHost
+    ? "HOST"
+    : participant.role === "co_host"
+      ? "CO"
+      : participant.role === "speaker"
+        ? "SPK"
+        : "";
 
-  const suffix = isMutedSpeaker ? 'MUTED' : isSpeaking ? 'LIVE' : '';
-  const numStr = String(index + 1).padStart(2, '0');
-  const initial = (participant.display_name || '?')[0].toUpperCase();
+  const suffix = isMutedSpeaker ? "MUTED" : isSpeaking ? "LIVE" : "";
+  const numStr = String(index + 1).padStart(2, "0");
+  const initial = (participant.display_name || "?")[0].toUpperCase();
 
   return (
     <Pressable
@@ -74,7 +83,9 @@ export const WinampPlaylistItem = memo(function WinampPlaylistItem({ participant
           <Image source={{ uri: participant.pfp_url }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarFallback}>
-            <Text style={[styles.avatarInitial, { color: getTextColor() }]}>{initial}</Text>
+            <Text style={[styles.avatarInitial, { color: getTextColor() }]}>
+              {initial}
+            </Text>
           </View>
         )}
         {/* Speaking pulse ring */}
@@ -82,23 +93,36 @@ export const WinampPlaylistItem = memo(function WinampPlaylistItem({ participant
       </View>
 
       {/* Role badge */}
-      {roleTag !== '' && (
+      {roleTag !== "" && (
         <View style={[styles.roleBadge, isHost && styles.roleBadgeHost]}>
-          <Text style={[styles.roleBadgeText, isHost && styles.roleBadgeTextHost]}>{roleTag}</Text>
+          <Text
+            style={[styles.roleBadgeText, isHost && styles.roleBadgeTextHost]}
+          >
+            {roleTag}
+          </Text>
         </View>
       )}
 
       {/* Name */}
       <Text
-        style={[styles.name, { color: getTextColor(), textShadowColor: getGlow() }]}
+        style={[
+          styles.name,
+          { color: getTextColor(), textShadowColor: getGlow() },
+        ]}
         numberOfLines={1}
       >
         {participant.display_name}
       </Text>
 
       {/* Right side — status */}
-      {suffix !== '' && (
-        <Text style={[styles.suffix, isSpeaking && styles.suffixLive, isMutedSpeaker && styles.suffixMuted]}>
+      {suffix !== "" && (
+        <Text
+          style={[
+            styles.suffix,
+            isSpeaking && styles.suffixLive,
+            isMutedSpeaker && styles.suffixMuted,
+          ]}
+        >
           {suffix}
         </Text>
       )}
@@ -108,21 +132,21 @@ export const WinampPlaylistItem = memo(function WinampPlaylistItem({ participant
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 4,
     paddingHorizontal: 6,
     minHeight: 34,
     gap: 5,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(75, 40, 120, 0.15)',
-    position: 'relative',
+    borderBottomColor: "rgba(75, 40, 120, 0.15)",
+    position: "relative",
   },
   containerAlt: {
-    backgroundColor: 'rgba(75, 40, 120, 0.06)',
+    backgroundColor: "rgba(75, 40, 120, 0.06)",
   },
   containerSpeaking: {
-    backgroundColor: 'rgba(0, 229, 255, 0.04)',
+    backgroundColor: "rgba(0, 229, 255, 0.04)",
   },
   num: {
     fontFamily: WINAMP.fonts.pixel,
@@ -135,9 +159,9 @@ const styles = StyleSheet.create({
     height: AVATAR_SIZE + 2,
     borderRadius: 2,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
   },
   avatar: {
     width: AVATAR_SIZE,
@@ -149,8 +173,8 @@ const styles = StyleSheet.create({
     height: AVATAR_SIZE,
     borderRadius: 1,
     backgroundColor: WINAMP.bevel.face,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarInitial: {
     fontFamily: WINAMP.fonts.pixel,
@@ -175,7 +199,7 @@ const styles = StyleSheet.create({
   },
   roleBadgeHost: {
     borderColor: WINAMP.playlist.host,
-    backgroundColor: 'rgba(255, 107, 53, 0.1)',
+    backgroundColor: "rgba(255, 107, 53, 0.1)",
   },
   roleBadgeText: {
     fontFamily: WINAMP.fonts.pixel,
@@ -210,7 +234,7 @@ const styles = StyleSheet.create({
   },
   // Speaking edge bar
   speakingBar: {
-    position: 'absolute',
+    position: "absolute",
     left: 0,
     top: 0,
     bottom: 0,

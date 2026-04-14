@@ -1,17 +1,27 @@
-import { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, Switch, StyleSheet, Alert, Keyboard, Animated, Pressable } from 'react-native';
-import { useRouter } from 'expo-router';
-import { NativeModules } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { Button } from '@/components/common/Button';
-import { useSpaceStore } from '@/stores/spaceStore';
-import { useAuthStore } from '@/stores/authStore';
-import { useLiveSpaces } from '@/hooks/useLiveSpaces';
-import Toast from 'react-native-toast-message';
-import { colors } from '@/constants/theme';
-import { formatScheduledTime } from '@/utils/formatDate';
-import * as api from '@/services/api';
-import * as livekitService from '@/services/livekit';
+import { useState, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  Switch,
+  StyleSheet,
+  Alert,
+  Keyboard,
+  Animated,
+  Pressable,
+} from "react-native";
+import { useRouter } from "expo-router";
+import { NativeModules } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Button } from "@/components/common/Button";
+import { useSpaceStore } from "@/stores/spaceStore";
+import { useAuthStore } from "@/stores/authStore";
+import { useLiveSpaces } from "@/hooks/useLiveSpaces";
+import Toast from "react-native-toast-message";
+import { colors } from "@/constants/theme";
+import { formatScheduledTime } from "@/utils/formatDate";
+import * as api from "@/services/api";
+import * as livekitService from "@/services/livekit";
 
 const { AudioSessionModule } = NativeModules;
 
@@ -21,7 +31,7 @@ export default function CreateSpaceScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const { refresh: refreshSpaces } = useLiveSpaces();
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState("");
   const [announceCast, setAnnounceCast] = useState(false);
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState(() => {
@@ -33,14 +43,14 @@ export default function CreateSpaceScreen() {
   const keyboardPadding = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
+    const showSub = Keyboard.addListener("keyboardWillShow", (e) => {
       Animated.timing(keyboardPadding, {
         toValue: e.endCoordinates.height,
         duration: e.duration,
         useNativeDriver: false,
       }).start();
     });
-    const hideSub = Keyboard.addListener('keyboardWillHide', (e) => {
+    const hideSub = Keyboard.addListener("keyboardWillHide", (e) => {
       Animated.timing(keyboardPadding, {
         toValue: 0,
         duration: e.duration,
@@ -56,12 +66,18 @@ export default function CreateSpaceScreen() {
   const handleCreate = async () => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
-      Alert.alert('Error', 'Please enter a title for your space');
+      Alert.alert("Error", "Please enter a title for your space");
       return;
     }
 
-    if (isScheduled && scheduledDate.getTime() < Date.now() + MIN_SCHEDULE_AHEAD_MS) {
-      Alert.alert('Error', 'Scheduled time must be at least 5 minutes in the future');
+    if (
+      isScheduled &&
+      scheduledDate.getTime() < Date.now() + MIN_SCHEDULE_AHEAD_MS
+    ) {
+      Alert.alert(
+        "Error",
+        "Scheduled time must be at least 5 minutes in the future",
+      );
       return;
     }
 
@@ -70,7 +86,9 @@ export default function CreateSpaceScreen() {
       // Clean up any stale space state
       const storeState = useSpaceStore.getState();
       if (storeState.room) {
-        try { await livekitService.disconnectFromRoom(); } catch {}
+        try {
+          await livekitService.disconnectFromRoom();
+        } catch {}
         storeState.leaveSpace();
       }
 
@@ -82,7 +100,11 @@ export default function CreateSpaceScreen() {
 
       if (isScheduled) {
         // Scheduled — no LiveKit connection, navigate to the space detail
-        Toast.show({ type: 'success', text1: 'Space scheduled!', text2: formatScheduledTime(scheduledDate.toISOString()) });
+        Toast.show({
+          type: "success",
+          text1: "Space scheduled!",
+          text2: formatScheduledTime(scheduledDate.toISOString()),
+        });
         refreshSpaces();
         router.replace(`/space/${response.room.id}`);
         return;
@@ -91,16 +113,22 @@ export default function CreateSpaceScreen() {
       // Immediate — connect to LiveKit
       const hostParticipant = {
         fid: user!.fid,
-        role: 'host' as const,
+        role: "host" as const,
         is_muted: false,
         is_speaking: false,
         hand_raised: false,
-        display_name: user!.display_name || user!.username || `User ${user!.fid}`,
+        display_name:
+          user!.display_name || user!.username || `User ${user!.fid}`,
         pfp_url: user!.pfp_url ?? null,
       };
 
-      useSpaceStore.getState().joinSpace(response.room, [hostParticipant], 'host');
-      await livekitService.connectToRoom(response.livekit_ws_url!, response.livekit_token!);
+      useSpaceStore
+        .getState()
+        .joinSpace(response.room, [hostParticipant], "host");
+      await livekitService.connectToRoom(
+        response.livekit_ws_url!,
+        response.livekit_token!,
+      );
       await livekitService.enableMicrophone();
       useSpaceStore.getState().setConnected(true);
       useSpaceStore.getState().setMuted(false);
@@ -108,11 +136,11 @@ export default function CreateSpaceScreen() {
       refreshSpaces();
       router.replace(`/space/${response.room.id}`);
     } catch (err) {
-      console.error('[CreateSpace] Error:', err);
+      console.error("[CreateSpace] Error:", err);
       useSpaceStore.getState().leaveSpace();
       Toast.show({
-        type: 'error',
-        text1: 'Error',
+        type: "error",
+        text1: "Error",
         text2: api.getErrorMessage(err),
       });
     } finally {
@@ -121,7 +149,9 @@ export default function CreateSpaceScreen() {
   };
 
   return (
-    <Animated.View style={[styles.container, { paddingBottom: keyboardPadding }]}>
+    <Animated.View
+      style={[styles.container, { paddingBottom: keyboardPadding }]}
+    >
       <View style={styles.content}>
         <Text style={styles.label}>Space Title</Text>
         <TextInput
@@ -147,7 +177,10 @@ export default function CreateSpaceScreen() {
           <Switch
             value={announceCast}
             onValueChange={setAnnounceCast}
-            trackColor={{ false: colors.background.subtle, true: colors.accent }}
+            trackColor={{
+              false: colors.background.subtle,
+              true: colors.accent,
+            }}
             thumbColor={colors.text.primary}
             accessibilityLabel="Announce on Farcaster"
           />
@@ -163,7 +196,10 @@ export default function CreateSpaceScreen() {
           <Switch
             value={isScheduled}
             onValueChange={setIsScheduled}
-            trackColor={{ false: colors.background.subtle, true: colors.accent }}
+            trackColor={{
+              false: colors.background.subtle,
+              true: colors.accent,
+            }}
             thumbColor={colors.text.primary}
             accessibilityLabel="Schedule for later"
           />
@@ -191,7 +227,7 @@ export default function CreateSpaceScreen() {
 
         <View style={styles.buttonContainer}>
           <Button
-            title={isScheduled ? 'Schedule Space' : 'Start Space'}
+            title={isScheduled ? "Schedule Space" : "Start Space"}
             onPress={handleCreate}
             isLoading={isCreating}
             disabled={!title.trim()}
@@ -215,8 +251,8 @@ const styles = StyleSheet.create({
   label: {
     color: colors.text.secondary,
     fontSize: 13,
-    fontWeight: '600',
-    textTransform: 'uppercase',
+    fontWeight: "600",
+    textTransform: "uppercase",
     marginBottom: 8,
   },
   input: {
@@ -231,13 +267,13 @@ const styles = StyleSheet.create({
   charCount: {
     color: colors.text.placeholder,
     fontSize: 12,
-    textAlign: 'right',
+    textAlign: "right",
     marginTop: 4,
   },
   optionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: 16,
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -258,20 +294,20 @@ const styles = StyleSheet.create({
   },
   datePickerContainer: {
     marginTop: 8,
-    alignItems: 'center',
+    alignItems: "center",
   },
   datePicker: {
-    width: '100%',
+    width: "100%",
     height: 180,
   },
   scheduledLabel: {
     color: colors.accent,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
     marginTop: 4,
   },
   buttonContainer: {
-    marginTop: 'auto',
+    marginTop: "auto",
     paddingBottom: 24,
   },
 });
