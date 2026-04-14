@@ -225,6 +225,10 @@ export default function RootLayout() {
           />
           <Stack.Screen name="cast/[hash]" options={{ title: "Thread" }} />
           <Stack.Screen name="profile/[fid]" options={{ title: "Profile" }} />
+          <Stack.Screen
+            name="voice-note/[id]"
+            options={{ headerShown: false }}
+          />
           <Stack.Screen name="space/[id]" options={{ headerShown: false }} />
           <Stack.Screen
             name="space/create"
