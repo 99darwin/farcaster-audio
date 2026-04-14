@@ -520,12 +520,12 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
               Add Juke
             </button>
           ) : (
-            <a
-              href={openInJukeUrl}
+            <button
+              onClick={() => sdk.actions.openUrl(openInJukeUrl)}
               className="inline-flex items-center justify-center rounded-full bg-[#D85A30] px-8 py-3 text-sm font-bold text-white transition-colors hover:bg-[#c24e28]"
             >
               Get the App
-            </a>
+            </button>
           )}
           <button
             onClick={() => {
@@ -570,12 +570,12 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
 
       {/* Bottom CTA bar */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#0f0f23]/95 px-4 py-3 backdrop-blur-sm">
-        <a
-          href={`juke://voice-note/${voice_note.id}`}
+        <button
+          onClick={() => sdk.actions.openUrl(`juke://voice-note/${voice_note.id}`)}
           className="flex w-full items-center justify-center gap-2 rounded-full bg-[#D85A30] py-3 text-sm font-bold text-white transition-colors hover:bg-[#c24e28]"
         >
           Open in Juke
-        </a>
+        </button>
       </div>
     </div>
   );
