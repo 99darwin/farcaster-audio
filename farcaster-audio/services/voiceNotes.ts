@@ -19,16 +19,23 @@ export async function getUploadUrl(
   return data;
 }
 
-export async function uploadAudioFile(
+export function uploadAudioFile(
   uploadUrl: string,
   filePath: string,
 ): Promise<void> {
-  const response = await fetch(filePath);
-  const blob = await response.blob();
-  await fetch(uploadUrl, {
-    method: "PUT",
-    body: blob,
-    headers: { "Content-Type": "audio/mp4" },
+  // React Native's fetch(localPath).blob() often produces empty/corrupt blobs.
+  // Use XMLHttpRequest which handles file:// URIs reliably on iOS.
+  const fileUri = filePath.startsWith("file://") ? filePath : `file://${filePath}`;
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", "audio/mp4");
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed with status ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("Upload network error"));
+    xhr.send({ uri: fileUri } as any);
   });
 }
 
@@ -66,6 +73,20 @@ export async function getVoiceNoteFeed(
   if (cursor) params.cursor = cursor;
   const { data } = await apiClient.get<VoiceNoteFeedResponse>(
     "/v1/voice-notes/feed",
+    { params },
+  );
+  return data;
+}
+
+export async function getUserVoiceNotes(
+  fid: number,
+  limit: number = 20,
+  cursor?: string,
+): Promise<VoiceNoteFeedResponse> {
+  const params: Record<string, string | number> = { limit };
+  if (cursor) params.cursor = cursor;
+  const { data } = await apiClient.get<VoiceNoteFeedResponse>(
+    `/v1/voice-notes/user/${fid}`,
     { params },
   );
   return data;

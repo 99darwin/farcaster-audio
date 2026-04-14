@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { useAudioPlayerStore } from "@/stores/audioPlayerStore";
+import { recordPlay } from "@/services/voiceNotes";
 
 type PlaybackSpeed = 1 | 1.25 | 1.5 | 2;
 const SPEEDS: PlaybackSpeed[] = [1, 1.25, 1.5, 2];
@@ -14,6 +15,7 @@ export function useVoiceNotePlayback(
   const isActive = activeVoiceNoteId === voiceNoteId;
 
   const [speed, setSpeed] = useState<PlaybackSpeed>(1);
+  const playTrackedRef = useRef(false);
 
   // Only load audio for the active voice note
   const player = useAudioPlayer(isActive ? audioUrl : null, {
@@ -27,6 +29,28 @@ export function useVoiceNotePlayback(
   const isPlaying = isActive && status.playing;
   const isLoaded = isActive && status.isLoaded;
 
+  const isFinished = isActive && !status.playing && positionMs >= durationMs - 200;
+
+  // Reset play tracking when voice note changes
+  useEffect(() => {
+    if (!isActive) playTrackedRef.current = false;
+  }, [isActive]);
+
+  // Track play after 3 seconds of listening
+  useEffect(() => {
+    if (isActive && positionMs >= 3000 && !playTrackedRef.current) {
+      playTrackedRef.current = true;
+      recordPlay(voiceNoteId, positionMs, false).catch(() => {});
+    }
+  }, [isActive, positionMs, voiceNoteId]);
+
+  // Track completion
+  useEffect(() => {
+    if (isFinished && playTrackedRef.current) {
+      recordPlay(voiceNoteId, durationMs, true).catch(() => {});
+    }
+  }, [isFinished, voiceNoteId, durationMs]);
+
   const togglePlay = useCallback(() => {
     if (!isActive) {
       // Become the active voice note and start playing
@@ -37,11 +61,17 @@ export function useVoiceNotePlayback(
     if (isPlaying) {
       player.pause();
     } else {
+      // If finished, seek to start before replaying
+      if (isFinished) {
+        player.seekTo(0);
+        playTrackedRef.current = false;
+      }
       player.play();
     }
   }, [
     isActive,
     isPlaying,
+    isFinished,
     player,
     voiceNoteId,
     audioUrl,
@@ -75,12 +105,9 @@ export function useVoiceNotePlayback(
     const nextSpeed = SPEEDS[(currentIdx + 1) % SPEEDS.length];
     setSpeed(nextSpeed);
     if (isActive) {
-      player.playbackRate = nextSpeed;
+      player.setPlaybackRate(nextSpeed);
     }
   }, [speed, isActive, player]);
-
-  // Auto-play when this note becomes active and player loads
-  // (handled by the player loading the URL automatically)
 
   return {
     isPlaying,

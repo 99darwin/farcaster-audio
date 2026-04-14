@@ -1,7 +1,9 @@
 import React from "react";
-import { View, Text, Pressable, Share, StyleSheet } from "react-native";
+import { View, Text, Pressable, Share, Alert, StyleSheet } from "react-native";
 import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useAuthStore } from "@/stores/authStore";
 import { VoiceNotePlayer } from "./VoiceNotePlayer";
 import { ReactionBar } from "./ReactionBar";
 import { colors, typography } from "@/constants/theme";
@@ -22,18 +24,22 @@ interface VoiceNoteFeedItemProps {
   item: VoiceNoteDetail;
   onLike: (id: string, isLiked: boolean) => void;
   onRecast: (id: string, isRecasted: boolean) => void;
+  onDelete?: (id: string) => void;
 }
 
 export const VoiceNoteFeedItem = React.memo(function VoiceNoteFeedItem({
   item,
   onLike,
   onRecast,
+  onDelete,
 }: VoiceNoteFeedItemProps) {
   const router = useRouter();
+  const myFid = useAuthStore((s) => s.user?.fid);
   const { voice_note, author, reaction_counts, viewer_reactions, play_count } =
     item;
   const isLiked = viewer_reactions.includes("like");
   const isRecasted = viewer_reactions.includes("recast");
+  const isOwner = myFid === author.fid;
 
   const handleShare = () => {
     Share.share({ url: `https://juke.audio/v/${voice_note.id}` });
@@ -65,7 +71,32 @@ export const VoiceNoteFeedItem = React.memo(function VoiceNoteFeedItem({
             <Text style={styles.username}>@{author.username}</Text>
           </View>
         </Pressable>
-        <Text style={styles.timestamp}>{timeAgo(voice_note.created_at)}</Text>
+        <View style={styles.headerRight}>
+          <Text style={styles.timestamp}>{timeAgo(voice_note.created_at)}</Text>
+          {isOwner && onDelete && (
+            <Pressable
+              onPress={() => {
+                Alert.alert(
+                  "Delete Voice Note",
+                  "This can't be undone.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Delete",
+                      style: "destructive",
+                      onPress: () => onDelete(voice_note.id),
+                    },
+                  ],
+                );
+              }}
+              hitSlop={8}
+              accessibilityLabel="Delete voice note"
+              accessibilityRole="button"
+            >
+              <Ionicons name="trash-outline" size={16} color={colors.text.secondary} />
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <VoiceNotePlayer voiceNote={voice_note} variant="feed" />
@@ -117,6 +148,11 @@ const styles = StyleSheet.create({
   username: {
     color: colors.text.secondary,
     fontSize: typography.size.sm,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
   timestamp: {
     color: colors.text.secondary,
