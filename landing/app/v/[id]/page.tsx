@@ -1,61 +1,14 @@
 import { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { WebPlayer } from "./web-player";
+import {
+  getVoiceNote,
+  formatDuration,
+  formatTimestamp,
+  type VoiceNoteDetail,
+} from "@/lib/voice-notes";
 
-const API_BASE_URL = process.env.API_BASE_URL || "https://your-api-host.example.com";
-
-interface VoiceNote {
-  id: string;
-  fid: number;
-  duration_ms: number;
-  audio_url: string;
-  waveform_peaks: number[] | null;
-  transcript: string | null;
-  caption: string | null;
-  created_at: string;
-}
-
-interface Author {
-  fid: number;
-  username: string;
-  display_name: string;
-  pfp_url: string | null;
-}
-
-export interface VoiceNoteDetail {
-  voice_note: VoiceNote;
-  author: Author;
-  reaction_counts: Record<string, number>;
-  play_count: number;
-}
-
-async function getVoiceNote(id: string): Promise<VoiceNoteDetail | null> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/v1/voice-notes/${id}`, {
-      next: { revalidate: 60 },
-    });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
-}
-
-function formatDuration(ms: number): string {
-  const secs = Math.floor(ms / 1000);
-  const mins = Math.floor(secs / 60);
-  const remainSecs = secs % 60;
-  return `${mins}:${remainSecs.toString().padStart(2, "0")}`;
-}
-
-function formatTimestamp(iso: string): string {
-  const date = new Date(iso);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
+export { type VoiceNoteDetail };
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -92,6 +45,19 @@ export async function generateMetadata({
       card: "summary_large_image",
       title,
       description,
+    },
+    other: {
+      "fc:miniapp": JSON.stringify({
+        version: "1",
+        imageUrl: `https://juke.audio/v/${id}/opengraph-image`,
+        button: {
+          title: "\u25B6 Play Voice Note",
+          action: {
+            type: "launch_miniapp",
+            url: `https://juke.audio/miniapp/v/${id}`,
+          },
+        },
+      }),
     },
   };
 }

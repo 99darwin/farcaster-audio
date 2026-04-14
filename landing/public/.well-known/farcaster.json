@@ -1,0 +1,21 @@
+{
+  "accountAssociation": {
+    "header": "PLACEHOLDER_HEADER",
+    "payload": "PLACEHOLDER_PAYLOAD",
+    "signature": "PLACEHOLDER_SIGNATURE"
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Juke",
+    "homeUrl": "https://juke.audio/miniapp",
+    "iconUrl": "https://juke.audio/app-icon.png",
+    "imageUrl": "https://juke.audio/miniapp-hero.png",
+    "heroImageUrl": "https://juke.audio/miniapp-hero.png",
+    "screenshotUrls": [
+      "https://juke.audio/screenshot.PNG"
+    ],
+    "splashImageUrl": "https://juke.audio/app-icon.png",
+    "splashBackgroundColor": "#6a3cff",
+    "webhookUrl": "https://juke.audio/api/webhook"
+  }
+}

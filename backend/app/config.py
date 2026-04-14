@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     NEYNAR_WEBHOOK_ID_FOLLOW: str = ""
     FARCASTER_APP_MNEMONIC: str = ""
     FARCASTER_APP_FID: int = 0
+    MINIAPP_WEBHOOK_SECRET: str = ""
 
     # Spam filtering
     SPAM_FILTER_ENABLED: bool = True

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,7 @@ from livekit import api as livekit_api
 
 from app.config import settings
 from app.dependencies import get_db, get_redis
+from app.models.miniapp_notification import MiniAppNotification
 from app.models.participant import Participant
 from app.models.room import Room
 from app.services.livekit_service import LiveKitService
@@ -237,6 +239,92 @@ async def neynar_webhook(
         logger.warning("Failed to broadcast new_reply to room %s: %s", room_id, e)
     finally:
         await livekit.close()
+
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Farcaster miniapp webhook (forwarded from Next.js at juke.audio/api/webhook)
+# ---------------------------------------------------------------------------
+
+
+class MiniAppWebhookRequest(BaseModel):
+    fid: int
+    event: str
+    notification_url: str | None = None
+    notification_token: str | None = None
+
+
+ALLOWED_NOTIFICATION_HOSTS = {
+    "api.warpcast.com",
+    "api.warpcast.xyz",
+    "notifs.warpcast.com",
+}
+
+
+def _validate_notification_url(url: str) -> bool:
+    """Only allow notification URLs from known Farcaster client domains."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        return parsed.scheme == "https" and parsed.hostname in ALLOWED_NOTIFICATION_HOSTS
+    except Exception:
+        return False
+
+
+@router.post("/miniapp")
+async def miniapp_webhook(
+    body: MiniAppWebhookRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Handle Farcaster miniapp server events forwarded from the Next.js webhook.
+
+    Protected by a shared secret in the X-Webhook-Secret header. Only the
+    Next.js proxy at juke.audio/api/webhook should call this endpoint.
+    """
+    webhook_secret = request.headers.get("x-webhook-secret", "")
+    if not settings.MINIAPP_WEBHOOK_SECRET or webhook_secret != settings.MINIAPP_WEBHOOK_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook secret",
+        )
+
+    match body.event:
+        case "miniapp_added" | "notifications_enabled":
+            if (
+                body.notification_url
+                and body.notification_token
+                and _validate_notification_url(body.notification_url)
+            ):
+                result = await db.execute(
+                    select(MiniAppNotification).where(
+                        MiniAppNotification.fid == body.fid
+                    )
+                )
+                existing = result.scalar_one_or_none()
+                if existing:
+                    existing.notification_url = body.notification_url
+                    existing.notification_token = body.notification_token
+                    existing.is_active = True
+                else:
+                    db.add(
+                        MiniAppNotification(
+                            fid=body.fid,
+                            notification_url=body.notification_url,
+                            notification_token=body.notification_token,
+                            is_active=True,
+                        )
+                    )
+                await db.commit()
+
+        case "miniapp_removed" | "notifications_disabled":
+            await db.execute(
+                update(MiniAppNotification)
+                .where(MiniAppNotification.fid == body.fid)
+                .values(is_active=False)
+            )
+            await db.commit()
 
     return {"status": "ok"}
 
