@@ -43,6 +43,22 @@ public class AudioSessionModule: Module {
             }
         }
 
+        AsyncFunction("configureForPlayback") { () -> Bool in
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(
+                    .playback,
+                    mode: .default,
+                    options: []
+                )
+                try session.setActive(true, options: .notifyOthersOnDeactivation)
+                return true
+            } catch {
+                print("AVAudioSession playback configuration failed: \(error)")
+                return false
+            }
+        }
+
         AsyncFunction("deactivate") { () -> Bool in
             let session = AVAudioSession.sharedInstance()
             do {

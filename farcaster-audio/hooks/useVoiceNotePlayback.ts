@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { requireNativeModule } from "expo-modules-core";
 import { useAudioPlayerStore } from "@/stores/audioPlayerStore";
 import { recordPlay } from "@/services/voiceNotes";
+
+const AudioSession = requireNativeModule("AudioSessionModule");
 
 type PlaybackSpeed = 1 | 1.25 | 1.5 | 2;
 const SPEEDS: PlaybackSpeed[] = [1, 1.25, 1.5, 2];
@@ -35,6 +38,19 @@ export function useVoiceNotePlayback(
   useEffect(() => {
     if (!isActive) playTrackedRef.current = false;
   }, [isActive]);
+
+  // Configure audio session for playback and auto-play once loaded
+  const pendingPlayRef = useRef(false);
+  useEffect(() => {
+    if (isActive && !isLoaded) {
+      pendingPlayRef.current = true;
+      AudioSession.configureForPlayback().catch(() => {});
+    }
+    if (isActive && isLoaded && pendingPlayRef.current) {
+      pendingPlayRef.current = false;
+      player.play();
+    }
+  }, [isActive, isLoaded, player]);
 
   // Track play after 3 seconds of listening
   useEffect(() => {
