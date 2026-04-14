@@ -285,6 +285,65 @@ async def get_user_voice_notes(
     return items, next_cursor
 
 
+async def get_recent_voice_notes(
+    db: AsyncSession,
+    cursor: str | None,
+    limit: int,
+) -> tuple[list[VoiceNoteDetailResponse], str | None]:
+    """Fetch all voice notes (public), ordered by created_at DESC with cursor pagination."""
+    query = (
+        select(VoiceNote, User)
+        .join(User, User.fid == VoiceNote.fid)
+        .where(VoiceNote.deleted_at.is_(None))
+        .order_by(VoiceNote.created_at.desc())
+        .limit(limit + 1)
+    )
+
+    if cursor:
+        try:
+            cursor_dt = datetime.fromisoformat(cursor)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid cursor")
+        query = query.where(VoiceNote.created_at < cursor_dt)
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    next_cursor: str | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last_vn = rows[-1][0]
+        next_cursor = last_vn.created_at.isoformat()
+
+    items: list[VoiceNoteDetailResponse] = []
+    for row in rows:
+        vn, user = row.tuple()
+
+        count_result = await db.execute(
+            select(VoiceNoteReaction.reaction_type, sa_func.count())
+            .where(VoiceNoteReaction.voice_note_id == vn.id)
+            .group_by(VoiceNoteReaction.reaction_type)
+        )
+        reaction_counts = {r[0]: r[1] for r in count_result.all()}
+
+        play_result = await db.execute(
+            select(sa_func.count()).where(VoiceNotePlay.voice_note_id == vn.id)
+        )
+        play_count = play_result.scalar() or 0
+
+        items.append(
+            VoiceNoteDetailResponse(
+                voice_note=_voice_note_to_response(vn),
+                author=_user_to_author(user),
+                reaction_counts=reaction_counts,
+                viewer_reactions=[],
+                play_count=play_count,
+            )
+        )
+
+    return items, next_cursor
+
+
 async def record_play(
     db: AsyncSession,
     voice_note_id: uuid.UUID,

@@ -1,4 +1,5 @@
-const API_BASE_URL = process.env.API_BASE_URL || "https://your-api-host.example.com";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
 
 export interface VoiceNote {
   id: string;
@@ -38,6 +39,22 @@ export async function getVoiceNote(
   } catch {
     return null;
   }
+}
+
+export interface VoiceNoteFeedResponse {
+  voice_notes: VoiceNoteDetail[];
+  next_cursor: string | null;
+}
+
+export async function getRecentVoiceNotes(
+  cursor?: string,
+  limit: number = 20,
+): Promise<VoiceNoteFeedResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  const res = await fetch(`${API_BASE_URL}/v1/voice-notes/recent?${params}`);
+  if (!res.ok) throw new Error("Failed to fetch recent voice notes");
+  return res.json();
 }
 
 export function formatDuration(ms: number): string {

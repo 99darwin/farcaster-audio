@@ -280,6 +280,21 @@ async def get_feed(
     return VoiceNoteFeedResponse(voice_notes=items, next_cursor=next_cursor)
 
 
+@router.get("/recent", response_model=VoiceNoteFeedResponse)
+async def get_recent_voice_notes(
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get recent voice notes (public, no auth required)."""
+    items, next_cursor = await voice_note_service.get_recent_voice_notes(
+        db=db,
+        cursor=cursor,
+        limit=limit,
+    )
+    return VoiceNoteFeedResponse(voice_notes=items, next_cursor=next_cursor)
+
+
 @router.get("/user/{fid}", response_model=VoiceNoteFeedResponse)
 async def get_user_voice_notes(
     fid: int = Path(...),
