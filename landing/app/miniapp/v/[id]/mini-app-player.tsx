@@ -266,6 +266,13 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
     }
   }, [voice_note.cast_hash]);
 
+  const handleShare = useCallback(() => {
+    sdk.actions.composeCast({
+      text: "",
+      embeds: [`https://juke.audio/v/${voice_note.id}`],
+    });
+  }, [voice_note.id]);
+
   const handleViewProfile = useCallback(() => {
     sdk.actions.viewProfile({ fid: author.fid });
   }, [author.fid]);
@@ -457,6 +464,21 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
             Reply
           </button>
         )}
+
+        <button
+          onClick={handleShare}
+          className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white/60 transition-colors hover:bg-white/15"
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="h-3.5 w-3.5"
+          >
+            <path d="M13 4.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM13 15.5a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0zM2 10a2.5 2.5 0 115 0 2.5 2.5 0 01-5 0z" />
+            <path d="M7 9l5.5-3M7 11l5.5 3" stroke="currentColor" strokeWidth="1.5" fill="none" />
+          </svg>
+          Share
+        </button>
 
         {play_count > 0 && (
           <span className="ml-auto text-xs text-white/30">
