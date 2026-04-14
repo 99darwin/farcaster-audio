@@ -431,6 +431,7 @@ const styles = StyleSheet.create({
     borderColor: colors.background.border,
     borderRadius: 12,
     padding: 12,
+    overflow: "hidden",
   },
   // Mini-app styles
   miniAppContainer: {
