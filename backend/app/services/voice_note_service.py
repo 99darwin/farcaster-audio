@@ -315,29 +315,44 @@ async def get_recent_voice_notes(
         last_vn = rows[-1][0]
         next_cursor = last_vn.created_at.isoformat()
 
+    vn_ids = [row[0].id for row in rows]
+
+    # Batch reaction counts (1 query instead of N)
+    reaction_map: dict[uuid.UUID, dict[str, int]] = {vid: {} for vid in vn_ids}
+    if vn_ids:
+        rc_result = await db.execute(
+            select(
+                VoiceNoteReaction.voice_note_id,
+                VoiceNoteReaction.reaction_type,
+                sa_func.count(),
+            )
+            .where(VoiceNoteReaction.voice_note_id.in_(vn_ids))
+            .group_by(VoiceNoteReaction.voice_note_id, VoiceNoteReaction.reaction_type)
+        )
+        for vid, rtype, cnt in rc_result.all():
+            reaction_map[vid][rtype] = cnt
+
+    # Batch play counts (1 query instead of N)
+    play_map: dict[uuid.UUID, int] = {vid: 0 for vid in vn_ids}
+    if vn_ids:
+        pc_result = await db.execute(
+            select(VoiceNotePlay.voice_note_id, sa_func.count())
+            .where(VoiceNotePlay.voice_note_id.in_(vn_ids))
+            .group_by(VoiceNotePlay.voice_note_id)
+        )
+        for vid, cnt in pc_result.all():
+            play_map[vid] = cnt
+
     items: list[VoiceNoteDetailResponse] = []
     for row in rows:
         vn, user = row.tuple()
-
-        count_result = await db.execute(
-            select(VoiceNoteReaction.reaction_type, sa_func.count())
-            .where(VoiceNoteReaction.voice_note_id == vn.id)
-            .group_by(VoiceNoteReaction.reaction_type)
-        )
-        reaction_counts = {r[0]: r[1] for r in count_result.all()}
-
-        play_result = await db.execute(
-            select(sa_func.count()).where(VoiceNotePlay.voice_note_id == vn.id)
-        )
-        play_count = play_result.scalar() or 0
-
         items.append(
             VoiceNoteDetailResponse(
                 voice_note=_voice_note_to_response(vn),
                 author=_user_to_author(user),
-                reaction_counts=reaction_counts,
+                reaction_counts=reaction_map.get(vn.id, {}),
                 viewer_reactions=[],
-                play_count=play_count,
+                play_count=play_map.get(vn.id, 0),
             )
         )
 

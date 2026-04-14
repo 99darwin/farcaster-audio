@@ -280,13 +280,31 @@ async def get_feed(
     return VoiceNoteFeedResponse(voice_notes=items, next_cursor=next_cursor)
 
 
+RECENT_RATE_LIMIT_WINDOW = 60  # 1 minute
+RECENT_RATE_LIMIT_MAX = 30  # requests per window per IP
+
+
 @router.get("/recent", response_model=VoiceNoteFeedResponse)
 async def get_recent_voice_notes(
+    request: Request,
     cursor: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
     """Get recent voice notes (public, no auth required)."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[0].strip() if forwarded else (
+        request.client.host if request.client else "unknown"
+    )
+    rate_key = f"voice_notes:recent_rate:{ip}"
+    pipe = redis.pipeline()
+    pipe.incr(rate_key)
+    pipe.expire(rate_key, RECENT_RATE_LIMIT_WINDOW)
+    count, _ = await pipe.execute()
+    if count > RECENT_RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
     items, next_cursor = await voice_note_service.get_recent_voice_notes(
         db=db,
         cursor=cursor,
