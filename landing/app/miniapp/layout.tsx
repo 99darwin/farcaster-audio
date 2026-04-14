@@ -18,7 +18,7 @@ export const metadata: Metadata = {
       button: {
         title: "Listen Now",
         action: {
-          type: "launch_frame",
+          type: "launch_miniapp",
           name: "Juke Audio",
           url: "https://juke.audio/miniapp",
           splashImageUrl: "https://juke.audio/app-icon.png",
