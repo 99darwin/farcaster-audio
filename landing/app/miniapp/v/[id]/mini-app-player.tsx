@@ -24,6 +24,7 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
   const { voice_note, author, reaction_counts, play_count } = data;
 
   const audioRef = useRef<HTMLAudioElement>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number>(0);
   const playTrackedRef = useRef(false);
   const playStartRef = useRef<number>(0);
@@ -115,9 +116,29 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
     }
   }, [isPlaying, voice_note.id]);
 
+  // Unlock audio session on first user gesture (needed in iframes/webviews)
+  const unlockAudio = useCallback(() => {
+    if (audioCtxRef.current) return;
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    audioCtxRef.current = ctx;
+    // Play a silent buffer to activate the audio session
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start();
+    // Resume if suspended
+    if (ctx.state === "suspended") {
+      ctx.resume();
+    }
+  }, []);
+
   const togglePlay = useCallback(async () => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    // Ensure audio context is unlocked on first tap
+    unlockAudio();
 
     if (audio.paused) {
       setShowEndOverlay(false);
@@ -132,7 +153,7 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
       setIsPlaying(false);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     }
-  }, [updateTime]);
+  }, [updateTime, unlockAudio]);
 
   const handleSeek = useCallback(
     (fraction: number) => {
