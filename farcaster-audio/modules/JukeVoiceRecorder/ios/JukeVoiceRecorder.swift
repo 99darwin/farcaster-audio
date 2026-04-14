@@ -81,6 +81,9 @@ public class JukeVoiceRecorder: Module {
             let rawURL = recorder.url
             self.recorder = nil
 
+            // Reset audio session to playback mode
+            try? session.setCategory(.playback, mode: .default, options: [])
+
             // Normalize audio to maximize loudness
             let normalizedURL = try await self.normalizeAudio(from: rawURL)
             let peaks = try self.extractPeaks(from: normalizedURL, count: 200)
@@ -101,6 +104,10 @@ public class JukeVoiceRecorder: Module {
                 recorder.deleteRecording()
                 self.recorder = nil
             }
+
+            // Reset audio session to playback mode
+            let session = AVAudioSession.sharedInstance()
+            try? session.setCategory(.playback, mode: .default, options: [])
 
             return true
         }
