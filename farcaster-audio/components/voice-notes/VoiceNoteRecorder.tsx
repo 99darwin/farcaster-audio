@@ -151,7 +151,7 @@ export function VoiceNoteRecorder({
       await voiceNotesApi.uploadAudioFile(upload_url, recorder.result.filePath);
 
       // 3. Finalize voice note
-      const { voice_note } = await voiceNotesApi.createVoiceNote({
+      const voiceNote = await voiceNotesApi.createVoiceNote({
         upload_id,
         duration_ms: recorder.result.durationMs,
         audio_size: 0, // Server calculates from S3
@@ -161,7 +161,7 @@ export function VoiceNoteRecorder({
 
       // 4. Prepend to local feed store
       prependVoiceNote({
-        voice_note,
+        voice_note: voiceNote,
         author: {
           fid: user.fid,
           username: user.username,

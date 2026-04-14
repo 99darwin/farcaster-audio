@@ -297,7 +297,7 @@ export function ComposeModal({
           upload_url,
           recorder.result.filePath,
         );
-        const { voice_note } = await voiceNotesApi.createVoiceNote({
+        const voiceNote = await voiceNotesApi.createVoiceNote({
           upload_id,
           duration_ms: recorder.result.durationMs,
           audio_size: 0,
@@ -306,7 +306,7 @@ export function ComposeModal({
         });
 
         prependVoiceNote({
-          voice_note,
+          voice_note: voiceNote,
           author: {
             fid: user.fid,
             username: user.username,
