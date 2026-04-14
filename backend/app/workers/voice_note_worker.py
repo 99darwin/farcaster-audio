@@ -130,14 +130,24 @@ async def transcribe(voice_note_id: str) -> None:
         return
 
     # Download to temp file and read bytes
-    with tempfile.NamedTemporaryFile(suffix=".m4a") as tmp:
-        try:
-            storage.download_file(object_key, tmp.name)
-            tmp.seek(0)
-            audio_bytes = tmp.read()
-        except Exception:
-            logger.error("[worker] Failed to download %s from S3", object_key, exc_info=True)
-            return
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tmp:
+            tmp_path = tmp.name
+        storage.download_file(object_key, tmp_path)
+        with open(tmp_path, "rb") as f:
+            audio_bytes = f.read()
+        logger.info("[worker] Downloaded %s (%d bytes) for transcription", object_key, len(audio_bytes))
+    except Exception:
+        logger.error("[worker] Failed to download %s from S3", object_key, exc_info=True)
+        return
+    finally:
+        if tmp_path:
+            import os
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     # Call Deepgram
     try:
@@ -151,7 +161,7 @@ async def transcribe(voice_note_id: str) -> None:
                     "detect_language": "true",
                 },
                 headers={
-                    "Content-Type": "audio/mp4",
+                    "Content-Type": "audio/m4a",
                     "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
                 },
                 content=audio_bytes,
