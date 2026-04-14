@@ -1,16 +1,23 @@
-import { useEffect, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useEffect, useMemo } from "react";
+import { StyleSheet, View } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
   withDelay,
   Easing,
-} from 'react-native-reanimated';
+} from "react-native-reanimated";
 
 const PARTICLE_COUNT = 30;
 const DURATION_MS = 1200;
-const COLORS = ['#855DCD', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#14b8a6'];
+const COLORS = [
+  "#855DCD",
+  "#3b82f6",
+  "#10b981",
+  "#f59e0b",
+  "#ec4899",
+  "#14b8a6",
+];
 
 interface ParticleSpec {
   color: string;
@@ -90,10 +97,10 @@ export function Confetti({ triggerKey }: { triggerKey: string | number }) {
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   particle: {
-    position: 'absolute',
+    position: "absolute",
     borderRadius: 2,
   },
 });

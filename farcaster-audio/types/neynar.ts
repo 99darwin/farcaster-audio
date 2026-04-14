@@ -21,7 +21,7 @@ export interface NeynarUser {
 }
 
 export interface NeynarProStatus {
-  status: 'subscribed' | 'unsubscribed';
+  status: "subscribed" | "unsubscribed";
 }
 
 export interface NeynarCastAuthor {
@@ -111,7 +111,12 @@ export interface NeynarFeedResponse {
 
 // --- Notifications ---
 
-export type NotificationType = 'likes' | 'recasts' | 'follows' | 'reply' | 'mention';
+export type NotificationType =
+  | "likes"
+  | "recasts"
+  | "follows"
+  | "reply"
+  | "mention";
 
 export interface NeynarNotificationReaction {
   object: string;

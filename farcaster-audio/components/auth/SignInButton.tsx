@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,14 +8,14 @@ import {
   Modal,
   SafeAreaView,
   Linking,
-} from 'react-native';
-import WebView, { WebViewMessageEvent } from 'react-native-webview';
-import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
-import * as Haptics from 'expo-haptics';
-import { useAuth } from '@/hooks/useAuth';
-import * as api from '@/services/api';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { colors } from '@/constants/theme';
+} from "react-native";
+import WebView, { WebViewMessageEvent } from "react-native-webview";
+import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
+import * as Haptics from "expo-haptics";
+import { useAuth } from "@/hooks/useAuth";
+import * as api from "@/services/api";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import { colors } from "@/constants/theme";
 
 // Injected into the WebView before Neynar's page loads:
 // 1. Spoof document.referrer so Neynar's page accepts the WebView context
@@ -63,54 +63,68 @@ export function SignInButton() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       const { authorization_url } = await api.getAuthUrl();
-      const url = `${authorization_url}&deeplink_url=${encodeURIComponent('juke://auth/callback')}`;
+      const url = `${authorization_url}&deeplink_url=${encodeURIComponent("juke://auth/callback")}`;
       setAuthUrl(url);
       setModalVisible(true);
     } catch (error) {
-      Alert.alert('Sign In Error', 'Could not start sign in. Please try again.');
+      Alert.alert(
+        "Sign In Error",
+        "Could not start sign in. Please try again.",
+      );
     }
   }, []);
 
-  const handleMessage = useCallback(async (event: WebViewMessageEvent) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (!data.signer_uuid || !data.fid) return;
-
-      setModalVisible(false);
-      setIsSigningIn(true);
-      await login(data.signer_uuid, Number(data.fid));
-    } catch (error) {
-      Alert.alert('Sign In Failed', 'Could not complete sign in. Please try again.');
-    } finally {
-      setIsSigningIn(false);
-    }
-  }, [login]);
-
-  const handleShouldStartLoad = useCallback((event: ShouldStartLoadRequest): boolean => {
-    // Intercept deep link redirects with auth data
-    if (event.url.startsWith('juke://')) {
+  const handleMessage = useCallback(
+    async (event: WebViewMessageEvent) => {
       try {
-        const url = new URL(event.url);
-        const signerUuid = url.searchParams.get('signer_uuid');
-        const fid = url.searchParams.get('fid');
-        if (signerUuid && fid) {
-          setModalVisible(false);
-          setIsSigningIn(true);
-          login(signerUuid, Number(fid))
-            .catch(() => Alert.alert('Sign In Failed', 'Could not complete sign in.'))
-            .finally(() => setIsSigningIn(false));
-        }
-      } catch {}
+        const data = JSON.parse(event.nativeEvent.data);
+        if (!data.signer_uuid || !data.fid) return;
+
+        setModalVisible(false);
+        setIsSigningIn(true);
+        await login(data.signer_uuid, Number(data.fid));
+      } catch (error) {
+        Alert.alert(
+          "Sign In Failed",
+          "Could not complete sign in. Please try again.",
+        );
+      } finally {
+        setIsSigningIn(false);
+      }
+    },
+    [login],
+  );
+
+  const handleShouldStartLoad = useCallback(
+    (event: ShouldStartLoadRequest): boolean => {
+      // Intercept deep link redirects with auth data
+      if (event.url.startsWith("juke://")) {
+        try {
+          const url = new URL(event.url);
+          const signerUuid = url.searchParams.get("signer_uuid");
+          const fid = url.searchParams.get("fid");
+          if (signerUuid && fid) {
+            setModalVisible(false);
+            setIsSigningIn(true);
+            login(signerUuid, Number(fid))
+              .catch(() =>
+                Alert.alert("Sign In Failed", "Could not complete sign in."),
+              )
+              .finally(() => setIsSigningIn(false));
+          }
+        } catch {}
+        return false;
+      }
+
+      if (event.url === "about:blank" || /^https?:\/\//.test(event.url)) {
+        return true;
+      }
+
+      Linking.openURL(event.url).catch(() => {});
       return false;
-    }
-
-    if (event.url === 'about:blank' || /^https?:\/\//.test(event.url)) {
-      return true;
-    }
-
-    Linking.openURL(event.url).catch(() => {});
-    return false;
-  }, [login]);
+    },
+    [login],
+  );
 
   if (isSigningIn) {
     return (
@@ -158,7 +172,7 @@ export function SignInButton() {
                 injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE_LOAD}
                 onMessage={handleMessage}
                 onShouldStartLoadWithRequest={handleShouldStartLoad}
-                originWhitelist={['*']}
+                originWhitelist={["*"]}
               />
             ) : (
               <View style={styles.loadingContainer}>
@@ -174,17 +188,17 @@ export function SignInButton() {
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   loadingContainer: {
     padding: 20,
-    alignItems: 'center',
+    alignItems: "center",
   },
   button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     height: 48,
     paddingHorizontal: 24,
     borderRadius: 20,
@@ -192,15 +206,15 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     color: colors.text.primary,
   },
   modalContainer: {
     flex: 1,
   },
   closeButtonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
+    flexDirection: "row",
+    justifyContent: "flex-start",
     paddingHorizontal: 10,
     paddingTop: 15,
   },
@@ -213,7 +227,7 @@ const styles = StyleSheet.create({
   },
   closeButtonText: {
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     color: colors.purple,
   },
 });

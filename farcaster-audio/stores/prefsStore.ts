@@ -1,7 +1,7 @@
-import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
+import { create } from "zustand";
+import * as SecureStore from "expo-secure-store";
 
-const PREFS_KEY = 'juke_prefs';
+const PREFS_KEY = "juke_prefs";
 
 interface PrefsState {
   winampMode: boolean;

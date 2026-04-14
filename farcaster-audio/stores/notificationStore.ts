@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import type { NeynarNotification } from '@/types/neynar';
+import { create } from "zustand";
+import type { NeynarNotification } from "@/types/neynar";
 
 interface NotificationStore {
   notifications: NeynarNotification[];
@@ -12,8 +12,14 @@ interface NotificationStore {
   lastFetchedAt: number | null;
 
   // Actions
-  setNotifications: (notifications: NeynarNotification[], cursor: string | null) => void;
-  appendNotifications: (notifications: NeynarNotification[], cursor: string | null) => void;
+  setNotifications: (
+    notifications: NeynarNotification[],
+    cursor: string | null,
+  ) => void;
+  appendNotifications: (
+    notifications: NeynarNotification[],
+    cursor: string | null,
+  ) => void;
   setLoading: (loading: boolean) => void;
   setRefreshing: (refreshing: boolean) => void;
   setError: (error: string | null) => void;

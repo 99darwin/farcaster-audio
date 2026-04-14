@@ -1,22 +1,51 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { View, StyleSheet, Linking, Pressable, Text, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
-import type { ReactNode } from 'react';
-import type { SnapAccent, SnapElement, SnapInputValue, SnapInputs, SnapResponse } from '@/types/snap';
-import { SnapContext, type SnapContextValue } from './context';
-import { SnapRenderer } from './SnapRenderer';
-import { Confetti } from './effects/Confetti';
-import { DEFAULT_SNAP_ACCENT, resolvePaletteColor } from '@/constants/snapPalette';
-import { colors } from '@/constants/theme';
-import { useAuthStore } from '@/stores/authStore';
-import { registerSnapSigner, signSnapSubmit, signSnapSubmitV1 } from '@/services/snapSigner';
-import { useSnapSignerStatus } from '@/hooks/useSnapSignerStatus';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
+import {
+  View,
+  StyleSheet,
+  Linking,
+  Pressable,
+  Text,
+  ActivityIndicator,
+  AppState,
+  type AppStateStatus,
+} from "react-native";
+import type { ReactNode } from "react";
+import type {
+  SnapAccent,
+  SnapElement,
+  SnapInputValue,
+  SnapInputs,
+  SnapResponse,
+} from "@/types/snap";
+import { SnapContext, type SnapContextValue } from "./context";
+import { SnapRenderer } from "./SnapRenderer";
+import { Confetti } from "./effects/Confetti";
+import {
+  DEFAULT_SNAP_ACCENT,
+  resolvePaletteColor,
+} from "@/constants/snapPalette";
+import { colors } from "@/constants/theme";
+import { useAuthStore } from "@/stores/authStore";
+import {
+  registerSnapSigner,
+  signSnapSubmit,
+  signSnapSubmitV1,
+} from "@/services/snapSigner";
+import { useSnapSignerStatus } from "@/hooks/useSnapSignerStatus";
 import {
   submitSnap,
   assertSafeSnapUrl,
   isSameOriginSnapTarget,
   buildSnapAudience,
   SnapSubmitError,
-} from '@/services/snapClient';
+} from "@/services/snapClient";
 
 /**
  * Walk the element tree depth-first from root and assign 0-based button
@@ -36,7 +65,7 @@ function buildButtonIndexMap(
     visited.add(id);
     const el = elements[id];
     if (!el) return;
-    if (el.type === 'button') {
+    if (el.type === "button") {
       map[id] = counter;
       counter += 1;
     }
@@ -60,14 +89,18 @@ const APPROVAL_WATCH_MAX_MS = 10 * 60 * 1000;
  */
 function looksLikeSignerRevoked(err: unknown): boolean {
   if (!err) return false;
-  const anyErr = err as { status?: number; response?: { status?: number }; message?: string };
+  const anyErr = err as {
+    status?: number;
+    response?: { status?: number };
+    message?: string;
+  };
   const status = anyErr.status ?? anyErr.response?.status;
   if (status === 401 || status === 403) return true;
-  const msg = (anyErr.message ?? '').toLowerCase();
+  const msg = (anyErr.message ?? "").toLowerCase();
   if (!msg) return false;
-  if (msg.includes('signer') && msg.includes('revoked')) return true;
-  if (msg.includes('invalid signer')) return true;
-  if (msg.includes('signer not found')) return true;
+  if (msg.includes("signer") && msg.includes("revoked")) return true;
+  if (msg.includes("invalid signer")) return true;
+  if (msg.includes("signer not found")) return true;
   return false;
 }
 
@@ -80,18 +113,21 @@ interface State {
 }
 
 type Action =
-  | { type: 'set-input'; name: string; value: SnapInputValue }
-  | { type: 'submit-start' }
-  | { type: 'submit-success'; response: SnapResponse }
-  | { type: 'submit-error'; error: string };
+  | { type: "set-input"; name: string; value: SnapInputValue }
+  | { type: "submit-start" }
+  | { type: "submit-success"; response: SnapResponse }
+  | { type: "submit-error"; error: string };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case 'set-input':
-      return { ...state, inputs: { ...state.inputs, [action.name]: action.value } };
-    case 'submit-start':
+    case "set-input":
+      return {
+        ...state,
+        inputs: { ...state.inputs, [action.name]: action.value },
+      };
+    case "submit-start":
       return { ...state, submitting: true, error: null };
-    case 'submit-success':
+    case "submit-success":
       return {
         ...state,
         submitting: false,
@@ -99,7 +135,7 @@ function reducer(state: State, action: Action): State {
         inputs: {},
         confettiKey: state.confettiKey + 1,
       };
-    case 'submit-error':
+    case "submit-error":
       return { ...state, submitting: false, error: action.error };
     default:
       return state;
@@ -121,14 +157,18 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
     confettiKey: 0,
   });
 
-  const { status: signerStatus, refresh: refreshSignerStatus, invalidate: invalidateSigner } = useSnapSignerStatus(fid);
+  const {
+    status: signerStatus,
+    refresh: refreshSignerStatus,
+    invalidate: invalidateSigner,
+  } = useSnapSignerStatus(fid);
   const [registering, setRegistering] = useState(false);
   const appStateCleanupRef = useRef<(() => void) | null>(null);
 
   const { response, submitting } = state;
   const accent: SnapAccent = response.theme?.accent ?? DEFAULT_SNAP_ACCENT;
-  const accentColor = resolvePaletteColor('accent', accent);
-  const hasConfetti = response.effects?.includes('confetti') ?? false;
+  const accentColor = resolvePaletteColor("accent", accent);
+  const hasConfetti = response.effects?.includes("confetti") ?? false;
 
   // Ensure we tear down any lingering AppState listener on unmount.
   useEffect(() => {
@@ -148,13 +188,15 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
   );
 
   const setInput = useCallback((name: string, value: SnapInputValue) => {
-    dispatch({ type: 'set-input', name, value });
+    dispatch({ type: "set-input", name, value });
   }, []);
 
   const renderChildren = useCallback(
     (ids: string[] | undefined, depth: number): ReactNode => {
       if (!ids || ids.length === 0) return null;
-      return ids.map((id) => <SnapRenderer key={id} rootId={id} depth={depth} />);
+      return ids.map((id) => (
+        <SnapRenderer key={id} rootId={id} depth={depth} />
+      ));
     },
     [],
   );
@@ -167,16 +209,19 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
 
     let cancelled = false;
 
-    const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (cancelled) return;
-      if (next !== 'active') return;
-      void refreshSignerStatus({ force: true }).then((result) => {
+    const subscription = AppState.addEventListener(
+      "change",
+      (next: AppStateStatus) => {
         if (cancelled) return;
-        if (result === 'approved') {
-          cleanup();
-        }
-      });
-    });
+        if (next !== "active") return;
+        void refreshSignerStatus({ force: true }).then((result) => {
+          if (cancelled) return;
+          if (result === "approved") {
+            cleanup();
+          }
+        });
+      },
+    );
 
     const timeout = setTimeout(() => {
       cleanup();
@@ -203,7 +248,7 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       if (result.approvalUrl) {
         await Linking.openURL(result.approvalUrl).catch(() => {});
       }
-      if (result.status === 'approved') {
+      if (result.status === "approved") {
         await refreshSignerStatus();
       } else {
         // Pending: watch for return from Farcaster and re-check once.
@@ -225,11 +270,11 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
     async (elementId: string) => {
       if (!fid) return;
       const element = state.response.ui.elements[elementId];
-      if (!element || element.type !== 'button') return;
+      if (!element || element.type !== "button") return;
 
-      if (signerStatus !== 'approved') {
+      if (signerStatus !== "approved") {
         const latest = await refreshSignerStatus();
-        if (latest !== 'approved') {
+        if (latest !== "approved") {
           await handleEnableInteractions();
           return;
         }
@@ -239,14 +284,15 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       // `target` URL as the button discriminator. To defeat signed-body
       // exfiltration we require the target to share the snap origin and
       // pass a safe-URL check (https + not a private/loopback host).
-      const pressParams = (element.on?.press as { params?: { target?: string } } | undefined)
-        ?.params;
+      const pressParams = (
+        element.on?.press as { params?: { target?: string } } | undefined
+      )?.params;
       const rawTarget = pressParams?.target ?? url;
       let target: string;
       try {
         target = assertSafeSnapUrl(rawTarget);
       } catch {
-        dispatch({ type: 'submit-error', error: 'Unsafe snap target URL' });
+        dispatch({ type: "submit-error", error: "Unsafe snap target URL" });
         return;
       }
       if (!isSameOriginSnapTarget(target, url)) {
@@ -265,11 +311,11 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       // so a replay against another v1 server becomes trivial).
       const initialVersion = state.response.version;
 
-      dispatch({ type: 'submit-start' });
+      dispatch({ type: "submit-start" });
       try {
         const jfs = await signSnapSubmit(fid, inputs, { audience });
-        const next = await submitSnap(target, jfs, { expectVersion: '2.0' });
-        dispatch({ type: 'submit-success', response: next });
+        const next = await submitSnap(target, jfs, { expectVersion: "2.0" });
+        dispatch({ type: "submit-success", response: next });
       } catch (err) {
         // v1 fallback per docs.farcaster.xyz/snap/2.0/client-upgrade.
         // Narrowed from the doc's "any 4xx" to avoid downgrade abuse:
@@ -280,33 +326,50 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
           err instanceof SnapSubmitError &&
           (err.status === 400 || err.status === 422);
 
-        if (initialVersion === '1.0' && isVersionMismatch4xx) {
+        if (initialVersion === "1.0" && isVersionMismatch4xx) {
           const buttonIndex = buttonIndexMap[elementId];
           if (buttonIndex !== undefined) {
             try {
               const jfsV1 = await signSnapSubmitV1(fid, buttonIndex, inputs);
-              const next = await submitSnap(target, jfsV1, { expectVersion: '1.0' });
-              dispatch({ type: 'submit-success', response: next });
+              const next = await submitSnap(target, jfsV1, {
+                expectVersion: "1.0",
+              });
+              dispatch({ type: "submit-success", response: next });
               return;
             } catch (fallbackErr) {
               const message =
-                fallbackErr instanceof Error ? fallbackErr.message : 'Submit failed';
-              dispatch({ type: 'submit-error', error: message });
+                fallbackErr instanceof Error
+                  ? fallbackErr.message
+                  : "Submit failed";
+              dispatch({ type: "submit-error", error: message });
               return;
             }
           }
         }
 
-        const message = err instanceof Error ? err.message : 'Submit failed';
+        const message = err instanceof Error ? err.message : "Submit failed";
         if (looksLikeSignerRevoked(err)) {
           await invalidateSigner();
-          dispatch({ type: 'submit-error', error: 'Signer revoked — tap to enable interactions' });
+          dispatch({
+            type: "submit-error",
+            error: "Signer revoked — tap to enable interactions",
+          });
           return;
         }
-        dispatch({ type: 'submit-error', error: message });
+        dispatch({ type: "submit-error", error: message });
       }
     },
-    [fid, signerStatus, refreshSignerStatus, handleEnableInteractions, invalidateSigner, state.inputs, state.response.ui.elements, url, buttonIndexMap],
+    [
+      fid,
+      signerStatus,
+      refreshSignerStatus,
+      handleEnableInteractions,
+      invalidateSigner,
+      state.inputs,
+      state.response.ui.elements,
+      url,
+      buttonIndexMap,
+    ],
   );
 
   const contextValue: SnapContextValue = useMemo(
@@ -337,19 +400,22 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
   };
 
   return (
-    <View style={[styles.card, { borderColor: accentColor + '55' }]}>
+    <View style={[styles.card, { borderColor: accentColor + "55" }]}>
       <SnapContext.Provider value={contextValue}>
         <View style={styles.content}>
           <SnapRenderer rootId={response.ui.root} />
         </View>
       </SnapContext.Provider>
 
-      {signerStatus === 'pending_approval' ? (
-        <View style={[styles.banner, { backgroundColor: accentColor + '22' }]}>
+      {signerStatus === "pending_approval" ? (
+        <View style={[styles.banner, { backgroundColor: accentColor + "22" }]}>
           <Text style={[styles.bannerText, { color: accentColor }]}>
             Snap signer pending approval — open Farcaster to approve
           </Text>
-          <Pressable onPress={handleManualApprovalCheck} style={styles.bannerAction}>
+          <Pressable
+            onPress={handleManualApprovalCheck}
+            style={styles.bannerAction}
+          >
             <Text style={[styles.bannerActionText, { color: accentColor }]}>
               I approved it — check now
             </Text>
@@ -359,26 +425,32 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
 
       {state.error ? (
         <View style={styles.errorBanner}>
-          <Text style={styles.errorText} numberOfLines={2}>{state.error}</Text>
+          <Text style={styles.errorText} numberOfLines={2}>
+            {state.error}
+          </Text>
         </View>
       ) : null}
 
       <Pressable onPress={handleOpenExternal} style={styles.footer}>
         <Text style={[styles.footerLabel, { color: accentColor }]}>Snap</Text>
-        {submitting ? <ActivityIndicator size="small" color={accentColor} /> : null}
+        {submitting ? (
+          <ActivityIndicator size="small" color={accentColor} />
+        ) : null}
         <Text style={styles.footerDomain} numberOfLines={1}>
           {safeDomain(url)}
         </Text>
       </Pressable>
 
-      {hasConfetti ? <Confetti triggerKey={`${response.ui.root}:${state.confettiKey}`} /> : null}
+      {hasConfetti ? (
+        <Confetti triggerKey={`${response.ui.root}:${state.confettiKey}`} />
+      ) : null}
     </View>
   );
 }
 
 function safeDomain(url: string): string {
   try {
-    return new URL(url).hostname.replace(/^www\./, '');
+    return new URL(url).hostname.replace(/^www\./, "");
   } catch {
     return url;
   }
@@ -389,7 +461,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     borderWidth: 1,
     borderRadius: 12,
-    overflow: 'hidden',
+    overflow: "hidden",
     backgroundColor: colors.background.main,
   },
   content: {
@@ -402,30 +474,30 @@ const styles = StyleSheet.create({
   },
   bannerText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   bannerAction: {
     marginTop: 4,
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
   },
   bannerActionText: {
     fontSize: 11,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
+    fontWeight: "700",
+    textDecorationLine: "underline",
   },
   errorBanner: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#ef444422',
+    backgroundColor: "#ef444422",
   },
   errorText: {
     fontSize: 11,
-    color: '#ef4444',
+    color: "#ef4444",
   },
   footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -434,13 +506,13 @@ const styles = StyleSheet.create({
   },
   footerLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
     letterSpacing: 0.5,
   },
   footerDomain: {
     color: colors.text.secondary,
     fontSize: 11,
     flex: 1,
-    textAlign: 'right',
+    textAlign: "right",
   },
 });

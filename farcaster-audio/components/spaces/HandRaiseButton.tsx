@@ -1,7 +1,7 @@
-import { Pressable, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
-import { colors } from '@/constants/theme';
+import { Pressable, Text, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { colors } from "@/constants/theme";
 
 interface HandRaiseButtonProps {
   isRaised: boolean;
@@ -9,7 +9,11 @@ interface HandRaiseButtonProps {
   disabled?: boolean;
 }
 
-export function HandRaiseButton({ isRaised, onPress, disabled = false }: HandRaiseButtonProps) {
+export function HandRaiseButton({
+  isRaised,
+  onPress,
+  disabled = false,
+}: HandRaiseButtonProps) {
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onPress();
@@ -19,7 +23,7 @@ export function HandRaiseButton({ isRaised, onPress, disabled = false }: HandRai
     <Pressable
       onPress={handlePress}
       disabled={disabled}
-      accessibilityLabel={isRaised ? 'Lower hand' : 'Raise hand'}
+      accessibilityLabel={isRaised ? "Lower hand" : "Raise hand"}
       accessibilityRole="button"
       style={({ pressed }) => [
         styles.button,
@@ -29,7 +33,7 @@ export function HandRaiseButton({ isRaised, onPress, disabled = false }: HandRai
     >
       <Ionicons name="hand-left" size={20} color={colors.text.primary} />
       <Text style={[styles.text, isRaised && styles.raisedText]}>
-        {isRaised ? 'Lower hand' : 'Raise hand'}
+        {isRaised ? "Lower hand" : "Raise hand"}
       </Text>
     </Pressable>
   );
@@ -37,8 +41,8 @@ export function HandRaiseButton({ isRaised, onPress, disabled = false }: HandRai
 
 const styles = StyleSheet.create({
   button: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     backgroundColor: colors.background.border,
     paddingVertical: 12,
@@ -48,6 +52,6 @@ const styles = StyleSheet.create({
   raisedButton: {
     backgroundColor: colors.accent,
   },
-  text: { color: colors.text.primary, fontSize: 15, fontWeight: '600' },
+  text: { color: colors.text.primary, fontSize: 15, fontWeight: "600" },
   raisedText: { color: colors.text.primary },
 });

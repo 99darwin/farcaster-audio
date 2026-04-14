@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import type { Room, Participant, ParticipantRole } from '@/types/space';
+import { create } from "zustand";
+import type { Room, Participant, ParticipantRole } from "@/types/space";
 
 interface SpaceStore {
   // Current active space state
@@ -36,7 +36,11 @@ interface SpaceStore {
   bumpChatNewReply: () => void;
 
   // Actions - lifecycle
-  joinSpace: (room: Room, participants: Participant[], myRole: ParticipantRole) => void;
+  joinSpace: (
+    room: Room,
+    participants: Participant[],
+    myRole: ParticipantRole,
+  ) => void;
   leaveSpace: () => void;
   reset: () => void;
 }
@@ -63,7 +67,10 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
 
   addParticipant: (participant) =>
     set((state) => ({
-      participants: [...state.participants.filter((p) => p.fid !== participant.fid), participant],
+      participants: [
+        ...state.participants.filter((p) => p.fid !== participant.fid),
+        participant,
+      ],
     })),
 
   removeParticipant: (fid) =>
@@ -86,7 +93,8 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
   setHandRaised: (isHandRaised) => set({ isHandRaised }),
 
   // Chat
-  bumpChatNewReply: () => set((state) => ({ chatNewReplyTick: state.chatNewReplyTick + 1 })),
+  bumpChatNewReply: () =>
+    set((state) => ({ chatNewReplyTick: state.chatNewReplyTick + 1 })),
 
   // Discovery
   setActiveLiveSpaces: (activeLiveSpaces) => set({ activeLiveSpaces }),
@@ -99,12 +107,13 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
       participants,
       myRole,
       isConnected: true,
-      isMuted: myRole === 'listener',
+      isMuted: myRole === "listener",
       isHandRaised: false,
       handQueue: [],
     }),
 
   leaveSpace: () => set(INITIAL_STATE),
 
-  reset: () => set({ ...INITIAL_STATE, activeLiveSpaces: [], scheduledSpaces: [] }),
+  reset: () =>
+    set({ ...INITIAL_STATE, activeLiveSpaces: [], scheduledSpaces: [] }),
 }));

@@ -1,13 +1,13 @@
-import { useState } from 'react';
-import { View, Text, Switch as RNSwitch, StyleSheet } from 'react-native';
-import type { SwitchProps } from '@/types/snap';
-import { useSnapContext } from '../context';
-import { resolvePaletteColor } from '@/constants/snapPalette';
-import { colors } from '@/constants/theme';
+import { useState } from "react";
+import { View, Text, Switch as RNSwitch, StyleSheet } from "react-native";
+import type { SwitchProps } from "@/types/snap";
+import { useSnapContext } from "../context";
+import { resolvePaletteColor } from "@/constants/snapPalette";
+import { colors } from "@/constants/theme";
 
 export function SnapSwitch({ props }: { props: SwitchProps }) {
   const { accent, setInput } = useSnapContext();
-  const color = resolvePaletteColor('accent', accent);
+  const color = resolvePaletteColor("accent", accent);
   const [checked, setChecked] = useState(props.defaultChecked ?? false);
 
   const handleChange = (next: boolean) => {
@@ -30,9 +30,9 @@ export function SnapSwitch({ props }: { props: SwitchProps }) {
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
   },
   label: {

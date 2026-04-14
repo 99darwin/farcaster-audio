@@ -5,8 +5,12 @@
  * app_key (see `snapSigner.ts`) and POSTs it to the snap URL.
  */
 
-import { SNAP_MEDIA_TYPE, type SnapResponse, type SnapElement } from '@/types/snap';
-import type { JfsBody } from '@/services/snapSigner';
+import {
+  SNAP_MEDIA_TYPE,
+  type SnapResponse,
+  type SnapElement,
+} from "@/types/snap";
+import type { JfsBody } from "@/services/snapSigner";
 
 const ACCEPT_HEADER = `${SNAP_MEDIA_TYPE}, text/html;q=0.9`;
 const MAX_RESPONSE_BYTES = 256 * 1024; // 256 KB
@@ -42,7 +46,7 @@ const PRIVATE_HOST_PATTERNS: RegExp[] = [
  */
 function normalizeHost(hostname: string): string {
   const lower = hostname.toLowerCase();
-  return lower.endsWith('.') ? lower.slice(0, -1) : lower;
+  return lower.endsWith(".") ? lower.slice(0, -1) : lower;
 }
 
 /**
@@ -60,19 +64,19 @@ export function assertSafeSnapUrl(raw: string): string {
   try {
     parsed = new URL(raw);
   } catch {
-    throw new Error('Invalid snap URL');
+    throw new Error("Invalid snap URL");
   }
-  if (parsed.protocol !== 'https:') {
-    throw new Error('Snap URL must use HTTPS');
+  if (parsed.protocol !== "https:") {
+    throw new Error("Snap URL must use HTTPS");
   }
   const host = parsed.hostname;
   // IPv6 literals contain `:`; DNS + IPv4 never do.
-  if (host.includes(':')) {
-    throw new Error('Snap URL host is not permitted');
+  if (host.includes(":")) {
+    throw new Error("Snap URL host is not permitted");
   }
   const normalized = normalizeHost(host);
   for (const re of PRIVATE_HOST_PATTERNS) {
-    if (re.test(normalized)) throw new Error('Snap URL host is not permitted');
+    if (re.test(normalized)) throw new Error("Snap URL host is not permitted");
   }
   return parsed.href;
 }
@@ -104,8 +108,8 @@ export function buildSnapAudience(target: string): string {
 }
 
 type CacheEntry =
-  | { kind: 'snap'; response: SnapResponse }
-  | { kind: 'not-snap' };
+  | { kind: "snap"; response: SnapResponse }
+  | { kind: "not-snap" };
 
 /** Session-scoped LRU-ish cache: URL → snap response or negative marker. */
 const cache = new Map<string, CacheEntry>();
@@ -146,7 +150,9 @@ const SNAP_MAX_DEPTH = 4;
  * violated. Assumes the caller has already confirmed the minimal shape
  * (root id exists, every element has a type + props).
  */
-export function validateSnapStructure(response: SnapResponse): SnapResponse | null {
+export function validateSnapStructure(
+  response: SnapResponse,
+): SnapResponse | null {
   const { root, elements } = response.ui;
 
   if (Object.keys(elements).length > SNAP_MAX_ELEMENTS) return null;
@@ -165,7 +171,7 @@ export function validateSnapStructure(response: SnapResponse): SnapResponse | nu
     const el = elements[id];
     if (!el) return null;
     const children = el.children ?? [];
-    const isContainer = el.type === 'stack' || el.type === 'item_group';
+    const isContainer = el.type === "stack" || el.type === "item_group";
     const limit = isRoot
       ? SNAP_MAX_ROOT_CHILDREN
       : isContainer
@@ -183,18 +189,18 @@ export function validateSnapStructure(response: SnapResponse): SnapResponse | nu
 
 /** Validate minimal SnapResponse shape. Returns null if invalid. */
 function validateSnapResponse(data: unknown): SnapResponse | null {
-  if (!data || typeof data !== 'object') return null;
+  if (!data || typeof data !== "object") return null;
   const obj = data as Record<string, unknown>;
 
   // Accept both v1 and v2 during the transition. v1 is exercised only via
   // the fallback path in SnapCard (try v2 → on 4xx retry with v1 body).
   // Structural limits below apply to v2 only.
-  if (obj.version !== '2.0' && obj.version !== '1.0') return null;
+  if (obj.version !== "2.0" && obj.version !== "1.0") return null;
 
   const ui = obj.ui as Record<string, unknown> | undefined;
-  if (!ui || typeof ui !== 'object') return null;
-  if (typeof ui.root !== 'string') return null;
-  if (!ui.elements || typeof ui.elements !== 'object') return null;
+  if (!ui || typeof ui !== "object") return null;
+  if (typeof ui.root !== "string") return null;
+  if (!ui.elements || typeof ui.elements !== "object") return null;
 
   const elements = ui.elements as Record<string, unknown>;
   if (!(ui.root in elements)) return null;
@@ -202,9 +208,9 @@ function validateSnapResponse(data: unknown): SnapResponse | null {
   // Every element must have a type + props object
   for (const key of Object.keys(elements)) {
     const el = elements[key] as Record<string, unknown> | undefined;
-    if (!el || typeof el !== 'object') return null;
-    if (typeof el.type !== 'string') return null;
-    if (!el.props || typeof el.props !== 'object') return null;
+    if (!el || typeof el !== "object") return null;
+    if (typeof el.type !== "string") return null;
+    if (!el.props || typeof el.props !== "object") return null;
   }
 
   // Apply the v2 structural limits (element count cap, width caps, depth
@@ -237,40 +243,40 @@ export async function fetchSnap(url: string): Promise<SnapResponse | null> {
   try {
     assertSafeSnapUrl(url);
   } catch {
-    cacheSet(url, { kind: 'not-snap' });
+    cacheSet(url, { kind: "not-snap" });
     return null;
   }
 
   const cached = cacheGet(url);
-  if (cached) return cached.kind === 'snap' ? cached.response : null;
+  if (cached) return cached.kind === "snap" ? cached.response : null;
 
   let response: Response;
   try {
     response = await fetchWithTimeout(
       url,
-      { method: 'GET', headers: { Accept: ACCEPT_HEADER } },
+      { method: "GET", headers: { Accept: ACCEPT_HEADER } },
       FETCH_TIMEOUT_MS,
     );
   } catch {
-    cacheSet(url, { kind: 'not-snap' });
+    cacheSet(url, { kind: "not-snap" });
     return null;
   }
 
   if (!response.ok) {
-    cacheSet(url, { kind: 'not-snap' });
+    cacheSet(url, { kind: "not-snap" });
     return null;
   }
 
-  const contentType = response.headers.get('content-type') ?? '';
+  const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes(SNAP_MEDIA_TYPE)) {
-    cacheSet(url, { kind: 'not-snap' });
+    cacheSet(url, { kind: "not-snap" });
     return null;
   }
 
   // Guard against oversized bodies
-  const contentLength = response.headers.get('content-length');
+  const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > MAX_RESPONSE_BYTES) {
-    cacheSet(url, { kind: 'not-snap' });
+    cacheSet(url, { kind: "not-snap" });
     return null;
   }
 
@@ -278,22 +284,22 @@ export async function fetchSnap(url: string): Promise<SnapResponse | null> {
   try {
     const text = await response.text();
     if (text.length > MAX_RESPONSE_BYTES) {
-      cacheSet(url, { kind: 'not-snap' });
+      cacheSet(url, { kind: "not-snap" });
       return null;
     }
     body = JSON.parse(text);
   } catch {
-    cacheSet(url, { kind: 'not-snap' });
+    cacheSet(url, { kind: "not-snap" });
     return null;
   }
 
   const validated = validateSnapResponse(body);
   if (!validated) {
-    cacheSet(url, { kind: 'not-snap' });
+    cacheSet(url, { kind: "not-snap" });
     return null;
   }
 
-  cacheSet(url, { kind: 'snap', response: validated });
+  cacheSet(url, { kind: "snap", response: validated });
   return validated;
 }
 
@@ -306,27 +312,27 @@ export async function detectSnap(url: string): Promise<boolean> {
 /** Synchronously read a cached response (for renderers that already detected). */
 export function getCachedSnap(url: string): SnapResponse | null {
   const entry = cache.get(url);
-  return entry?.kind === 'snap' ? entry.response : null;
+  return entry?.kind === "snap" ? entry.response : null;
 }
 
 /** Type guard for known element types — unknowns render as placeholders. */
 export const KNOWN_ELEMENT_TYPES: ReadonlySet<string> = new Set([
-  'text',
-  'badge',
-  'button',
-  'icon',
-  'image',
-  'item',
-  'progress',
-  'separator',
-  'stack',
-  'item_group',
-  'bar_chart',
-  'cell_grid',
-  'input',
-  'slider',
-  'switch',
-  'toggle_group',
+  "text",
+  "badge",
+  "button",
+  "icon",
+  "image",
+  "item",
+  "progress",
+  "separator",
+  "stack",
+  "item_group",
+  "bar_chart",
+  "cell_grid",
+  "input",
+  "slider",
+  "switch",
+  "toggle_group",
 ]);
 
 export function isKnownElement(el: { type: string }): el is SnapElement {
@@ -341,7 +347,7 @@ export class SnapSubmitError extends Error {
   readonly status?: number;
   constructor(message: string, status?: number) {
     super(message);
-    this.name = 'SnapSubmitError';
+    this.name = "SnapSubmitError";
     this.status = status;
   }
 }
@@ -359,15 +365,15 @@ export class SnapSubmitError extends Error {
 export async function submitSnap(
   url: string,
   jfs: JfsBody,
-  opts: { expectVersion: '1.0' | '2.0' },
+  opts: { expectVersion: "1.0" | "2.0" },
 ): Promise<SnapResponse> {
   assertSafeSnapUrl(url);
   const response = await fetchWithTimeout(
     url,
     {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': SNAP_MEDIA_TYPE,
+        "Content-Type": SNAP_MEDIA_TYPE,
         Accept: SNAP_MEDIA_TYPE,
       },
       body: JSON.stringify(jfs),
@@ -376,27 +382,30 @@ export async function submitSnap(
   );
 
   if (!response.ok) {
-    throw new SnapSubmitError(`Snap submit failed: ${response.status}`, response.status);
+    throw new SnapSubmitError(
+      `Snap submit failed: ${response.status}`,
+      response.status,
+    );
   }
 
-  const contentType = response.headers.get('content-type') ?? '';
+  const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes(SNAP_MEDIA_TYPE)) {
-    throw new Error('Snap submit returned non-snap content type');
+    throw new Error("Snap submit returned non-snap content type");
   }
 
-  const contentLength = response.headers.get('content-length');
+  const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > MAX_RESPONSE_BYTES) {
-    throw new Error('Snap submit response too large');
+    throw new Error("Snap submit response too large");
   }
 
   const text = await response.text();
   if (text.length > MAX_RESPONSE_BYTES) {
-    throw new Error('Snap submit response too large');
+    throw new Error("Snap submit response too large");
   }
 
   const validated = validateSnapResponse(JSON.parse(text));
   if (!validated) {
-    throw new Error('Snap submit response invalid');
+    throw new Error("Snap submit response invalid");
   }
   if (validated.version !== opts.expectVersion) {
     throw new Error(
@@ -405,6 +414,6 @@ export async function submitSnap(
   }
 
   // Refresh cache so re-renders pick up the new state
-  cacheSet(url, { kind: 'snap', response: validated });
+  cacheSet(url, { kind: "snap", response: validated });
   return validated;
 }

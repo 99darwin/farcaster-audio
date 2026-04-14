@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
-import * as api from '@/services/api';
-import type { NeynarUser, NeynarCast } from '@/types/neynar';
+import { useState, useCallback } from "react";
+import * as api from "@/services/api";
+import type { NeynarUser, NeynarCast } from "@/types/neynar";
 
 interface ProfileState {
   user: NeynarUser | null;
@@ -43,16 +43,20 @@ export function useProfile(fid: number) {
       setState((s) => ({
         ...s,
         isLoading: false,
-        error: err instanceof Error ? err.message : 'Failed to load profile',
+        error: err instanceof Error ? err.message : "Failed to load profile",
       }));
     }
   }, [fid]);
 
   const fetchMoreCasts = useCallback(async () => {
-    if (state.isCastsLoading || !state.hasMoreCasts || !state.castsCursor) return;
+    if (state.isCastsLoading || !state.hasMoreCasts || !state.castsCursor)
+      return;
     setState((s) => ({ ...s, isCastsLoading: true }));
     try {
-      const data = await api.getUserCasts(fid, { limit: 25, cursor: state.castsCursor });
+      const data = await api.getUserCasts(fid, {
+        limit: 25,
+        cursor: state.castsCursor,
+      });
       setState((s) => ({
         ...s,
         casts: [...s.casts, ...(data.casts ?? [])],

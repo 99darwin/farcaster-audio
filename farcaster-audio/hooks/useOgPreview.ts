@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { fetchOgMetadata, type OgMetadata } from '@/services/api';
+import { useEffect, useRef, useState } from "react";
+import { fetchOgMetadata, type OgMetadata } from "@/services/api";
 
 const URL_RE = /https?:\/\/[^\s<)}\]]+/g;
 const DEBOUNCE_MS = 600;
 
 /** Strip trailing punctuation that's likely sentence-level, not part of the URL. */
 function cleanUrl(raw: string): string {
-  return raw.replace(/[.,;:!?)}\]]+$/, '');
+  return raw.replace(/[.,;:!?)}\]]+$/, "");
 }
 
 /** Extract the first URL from text. */

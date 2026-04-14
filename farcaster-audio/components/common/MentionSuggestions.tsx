@@ -1,8 +1,15 @@
-import { useEffect, useState, useRef } from 'react';
-import { View, Text, Pressable, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
-import { Image } from 'expo-image';
-import { colors, spacing, radii, typography } from '@/constants/theme';
-import { searchUsers } from '@/services/api';
+import { useEffect, useState, useRef } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  FlatList,
+  ActivityIndicator,
+  StyleSheet,
+} from "react-native";
+import { Image } from "expo-image";
+import { colors, spacing, radii, typography } from "@/constants/theme";
+import { searchUsers } from "@/services/api";
 
 interface MentionUser {
   fid: number;
@@ -21,12 +28,15 @@ interface MentionSuggestionsProps {
  * Extracts the current @mention query based on cursor position.
  * Returns { query, start } or null if not in a mention context.
  */
-function extractMentionQuery(text: string, cursor: number): { query: string; start: number } | null {
+function extractMentionQuery(
+  text: string,
+  cursor: number,
+): { query: string; start: number } | null {
   // Walk backwards from cursor to find '@'
   let i = cursor - 1;
   while (i >= 0) {
     const char = text[i];
-    if (char === '@') {
+    if (char === "@") {
       // '@' must be at start of text or preceded by whitespace
       if (i === 0 || /\s/.test(text[i - 1])) {
         const query = text.slice(i + 1, cursor);
@@ -43,11 +53,15 @@ function extractMentionQuery(text: string, cursor: number): { query: string; sta
   return null;
 }
 
-export function MentionSuggestions({ text, cursorPosition, onSelect }: MentionSuggestionsProps) {
+export function MentionSuggestions({
+  text,
+  cursorPosition,
+  onSelect,
+}: MentionSuggestionsProps) {
   const [users, setUsers] = useState<MentionUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastQueryRef = useRef('');
+  const lastQueryRef = useRef("");
 
   const mention = extractMentionQuery(text, cursorPosition);
 
@@ -56,7 +70,7 @@ export function MentionSuggestions({ text, cursorPosition, onSelect }: MentionSu
 
     if (!mention || mention.query.length === 0) {
       setUsers([]);
-      lastQueryRef.current = '';
+      lastQueryRef.current = "";
       return;
     }
 
@@ -102,15 +116,25 @@ export function MentionSuggestions({ text, cursorPosition, onSelect }: MentionSu
               accessibilityLabel={`Mention ${item.display_name}`}
             >
               {item.pfp_url ? (
-                <Image source={{ uri: item.pfp_url }} style={styles.avatar} contentFit="cover" />
+                <Image
+                  source={{ uri: item.pfp_url }}
+                  style={styles.avatar}
+                  contentFit="cover"
+                />
               ) : (
                 <View style={[styles.avatar, styles.avatarFallback]}>
-                  <Text style={styles.avatarInitial}>{(item.display_name || item.username)[0]?.toUpperCase()}</Text>
+                  <Text style={styles.avatarInitial}>
+                    {(item.display_name || item.username)[0]?.toUpperCase()}
+                  </Text>
                 </View>
               )}
               <View style={styles.userInfo}>
-                <Text style={styles.displayName} numberOfLines={1}>{item.display_name}</Text>
-                <Text style={styles.username} numberOfLines={1}>@{item.username}</Text>
+                <Text style={styles.displayName} numberOfLines={1}>
+                  {item.display_name}
+                </Text>
+                <Text style={styles.username} numberOfLines={1}>
+                  @{item.username}
+                </Text>
               </View>
             </Pressable>
           )}
@@ -129,11 +153,11 @@ const styles = StyleSheet.create({
   },
   loadingRow: {
     paddingVertical: spacing.md,
-    alignItems: 'center',
+    alignItems: "center",
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     gap: spacing.md,
@@ -145,8 +169,8 @@ const styles = StyleSheet.create({
   },
   avatarFallback: {
     backgroundColor: colors.background.subtle,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   avatarInitial: {
     color: colors.text.primary,

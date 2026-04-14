@@ -10,15 +10,17 @@
  *     endpoint lands).
  */
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach } from "@jest/globals";
 
 // --- SecureStore mock ---
 const secureStore: Record<string, string> = {};
 
-jest.mock('expo-secure-store', () => ({
-  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'whenUnlockedThisDeviceOnly',
+jest.mock("expo-secure-store", () => ({
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: "whenUnlockedThisDeviceOnly",
   getItemAsync: jest.fn(async (key: string) => {
-    return Object.prototype.hasOwnProperty.call(secureStore, key) ? secureStore[key] : null;
+    return Object.prototype.hasOwnProperty.call(secureStore, key)
+      ? secureStore[key]
+      : null;
   }),
   setItemAsync: jest.fn(async (key: string, value: string) => {
     secureStore[key] = value;
@@ -29,17 +31,17 @@ jest.mock('expo-secure-store', () => ({
 }));
 
 // --- api mock ---
-jest.mock('@/services/api', () => ({
+jest.mock("@/services/api", () => ({
   getSnapSignerStatus: jest.fn(),
   registerSnapSigner: jest.fn(),
   invalidateSnapSigner: jest.fn(),
 }));
 
 // --- crypto polyfill mock (the real one pulls RN globals we don't want here) ---
-jest.mock('@/utils/cryptoPolyfill', () => ({}));
+jest.mock("@/utils/cryptoPolyfill", () => ({}));
 
 // --- @noble/ed25519 mock: we only need deterministic public-key derivation ---
-jest.mock('@noble/ed25519', () => {
+jest.mock("@noble/ed25519", () => {
   const fakePub = new Uint8Array(32).fill(7);
   return {
     hashes: {},
@@ -51,65 +53,65 @@ jest.mock('@noble/ed25519', () => {
   };
 });
 
-jest.mock('@noble/hashes/sha2.js', () => ({ sha512: jest.fn() }));
+jest.mock("@noble/hashes/sha2.js", () => ({ sha512: jest.fn() }));
 
 // Silence @noble ed25519 hash wiring — the real module assigns ed.hashes.sha512.
 
-import * as api from '@/services/api';
-import * as SecureStore from 'expo-secure-store';
+import * as api from "@/services/api";
+import * as SecureStore from "expo-secure-store";
 import {
   getSnapSignerStatus,
   invalidateSnapSigner,
-} from '@/services/snapSigner';
+} from "@/services/snapSigner";
 
 const FID = 12345;
 const KEY_STORAGE = `snap_signer_key_${FID}`;
 const STATUS_STORAGE = `snap_signer_status_${FID}`;
-const FAKE_PRIVKEY_HEX = '11'.repeat(32);
+const FAKE_PRIVKEY_HEX = "11".repeat(32);
 
 function resetStore() {
   for (const key of Object.keys(secureStore)) delete secureStore[key];
 }
 
-describe('snapSigner cache', () => {
+describe("snapSigner cache", () => {
   beforeEach(() => {
     resetStore();
     jest.clearAllMocks();
   });
 
-  it('returns approved from SecureStore without calling api when cached', async () => {
+  it("returns approved from SecureStore without calling api when cached", async () => {
     secureStore[KEY_STORAGE] = FAKE_PRIVKEY_HEX;
-    secureStore[STATUS_STORAGE] = 'approved';
+    secureStore[STATUS_STORAGE] = "approved";
 
     const result = await getSnapSignerStatus(FID);
 
-    expect(result).toBe('approved');
+    expect(result).toBe("approved");
     expect(api.getSnapSignerStatus).not.toHaveBeenCalled();
   });
 
-  it('bypasses cache and hits api when force=true', async () => {
+  it("bypasses cache and hits api when force=true", async () => {
     secureStore[KEY_STORAGE] = FAKE_PRIVKEY_HEX;
-    secureStore[STATUS_STORAGE] = 'approved';
+    secureStore[STATUS_STORAGE] = "approved";
     (api.getSnapSignerStatus as jest.Mock<any>).mockResolvedValue({
-      status: 'approved',
-      public_key: '0x' + '07'.repeat(32),
+      status: "approved",
+      public_key: "0x" + "07".repeat(32),
     });
 
     const result = await getSnapSignerStatus(FID, { force: true });
 
-    expect(result).toBe('approved');
+    expect(result).toBe("approved");
     expect(api.getSnapSignerStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('returns none when SecureStore has no key and does not call api', async () => {
+  it("returns none when SecureStore has no key and does not call api", async () => {
     const result = await getSnapSignerStatus(FID);
-    expect(result).toBe('none');
+    expect(result).toBe("none");
     expect(api.getSnapSignerStatus).not.toHaveBeenCalled();
   });
 
-  it('invalidateSnapSigner clears cache and calls api.invalidateSnapSigner', async () => {
+  it("invalidateSnapSigner clears cache and calls api.invalidateSnapSigner", async () => {
     secureStore[KEY_STORAGE] = FAKE_PRIVKEY_HEX;
-    secureStore[STATUS_STORAGE] = 'approved';
+    secureStore[STATUS_STORAGE] = "approved";
     (api.invalidateSnapSigner as jest.Mock<any>).mockResolvedValue(undefined);
 
     await invalidateSnapSigner(FID);
@@ -119,24 +121,28 @@ describe('snapSigner cache', () => {
     expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(STATUS_STORAGE);
   });
 
-  it('invalidateSnapSigner swallows a backend 404 (endpoint not yet deployed)', async () => {
+  it("invalidateSnapSigner swallows a backend 404 (endpoint not yet deployed)", async () => {
     secureStore[KEY_STORAGE] = FAKE_PRIVKEY_HEX;
-    secureStore[STATUS_STORAGE] = 'approved';
+    secureStore[STATUS_STORAGE] = "approved";
     // api.invalidateSnapSigner already swallows 404 itself, but simulate the
     // full round trip here to be safe.
-    (api.invalidateSnapSigner as jest.Mock<any>).mockImplementation(async () => {
-      // The real implementation catches 404 and returns undefined.
-      return undefined;
-    });
+    (api.invalidateSnapSigner as jest.Mock<any>).mockImplementation(
+      async () => {
+        // The real implementation catches 404 and returns undefined.
+        return undefined;
+      },
+    );
 
     await expect(invalidateSnapSigner(FID)).resolves.toBeUndefined();
     expect(secureStore[STATUS_STORAGE]).toBeUndefined();
   });
 
-  it('invalidateSnapSigner still clears local cache if api throws non-404', async () => {
+  it("invalidateSnapSigner still clears local cache if api throws non-404", async () => {
     secureStore[KEY_STORAGE] = FAKE_PRIVKEY_HEX;
-    secureStore[STATUS_STORAGE] = 'approved';
-    (api.invalidateSnapSigner as jest.Mock<any>).mockRejectedValue(new Error('boom'));
+    secureStore[STATUS_STORAGE] = "approved";
+    (api.invalidateSnapSigner as jest.Mock<any>).mockRejectedValue(
+      new Error("boom"),
+    );
 
     await expect(invalidateSnapSigner(FID)).resolves.toBeUndefined();
     expect(secureStore[STATUS_STORAGE]).toBeUndefined();

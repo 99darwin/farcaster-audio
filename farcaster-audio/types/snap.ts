@@ -5,51 +5,51 @@
  * (JFS signing) is out of scope in this phase; buttons render disabled.
  */
 
-export const SNAP_MEDIA_TYPE = 'application/vnd.farcaster.snap+json';
+export const SNAP_MEDIA_TYPE = "application/vnd.farcaster.snap+json";
 
 export type SnapAccent =
-  | 'gray'
-  | 'blue'
-  | 'red'
-  | 'amber'
-  | 'green'
-  | 'teal'
-  | 'purple'
-  | 'pink';
+  | "gray"
+  | "blue"
+  | "red"
+  | "amber"
+  | "green"
+  | "teal"
+  | "purple"
+  | "pink";
 
-export type PaletteColor = SnapAccent | 'accent';
+export type PaletteColor = SnapAccent | "accent";
 
-export type SnapEffect = 'confetti';
+export type SnapEffect = "confetti";
 
 export interface SnapTheme {
   accent?: SnapAccent;
 }
 
-export type SnapSize = 'sm' | 'md';
-export type SnapGap = 'none' | 'sm' | 'md' | 'lg';
-export type SnapJustify = 'start' | 'center' | 'end' | 'between' | 'around';
-export type SnapAspect = '1:1' | '16:9' | '4:3' | '9:16';
-export type SnapOrientation = 'horizontal' | 'vertical';
+export type SnapSize = "sm" | "md";
+export type SnapGap = "none" | "sm" | "md" | "lg";
+export type SnapJustify = "start" | "center" | "end" | "between" | "around";
+export type SnapAspect = "1:1" | "16:9" | "4:3" | "9:16";
+export type SnapOrientation = "horizontal" | "vertical";
 
 /** Component prop shapes (props only — container children live on the element). */
 
 export interface TextProps {
   content: string;
   size?: SnapSize;
-  weight?: 'bold' | 'normal';
-  align?: 'left' | 'center' | 'right';
+  weight?: "bold" | "normal";
+  align?: "left" | "center" | "right";
 }
 
 export interface BadgeProps {
   label: string;
-  variant?: 'default' | 'outline';
+  variant?: "default" | "outline";
   color?: PaletteColor;
   icon?: string;
 }
 
 export interface ButtonProps {
   label: string;
-  variant?: 'primary' | 'secondary';
+  variant?: "primary" | "secondary";
   icon?: string;
 }
 
@@ -68,7 +68,7 @@ export interface ImageProps {
 export interface ItemProps {
   title: string;
   description?: string;
-  variant?: 'default';
+  variant?: "default";
 }
 
 export interface ProgressProps {
@@ -82,7 +82,7 @@ export interface SeparatorProps {
 }
 
 export interface StackProps {
-  direction?: 'vertical' | 'horizontal';
+  direction?: "vertical" | "horizontal";
   gap?: SnapGap;
   justify?: SnapJustify;
 }
@@ -119,12 +119,12 @@ export interface CellGridProps {
   cells: CellGridCell[];
   gap?: SnapGap;
   rowHeight?: number;
-  select?: 'off' | 'single' | 'multiple';
+  select?: "off" | "single" | "multiple";
 }
 
 export interface InputProps {
   name: string;
-  type?: 'text' | 'number';
+  type?: "text" | "number";
   label?: string;
   placeholder?: string;
   defaultValue?: string;
@@ -152,42 +152,72 @@ export interface ToggleGroupProps {
   multiple?: boolean;
   orientation?: SnapOrientation;
   defaultValue?: string | string[];
-  variant?: 'default' | 'outline';
+  variant?: "default" | "outline";
   label?: string;
 }
 
 /** Discriminated union of all components. */
 export type SnapElement =
-  | { type: 'text'; props: TextProps; children?: string[]; on?: SnapEvents }
-  | { type: 'badge'; props: BadgeProps; children?: string[]; on?: SnapEvents }
-  | { type: 'button'; props: ButtonProps; children?: string[]; on?: SnapEvents }
-  | { type: 'icon'; props: IconProps; children?: string[]; on?: SnapEvents }
-  | { type: 'image'; props: ImageProps; children?: string[]; on?: SnapEvents }
-  | { type: 'item'; props: ItemProps; children?: string[]; on?: SnapEvents }
-  | { type: 'progress'; props: ProgressProps; children?: string[]; on?: SnapEvents }
-  | { type: 'separator'; props: SeparatorProps; children?: string[]; on?: SnapEvents }
-  | { type: 'stack'; props: StackProps; children?: string[]; on?: SnapEvents }
-  | { type: 'item_group'; props: ItemGroupProps; children?: string[]; on?: SnapEvents }
-  | { type: 'bar_chart'; props: BarChartProps; children?: string[]; on?: SnapEvents }
-  | { type: 'cell_grid'; props: CellGridProps; children?: string[]; on?: SnapEvents }
-  | { type: 'input'; props: InputProps; children?: string[]; on?: SnapEvents }
-  | { type: 'slider'; props: SliderProps; children?: string[]; on?: SnapEvents }
-  | { type: 'switch'; props: SwitchProps; children?: string[]; on?: SnapEvents }
-  | { type: 'toggle_group'; props: ToggleGroupProps; children?: string[]; on?: SnapEvents };
+  | { type: "text"; props: TextProps; children?: string[]; on?: SnapEvents }
+  | { type: "badge"; props: BadgeProps; children?: string[]; on?: SnapEvents }
+  | { type: "button"; props: ButtonProps; children?: string[]; on?: SnapEvents }
+  | { type: "icon"; props: IconProps; children?: string[]; on?: SnapEvents }
+  | { type: "image"; props: ImageProps; children?: string[]; on?: SnapEvents }
+  | { type: "item"; props: ItemProps; children?: string[]; on?: SnapEvents }
+  | {
+      type: "progress";
+      props: ProgressProps;
+      children?: string[];
+      on?: SnapEvents;
+    }
+  | {
+      type: "separator";
+      props: SeparatorProps;
+      children?: string[];
+      on?: SnapEvents;
+    }
+  | { type: "stack"; props: StackProps; children?: string[]; on?: SnapEvents }
+  | {
+      type: "item_group";
+      props: ItemGroupProps;
+      children?: string[];
+      on?: SnapEvents;
+    }
+  | {
+      type: "bar_chart";
+      props: BarChartProps;
+      children?: string[];
+      on?: SnapEvents;
+    }
+  | {
+      type: "cell_grid";
+      props: CellGridProps;
+      children?: string[];
+      on?: SnapEvents;
+    }
+  | { type: "input"; props: InputProps; children?: string[]; on?: SnapEvents }
+  | { type: "slider"; props: SliderProps; children?: string[]; on?: SnapEvents }
+  | { type: "switch"; props: SwitchProps; children?: string[]; on?: SnapEvents }
+  | {
+      type: "toggle_group";
+      props: ToggleGroupProps;
+      children?: string[];
+      on?: SnapEvents;
+    };
 
-export type SnapElementType = SnapElement['type'];
+export type SnapElementType = SnapElement["type"];
 
 export type SnapActionType =
-  | 'submit'
-  | 'open_url'
-  | 'open_snap'
-  | 'open_mini_app'
-  | 'view_cast'
-  | 'view_profile'
-  | 'compose_cast'
-  | 'view_token'
-  | 'send_token'
-  | 'swap_token';
+  | "submit"
+  | "open_url"
+  | "open_snap"
+  | "open_mini_app"
+  | "view_cast"
+  | "view_profile"
+  | "compose_cast"
+  | "view_token"
+  | "send_token"
+  | "swap_token";
 
 export interface SnapAction {
   action: SnapActionType;
@@ -205,7 +235,7 @@ export interface SnapUi {
 }
 
 export interface SnapResponse {
-  version: '1.0' | '2.0';
+  version: "1.0" | "2.0";
   theme?: SnapTheme;
   effects?: SnapEffect[];
   ui: SnapUi;

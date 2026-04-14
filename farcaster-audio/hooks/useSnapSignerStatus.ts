@@ -7,13 +7,13 @@
  * SecureStore and an explicit `refresh` / `invalidate` surface.
  */
 
-import { useEffect, useMemo } from 'react';
-import { create } from 'zustand';
+import { useEffect, useMemo } from "react";
+import { create } from "zustand";
 import {
   getSnapSignerStatus,
   invalidateSnapSigner,
   type SnapSignerStatus,
-} from '@/services/snapSigner';
+} from "@/services/snapSigner";
 
 interface SignerEntry {
   status: SnapSignerStatus;
@@ -28,7 +28,7 @@ interface SnapSignerStore {
 }
 
 const EMPTY: SignerEntry = {
-  status: 'none',
+  status: "none",
   lastCheckedAt: 0,
   hydrated: false,
   inFlight: false,
@@ -48,7 +48,10 @@ const useSnapSignerStore = create<SnapSignerStore>((set) => ({
 // Module-level dedupe: only one in-flight fetch per fid across all subscribers.
 const inFlightByFid = new Map<number, Promise<SnapSignerStatus>>();
 
-async function fetchStatus(fid: number, force: boolean): Promise<SnapSignerStatus> {
+async function fetchStatus(
+  fid: number,
+  force: boolean,
+): Promise<SnapSignerStatus> {
   const existing = inFlightByFid.get(fid);
   if (existing && !force) return existing;
 
@@ -77,7 +80,7 @@ export function useSnapSignerStatus(fid: number): UseSnapSignerStatusResult {
   const refresh = useMemo(
     () =>
       async (opts: { force?: boolean } = {}): Promise<SnapSignerStatus> => {
-        if (!fid) return 'none';
+        if (!fid) return "none";
         setEntry(fid, { inFlight: true });
         try {
           const next = await fetchStatus(fid, opts.force ?? false);
@@ -103,7 +106,7 @@ export function useSnapSignerStatus(fid: number): UseSnapSignerStatusResult {
       if (!fid) return;
       await invalidateSnapSigner(fid);
       setEntry(fid, {
-        status: 'none',
+        status: "none",
         lastCheckedAt: Date.now(),
         hydrated: true,
         inFlight: false,

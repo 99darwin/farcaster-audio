@@ -1,9 +1,13 @@
-import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
-import * as Sentry from '@sentry/react-native';
-import type { MiniAppConfig, MiniAppManifest, LocationContext } from '@/types/miniapp';
+import { create } from "zustand";
+import * as SecureStore from "expo-secure-store";
+import * as Sentry from "@sentry/react-native";
+import type {
+  MiniAppConfig,
+  MiniAppManifest,
+  LocationContext,
+} from "@/types/miniapp";
 
-const ADDED_MINIAPPS_KEY = 'added_miniapps';
+const ADDED_MINIAPPS_KEY = "added_miniapps";
 
 export interface AddedMiniApp {
   domain: string;
@@ -61,11 +65,21 @@ export const useMiniAppStore = create<MiniAppStore>((set, get) => ({
   authSetupResolve: null,
 
   openMiniApp: (miniApp) => {
-    set({ activeMiniApp: miniApp, isMinimized: false, isSplashVisible: true, primaryButton: null });
+    set({
+      activeMiniApp: miniApp,
+      isMinimized: false,
+      isSplashVisible: true,
+      primaryButton: null,
+    });
   },
 
   closeMiniApp: () => {
-    set({ activeMiniApp: null, isMinimized: false, isSplashVisible: true, primaryButton: null });
+    set({
+      activeMiniApp: null,
+      isMinimized: false,
+      isSplashVisible: true,
+      primaryButton: null,
+    });
   },
 
   minimizeMiniApp: () => {
@@ -128,7 +142,9 @@ export const useMiniAppStore = create<MiniAppStore>((set, get) => ({
         set({ addedMiniApps: JSON.parse(data) });
       }
     } catch (error) {
-      Sentry.captureException(error, { tags: { context: 'miniapp_hydration' } });
+      Sentry.captureException(error, {
+        tags: { context: "miniapp_hydration" },
+      });
     }
   },
 }));

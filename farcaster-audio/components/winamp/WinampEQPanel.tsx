@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { EmojiReactionPanel } from '@/components/spaces/EmojiReactionPanel';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
+import { View, Text, StyleSheet } from "react-native";
+import { EmojiReactionPanel } from "@/components/spaces/EmojiReactionPanel";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
 
 interface WinampEQPanelProps {
   onReaction: (key: string) => void;
@@ -40,8 +40,8 @@ const styles = StyleSheet.create({
   titleText: {
     fontFamily: WINAMP.fonts.pixel,
     fontSize: 6,
-    color: '#ffffff',
-    textAlign: 'center',
+    color: "#ffffff",
+    textAlign: "center",
     letterSpacing: 1,
   },
   panel: {

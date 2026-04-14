@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
-import { View, Text, Switch, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography } from '@/constants/theme';
-import * as api from '@/services/api';
+import { useCallback, useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  Switch,
+  StyleSheet,
+  ActivityIndicator,
+  ScrollView,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { colors, spacing, typography } from "@/constants/theme";
+import * as api from "@/services/api";
 
 interface Preferences {
   follows_enabled: boolean;
@@ -35,19 +42,33 @@ type ToggleRow = {
 };
 
 const FARCASTER_TOGGLES: ToggleRow[] = [
-  { key: 'follows_enabled', label: 'Follows', icon: 'person-add-outline' },
-  { key: 'likes_enabled', label: 'Likes', icon: 'heart-outline' },
-  { key: 'replies_enabled', label: 'Comments', icon: 'chatbubble-outline' },
-  { key: 'recasts_enabled', label: 'Recasts', icon: 'repeat-outline' },
+  { key: "follows_enabled", label: "Follows", icon: "person-add-outline" },
+  { key: "likes_enabled", label: "Likes", icon: "heart-outline" },
+  { key: "replies_enabled", label: "Comments", icon: "chatbubble-outline" },
+  { key: "recasts_enabled", label: "Recasts", icon: "repeat-outline" },
 ];
 
 const SPACE_TOGGLES: ToggleRow[] = [
-  { key: 'space_invited_enabled', label: 'Invited to Speak', icon: 'mic-outline' },
-  { key: 'hand_raised_enabled', label: 'Hand Raised', icon: 'hand-left-outline' },
+  {
+    key: "space_invited_enabled",
+    label: "Invited to Speak",
+    icon: "mic-outline",
+  },
+  {
+    key: "hand_raised_enabled",
+    label: "Hand Raised",
+    icon: "hand-left-outline",
+  },
 ];
 
 const COMING_SOON_TOGGLES: ToggleRow[] = [
-  { key: 'miniapp_enabled', label: 'Mini App Notifications', icon: 'apps-outline', disabled: true, sublabel: 'Coming soon' },
+  {
+    key: "miniapp_enabled",
+    label: "Mini App Notifications",
+    icon: "apps-outline",
+    disabled: true,
+    sublabel: "Coming soon",
+  },
 ];
 
 export default function NotificationSettingsScreen() {
@@ -63,23 +84,28 @@ export default function NotificationSettingsScreen() {
       const data = await api.getNotificationPreferences();
       setPrefs(data);
     } catch (error) {
-      if (__DEV__) console.error('[NotifSettings] Failed to load preferences:', error);
+      if (__DEV__)
+        console.error("[NotifSettings] Failed to load preferences:", error);
     } finally {
       setIsLoading(false);
     }
   }
 
-  const handleToggle = useCallback(async (key: keyof Preferences, value: boolean) => {
-    // Optimistic update
-    setPrefs((prev) => ({ ...prev, [key]: value }));
-    try {
-      await api.updateNotificationPreferences({ [key]: value });
-    } catch (error) {
-      // Revert on failure
-      setPrefs((prev) => ({ ...prev, [key]: !value }));
-      if (__DEV__) console.error('[NotifSettings] Failed to update preference:', error);
-    }
-  }, []);
+  const handleToggle = useCallback(
+    async (key: keyof Preferences, value: boolean) => {
+      // Optimistic update
+      setPrefs((prev) => ({ ...prev, [key]: value }));
+      try {
+        await api.updateNotificationPreferences({ [key]: value });
+      } catch (error) {
+        // Revert on failure
+        setPrefs((prev) => ({ ...prev, [key]: !value }));
+        if (__DEV__)
+          console.error("[NotifSettings] Failed to update preference:", error);
+      }
+    },
+    [],
+  );
 
   if (isLoading) {
     return (
@@ -91,9 +117,24 @@ export default function NotificationSettingsScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <Section title="Farcaster" toggles={FARCASTER_TOGGLES} prefs={prefs} onToggle={handleToggle} />
-      <Section title="Spaces" toggles={SPACE_TOGGLES} prefs={prefs} onToggle={handleToggle} />
-      <Section title="Other" toggles={COMING_SOON_TOGGLES} prefs={prefs} onToggle={handleToggle} />
+      <Section
+        title="Farcaster"
+        toggles={FARCASTER_TOGGLES}
+        prefs={prefs}
+        onToggle={handleToggle}
+      />
+      <Section
+        title="Spaces"
+        toggles={SPACE_TOGGLES}
+        prefs={prefs}
+        onToggle={handleToggle}
+      />
+      <Section
+        title="Other"
+        toggles={COMING_SOON_TOGGLES}
+        prefs={prefs}
+        onToggle={handleToggle}
+      />
     </ScrollView>
   );
 }
@@ -116,10 +157,7 @@ function Section({
         {toggles.map((toggle, index) => (
           <View
             key={toggle.key}
-            style={[
-              styles.row,
-              index < toggles.length - 1 && styles.rowBorder,
-            ]}
+            style={[styles.row, index < toggles.length - 1 && styles.rowBorder]}
           >
             <Ionicons
               name={toggle.icon}
@@ -127,7 +165,12 @@ function Section({
               color={toggle.disabled ? colors.text.placeholder : colors.purple}
             />
             <View style={styles.rowTextContainer}>
-              <Text style={[styles.rowText, toggle.disabled && styles.rowTextDisabled]}>
+              <Text
+                style={[
+                  styles.rowText,
+                  toggle.disabled && styles.rowTextDisabled,
+                ]}
+              >
                 {toggle.label}
               </Text>
               {toggle.sublabel && (
@@ -138,7 +181,10 @@ function Section({
               value={prefs[toggle.key]}
               onValueChange={(value) => onToggle(toggle.key, value)}
               disabled={toggle.disabled}
-              trackColor={{ false: colors.background.subtle, true: colors.purple }}
+              trackColor={{
+                false: colors.background.subtle,
+                true: colors.purple,
+              }}
               thumbColor="#ffffff"
             />
           </View>
@@ -154,8 +200,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.main,
   },
   center: {
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   section: {
     marginTop: spacing.xl,
@@ -164,9 +210,9 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: typography.size.sm,
     fontWeight: typography.weight.semibold,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 0.5,
-    paddingHorizontal: spacing['2xl'],
+    paddingHorizontal: spacing["2xl"],
     marginBottom: spacing.sm,
   },
   sectionBody: {
@@ -177,10 +223,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.surface,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
-    paddingHorizontal: spacing['2xl'],
+    paddingHorizontal: spacing["2xl"],
     paddingVertical: 14,
   },
   rowBorder: {

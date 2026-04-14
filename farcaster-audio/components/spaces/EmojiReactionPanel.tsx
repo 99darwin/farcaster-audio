@@ -1,8 +1,12 @@
-import { View, Pressable, StyleSheet } from 'react-native';
-import { Image } from 'expo-image';
-import * as Haptics from 'expo-haptics';
-import { glass } from '@/constants/theme';
-import { REACTION_EMOJI, emojiImageUrl, type ReactionKey } from '@/constants/emoji';
+import { View, Pressable, StyleSheet } from "react-native";
+import { Image } from "expo-image";
+import * as Haptics from "expo-haptics";
+import { glass } from "@/constants/theme";
+import {
+  REACTION_EMOJI,
+  emojiImageUrl,
+  type ReactionKey,
+} from "@/constants/emoji";
 
 interface EmojiReactionPanelProps {
   onReaction: (key: ReactionKey) => void;
@@ -41,9 +45,9 @@ export function EmojiReactionPanel({ onReaction }: EmojiReactionPanelProps) {
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -56,12 +60,12 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
   },
   emojiButtonPressed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     transform: [{ scale: 1.15 }],
   },
   emojiImage: {

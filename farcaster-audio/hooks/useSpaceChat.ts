@@ -1,10 +1,10 @@
-import { useEffect, useCallback } from 'react';
-import { useCastThread } from '@/hooks/useCastThread';
-import { useSpaceStore } from '@/stores/spaceStore';
+import { useEffect, useCallback } from "react";
+import { useCastThread } from "@/hooks/useCastThread";
+import { useSpaceStore } from "@/stores/spaceStore";
 
 export function useSpaceChat(castHash: string | null, viewerFid: number) {
   const hasCastThread = castHash != null;
-  const thread = useCastThread(castHash ?? '', viewerFid);
+  const thread = useCastThread(castHash ?? "", viewerFid);
   const chatNewReplyTick = useSpaceStore((s) => s.chatNewReplyTick);
 
   // Fetch on mount

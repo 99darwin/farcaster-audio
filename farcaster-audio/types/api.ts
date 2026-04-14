@@ -1,5 +1,5 @@
-import { UserProfile } from './user';
-import { Room, Participant, ParticipantRole } from './space';
+import { UserProfile } from "./user";
+import { Room, Participant, ParticipantRole } from "./space";
 
 // Auth
 export interface LoginRequest {

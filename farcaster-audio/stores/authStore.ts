@@ -1,13 +1,13 @@
-import { create } from 'zustand';
-import type { UserProfile } from '@/types/user';
-import type { LoginResponse } from '@/types/api';
+import { create } from "zustand";
+import type { UserProfile } from "@/types/user";
+import type { LoginResponse } from "@/types/api";
 import {
   saveTokens,
   getTokens,
   clearAll,
   saveUserProfile,
   getUserProfile,
-} from '@/services/storage';
+} from "@/services/storage";
 
 interface AuthStore {
   user: UserProfile | null;

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
+import { useEffect, useRef, useState } from "react";
+import { View, Pressable, StyleSheet } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -7,8 +7,8 @@ import Animated, {
   withSpring,
   type SharedValue,
   makeMutable,
-} from 'react-native-reanimated';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
+} from "react-native-reanimated";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
 
 const BAR_COUNT = 28;
 const MAX_HEIGHT = 56;
@@ -17,15 +17,24 @@ const SEGMENT_HEIGHT = 3;
 const SEGMENT_GAP = 1;
 
 // Pre-compute segment colors (bottom to top)
-const SEGMENT_COLORS: string[] = Array.from({ length: SEGMENT_COUNT }, (_, i) => {
-  const ratio = i / SEGMENT_COUNT;
-  if (ratio > 0.85) return WINAMP.visualizer.barPeak;  // pink top
-  if (ratio > 0.65) return WINAMP.visualizer.barHigh;   // cyan
-  if (ratio > 0.35) return WINAMP.visualizer.barMid;    // purple
-  return WINAMP.visualizer.barLow;                       // dark purple
-});
+const SEGMENT_COLORS: string[] = Array.from(
+  { length: SEGMENT_COUNT },
+  (_, i) => {
+    const ratio = i / SEGMENT_COUNT;
+    if (ratio > 0.85) return WINAMP.visualizer.barPeak; // pink top
+    if (ratio > 0.65) return WINAMP.visualizer.barHigh; // cyan
+    if (ratio > 0.35) return WINAMP.visualizer.barMid; // purple
+    return WINAMP.visualizer.barLow; // dark purple
+  },
+);
 
-function VisualizerBar({ barHeight, peakY }: { barHeight: SharedValue<number>; peakY: SharedValue<number> }) {
+function VisualizerBar({
+  barHeight,
+  peakY,
+}: {
+  barHeight: SharedValue<number>;
+  peakY: SharedValue<number>;
+}) {
   const barStyle = useAnimatedStyle(() => ({
     height: Math.max(2, barHeight.value),
   }));
@@ -39,7 +48,14 @@ function VisualizerBar({ barHeight, peakY }: { barHeight: SharedValue<number>; p
     <View style={styles.barContainer}>
       <Animated.View style={[styles.bar, barStyle]}>
         {SEGMENT_COLORS.map((color, i) => (
-          <View key={i} style={{ height: SEGMENT_HEIGHT, backgroundColor: color, marginBottom: SEGMENT_GAP }} />
+          <View
+            key={i}
+            style={{
+              height: SEGMENT_HEIGHT,
+              backgroundColor: color,
+              marginBottom: SEGMENT_GAP,
+            }}
+          />
         ))}
       </Animated.View>
       {/* Peak hold dot */}
@@ -55,7 +71,13 @@ function createSharedArrays() {
   };
 }
 
-export function WinampVisualizer({ activeSpeakerCount, isSpeaking }: { activeSpeakerCount: number; isSpeaking: boolean }) {
+export function WinampVisualizer({
+  activeSpeakerCount,
+  isSpeaking,
+}: {
+  activeSpeakerCount: number;
+  isSpeaking: boolean;
+}) {
   const [isVisible, setIsVisible] = useState(true);
   const energy = useSharedValue(0.15);
 
@@ -86,10 +108,9 @@ export function WinampVisualizer({ activeSpeakerCount, isSpeaking }: { activeSpe
           peakYs[i].value = targetHeight + 2;
         }
         // Peak decay
-        peakYs[i].value = withTiming(
-          Math.max(0, peakYs[i].value - 1.5),
-          { duration: 80 },
-        );
+        peakYs[i].value = withTiming(Math.max(0, peakYs[i].value - 1.5), {
+          duration: 80,
+        });
       }
     }, 60);
 
@@ -107,7 +128,9 @@ export function WinampVisualizer({ activeSpeakerCount, isSpeaking }: { activeSpe
 
   useEffect(() => {
     if (isSpeaking) {
-      energy.value = withTiming(Math.min(1, energy.value + 0.35), { duration: 150 });
+      energy.value = withTiming(Math.min(1, energy.value + 0.35), {
+        duration: 150,
+      });
     }
   }, [isSpeaking, energy]);
 
@@ -157,10 +180,10 @@ const styles = StyleSheet.create({
     borderRightColor: WINAMP.bevel.mid,
     marginHorizontal: PANEL_MARGIN,
     height: MAX_HEIGHT + 12,
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
     padding: 3,
-    position: 'relative',
-    overflow: 'hidden',
+    position: "relative",
+    overflow: "hidden",
   },
   containerOff: {
     backgroundColor: WINAMP.visualizer.bg,
@@ -171,42 +194,42 @@ const styles = StyleSheet.create({
     borderRightColor: WINAMP.bevel.mid,
     marginHorizontal: PANEL_MARGIN,
     height: MAX_HEIGHT + 12,
-    justifyContent: 'space-between',
+    justifyContent: "space-between",
     padding: 3,
   },
   scanlineOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
+    justifyContent: "space-between",
     zIndex: 1,
   },
   scanline: {
     height: 1,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: "rgba(0,0,0,0.2)",
   },
   offScanline: {
     height: 1,
-    backgroundColor: 'rgba(75, 40, 120, 0.1)',
+    backgroundColor: "rgba(75, 40, 120, 0.1)",
   },
   barsRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
     height: MAX_HEIGHT,
     gap: 1,
   },
   barContainer: {
     flex: 1,
     height: MAX_HEIGHT,
-    justifyContent: 'flex-end',
-    position: 'relative',
+    justifyContent: "flex-end",
+    position: "relative",
   },
   bar: {
-    width: '100%',
-    overflow: 'hidden',
-    flexDirection: 'column-reverse',
+    width: "100%",
+    overflow: "hidden",
+    flexDirection: "column-reverse",
   },
   peak: {
-    position: 'absolute',
+    position: "absolute",
     left: 0,
     right: 0,
     height: 2,
@@ -218,7 +241,7 @@ const styles = StyleSheet.create({
   },
   reflection: {
     height: 2,
-    backgroundColor: 'rgba(75, 40, 120, 0.15)',
+    backgroundColor: "rgba(75, 40, 120, 0.15)",
     marginTop: 1,
   },
 });

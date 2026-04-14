@@ -1,9 +1,9 @@
-import { useCallback } from 'react';
-import { useNotificationStore } from '@/stores/notificationStore';
-import { useAuthStore } from '@/stores/authStore';
-import * as api from '@/services/api';
-import { likeCast, removeLike } from '@/services/neynar';
-import { saveLastSeenNotificationTimestamp } from '@/services/storage';
+import { useCallback } from "react";
+import { useNotificationStore } from "@/stores/notificationStore";
+import { useAuthStore } from "@/stores/authStore";
+import * as api from "@/services/api";
+import { likeCast, removeLike } from "@/services/neynar";
+import { saveLastSeenNotificationTimestamp } from "@/services/storage";
 
 export function useNotifications() {
   // Select stable action references individually — avoids re-render loops
@@ -16,7 +16,9 @@ export function useNotifications() {
   const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   const setNotifications = useNotificationStore((s) => s.setNotifications);
-  const appendNotifications = useNotificationStore((s) => s.appendNotifications);
+  const appendNotifications = useNotificationStore(
+    (s) => s.appendNotifications,
+  );
   const setLoading = useNotificationStore((s) => s.setLoading);
   const setRefreshing = useNotificationStore((s) => s.setRefreshing);
   const setError = useNotificationStore((s) => s.setError);
@@ -31,7 +33,9 @@ export function useNotifications() {
       const data = await api.getNotifications({ limit: 25 });
       setNotifications(data.notifications, data.next.cursor);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch notifications');
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch notifications",
+      );
     }
   }, [user, setLoading, setNotifications, setError]);
 
@@ -42,9 +46,17 @@ export function useNotifications() {
       const data = await api.getNotifications({ limit: 25, cursor });
       appendNotifications(data.notifications, data.next.cursor);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load more');
+      setError(err instanceof Error ? err.message : "Failed to load more");
     }
-  }, [user, hasMore, isLoading, cursor, setLoading, appendNotifications, setError]);
+  }, [
+    user,
+    hasMore,
+    isLoading,
+    cursor,
+    setLoading,
+    appendNotifications,
+    setError,
+  ]);
 
   const refresh = useCallback(async () => {
     if (!user) return;
@@ -53,7 +65,7 @@ export function useNotifications() {
       const data = await api.getNotifications({ limit: 25 });
       setNotifications(data.notifications, data.next.cursor);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to refresh');
+      setError(err instanceof Error ? err.message : "Failed to refresh");
     }
   }, [user, setRefreshing, setNotifications, setError]);
 

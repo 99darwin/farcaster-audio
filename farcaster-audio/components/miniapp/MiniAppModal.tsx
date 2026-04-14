@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -7,25 +7,25 @@ import {
   StyleSheet,
   ActivityIndicator,
   useWindowDimensions,
-} from 'react-native';
+} from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
   Easing,
   runOnJS,
-} from 'react-native-reanimated';
-import { WebView } from 'react-native-webview';
-import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
-import { useMiniAppHost } from '@/hooks/useMiniAppHost';
-import { useMiniAppStore } from '@/stores/miniappStore';
-import { AuthAddressSetup } from '@/components/miniapp/AuthAddressSetup';
-import { GlassView } from '@/components/common/GlassView';
-import { colors, glass, typography } from '@/constants/theme';
-import type { MiniAppConfig } from '@/types/miniapp';
+} from "react-native-reanimated";
+import { WebView } from "react-native-webview";
+import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
+import { useMiniAppHost } from "@/hooks/useMiniAppHost";
+import { useMiniAppStore } from "@/stores/miniappStore";
+import { AuthAddressSetup } from "@/components/miniapp/AuthAddressSetup";
+import { GlassView } from "@/components/common/GlassView";
+import { colors, glass, typography } from "@/constants/theme";
+import type { MiniAppConfig } from "@/types/miniapp";
 
 const SLIDE_DURATION = 300;
 const SLIDE_EASING = Easing.bezier(0.25, 0.1, 0.25, 1);
@@ -52,15 +52,25 @@ export function MiniAppModal() {
     if (activeMiniApp && !isMinimized) {
       // Opening or maximizing: render immediately, then slide up
       setShouldRender(true);
-      translateY.value = withTiming(0, { duration: SLIDE_DURATION, easing: SLIDE_EASING });
+      translateY.value = withTiming(0, {
+        duration: SLIDE_DURATION,
+        easing: SLIDE_EASING,
+      });
     } else if (activeMiniApp && isMinimized) {
       // Minimizing: slide down, then move offscreen
-      translateY.value = withTiming(screenHeight, { duration: SLIDE_DURATION, easing: SLIDE_EASING });
+      translateY.value = withTiming(screenHeight, {
+        duration: SLIDE_DURATION,
+        easing: SLIDE_EASING,
+      });
     } else {
       // Closing: slide down, then unmount
-      translateY.value = withTiming(screenHeight, { duration: SLIDE_DURATION, easing: SLIDE_EASING }, () => {
-        runOnJS(setShouldRender)(false);
-      });
+      translateY.value = withTiming(
+        screenHeight,
+        { duration: SLIDE_DURATION, easing: SLIDE_EASING },
+        () => {
+          runOnJS(setShouldRender)(false);
+        },
+      );
     }
   }, [activeMiniApp, isMinimized, screenHeight]);
 
@@ -73,7 +83,7 @@ export function MiniAppModal() {
   return (
     <Animated.View
       style={[styles.fullScreenOverlay, animatedStyle]}
-      pointerEvents={isMinimized ? 'none' : 'auto'}
+      pointerEvents={isMinimized ? "none" : "auto"}
     >
       <MiniAppContent
         url={activeMiniApp.url}
@@ -94,7 +104,11 @@ export function MiniAppModal() {
  * Floating mini bar shown when a miniapp is minimized.
  * Matches the SpaceMiniBar glass UI pattern.
  */
-export function MiniAppMiniBar({ bottomOffset = 0 }: { bottomOffset?: number }) {
+export function MiniAppMiniBar({
+  bottomOffset = 0,
+}: {
+  bottomOffset?: number;
+}) {
   const activeMiniApp = useMiniAppStore((s) => s.activeMiniApp);
   const isMinimized = useMiniAppStore((s) => s.isMinimized);
   const maximizeMiniApp = useMiniAppStore((s) => s.maximizeMiniApp);
@@ -114,7 +128,9 @@ export function MiniAppMiniBar({ bottomOffset = 0 }: { bottomOffset?: number }) 
       >
         <View style={miniBarStyles.leftSection}>
           <View style={miniBarStyles.appDot} />
-          <Text style={miniBarStyles.title} numberOfLines={1}>{appName}</Text>
+          <Text style={miniBarStyles.title} numberOfLines={1}>
+            {appName}
+          </Text>
         </View>
         <View style={miniBarStyles.controls}>
           <Pressable
@@ -123,7 +139,11 @@ export function MiniAppMiniBar({ bottomOffset = 0 }: { bottomOffset?: number }) 
             accessibilityLabel={`Expand ${appName}`}
             accessibilityRole="button"
           >
-            <Ionicons name="expand-outline" size={18} color={colors.text.primary} />
+            <Ionicons
+              name="expand-outline"
+              size={18}
+              color={colors.text.primary}
+            />
           </Pressable>
           <View style={miniBarStyles.divider} />
           <Pressable
@@ -147,7 +167,12 @@ interface MiniAppContentProps {
   domain: string;
   config: MiniAppConfig | null;
   isSplashVisible: boolean;
-  primaryButton: { text: string; loading: boolean; disabled: boolean; hidden: boolean } | null;
+  primaryButton: {
+    text: string;
+    loading: boolean;
+    disabled: boolean;
+    hidden: boolean;
+  } | null;
   onClose: () => void;
   onMinimize: () => void;
   insets: { top: number; bottom: number; left: number; right: number };
@@ -165,14 +190,17 @@ function MiniAppContent({
 }: MiniAppContentProps) {
   const [isWebViewLoading, setIsWebViewLoading] = useState(true);
 
-  const handleComposeCast = useCallback(async (options: {
-    text?: string;
-    embeds?: string[];
-    parentHash?: string;
-    channelKey?: string;
-  }) => {
-    return null;
-  }, []);
+  const handleComposeCast = useCallback(
+    async (options: {
+      text?: string;
+      embeds?: string[];
+      parentHash?: string;
+      channelKey?: string;
+    }) => {
+      return null;
+    },
+    [],
+  );
 
   const { webViewRef, onMessage, emit } = useMiniAppHost({
     domain,
@@ -180,28 +208,36 @@ function MiniAppContent({
     onComposeCast: handleComposeCast,
   });
 
-  const handleShouldStartLoad = useCallback((request: ShouldStartLoadRequest): boolean => {
-    const requestUrl = request.url;
-    if (requestUrl.startsWith('about:')) return true;
-    try {
-      const parsed = new URL(requestUrl);
-      if (parsed.protocol !== 'https:') return false;
-      const requestHost = parsed.hostname;
-      if (requestHost === domain || requestHost.endsWith(`.${domain}`)) {
-        return true;
+  const handleShouldStartLoad = useCallback(
+    (request: ShouldStartLoadRequest): boolean => {
+      const requestUrl = request.url;
+      if (requestUrl.startsWith("about:")) return true;
+      try {
+        const parsed = new URL(requestUrl);
+        if (parsed.protocol !== "https:") return false;
+        const requestHost = parsed.hostname;
+        if (requestHost === domain || requestHost.endsWith(`.${domain}`)) {
+          return true;
+        }
+        if (parsed.protocol === "https:") {
+          Linking.openURL(requestUrl).catch(() => {});
+        }
+        return false;
+      } catch {
+        return false;
       }
-      if (parsed.protocol === 'https:') {
-        Linking.openURL(requestUrl).catch(() => {});
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }, [domain]);
+    },
+    [domain],
+  );
 
   const handlePrimaryButtonPress = useCallback(() => {
-    if (emit && primaryButton && !primaryButton.disabled && !primaryButton.loading) {
-      emit({ event: 'primary_button_clicked' });
+    if (
+      emit &&
+      primaryButton &&
+      !primaryButton.disabled &&
+      !primaryButton.loading
+    ) {
+      emit({ event: "primary_button_clicked" });
     }
   }, [emit, primaryButton]);
 
@@ -232,13 +268,16 @@ function MiniAppContent({
               disabled={primaryButton.disabled || primaryButton.loading}
               style={[
                 styles.primaryButton,
-                (primaryButton.disabled || primaryButton.loading) && styles.primaryButtonDisabled,
+                (primaryButton.disabled || primaryButton.loading) &&
+                  styles.primaryButtonDisabled,
               ]}
             >
               {primaryButton.loading ? (
                 <ActivityIndicator size="small" color={colors.text.primary} />
               ) : (
-                <Text style={styles.primaryButtonText}>{primaryButton.text}</Text>
+                <Text style={styles.primaryButtonText}>
+                  {primaryButton.text}
+                </Text>
               )}
             </Pressable>
           ) : (
@@ -269,14 +308,16 @@ function MiniAppContent({
           mediaPlaybackRequiresUserAction={false}
           javaScriptEnabled
           domStorageEnabled
-          originWhitelist={['https://*']}
+          originWhitelist={["https://*"]}
           scrollEnabled
           bounces={false}
         />
 
         {/* Splash Screen Overlay */}
         {isSplashVisible && (
-          <View style={[styles.splashOverlay, { backgroundColor: splashBgColor }]}>
+          <View
+            style={[styles.splashOverlay, { backgroundColor: splashBgColor }]}
+          >
             {splashImage && (
               <Image
                 source={{ uri: splashImage }}
@@ -309,9 +350,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.main,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: 1,
@@ -321,13 +362,13 @@ const styles = StyleSheet.create({
   headerButton: {
     width: 36,
     height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 18,
   },
   headerTitle: {
     flex: 1,
-    textAlign: 'center',
+    textAlign: "center",
     color: colors.text.primary,
     fontSize: typography.size.md,
     fontWeight: typography.weight.semibold,
@@ -335,7 +376,7 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     minWidth: 36,
-    alignItems: 'flex-end',
+    alignItems: "flex-end",
   },
   primaryButton: {
     backgroundColor: colors.purple,
@@ -343,7 +384,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 16,
     minWidth: 60,
-    alignItems: 'center',
+    alignItems: "center",
   },
   primaryButtonDisabled: {
     opacity: 0.5,
@@ -358,12 +399,12 @@ const styles = StyleSheet.create({
   },
   webView: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
   },
   splashOverlay: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   splashImage: {
     width: 80,
@@ -383,22 +424,22 @@ const styles = StyleSheet.create({
 
 const miniBarStyles = StyleSheet.create({
   container: {
-    position: 'absolute',
+    position: "absolute",
     left: 0,
     right: 0,
     marginHorizontal: 12,
     borderRadius: glass.capsuleRadius,
   },
   content: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
   leftSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
     gap: 8,
   },
@@ -411,18 +452,18 @@ const miniBarStyles = StyleSheet.create({
   title: {
     color: colors.text.primary,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     flexShrink: 1,
   },
   controls: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
   },
   controlButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 10,
     paddingVertical: 8,
     minWidth: 44,
@@ -431,6 +472,6 @@ const miniBarStyles = StyleSheet.create({
   divider: {
     width: 1,
     height: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
   },
 });

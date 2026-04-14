@@ -1,13 +1,20 @@
-import { useEffect, useCallback, useState } from 'react';
-import { View, Text, Modal, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Avatar } from '@/components/common/Avatar';
-import { colors } from '@/constants/theme';
-import { useAuthStore } from '@/stores/authStore';
-import * as api from '@/services/api';
-import type { NeynarUser } from '@/types/neynar';
-import type { Participant } from '@/types/space';
+import { useEffect, useCallback, useState } from "react";
+import {
+  View,
+  Text,
+  Modal,
+  Pressable,
+  ActivityIndicator,
+  StyleSheet,
+} from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { Avatar } from "@/components/common/Avatar";
+import { colors } from "@/constants/theme";
+import { useAuthStore } from "@/stores/authStore";
+import * as api from "@/services/api";
+import type { NeynarUser } from "@/types/neynar";
+import type { Participant } from "@/types/space";
 
 interface ParticipantProfileCardProps {
   participant: Participant | null;
@@ -21,7 +28,11 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-export function ParticipantProfileCard({ participant, visible, onClose }: ParticipantProfileCardProps) {
+export function ParticipantProfileCard({
+  participant,
+  visible,
+  onClose,
+}: ParticipantProfileCardProps) {
   const router = useRouter();
   const currentUser = useAuthStore((s) => s.user);
   const [user, setUser] = useState<NeynarUser | null>(null);
@@ -37,7 +48,8 @@ export function ParticipantProfileCard({ participant, visible, onClose }: Partic
     }
 
     setIsLoading(true);
-    api.getUserProfile(participant.fid)
+    api
+      .getUserProfile(participant.fid)
       .then((data) => setUser(data.user))
       .catch(() => setUser(null))
       .finally(() => setIsLoading(false));
@@ -53,7 +65,10 @@ export function ParticipantProfileCard({ participant, visible, onClose }: Partic
         ? {
             ...prev,
             follower_count: prev.follower_count + (wasFollowing ? -1 : 1),
-            viewer_context: { ...prev.viewer_context!, following: !wasFollowing },
+            viewer_context: {
+              ...prev.viewer_context!,
+              following: !wasFollowing,
+            },
           }
         : null,
     );
@@ -72,7 +87,10 @@ export function ParticipantProfileCard({ participant, visible, onClose }: Partic
           ? {
               ...prev,
               follower_count: prev.follower_count + (wasFollowing ? 1 : -1),
-              viewer_context: { ...prev.viewer_context!, following: wasFollowing },
+              viewer_context: {
+                ...prev.viewer_context!,
+                following: wasFollowing,
+              },
             }
           : null,
       );
@@ -118,8 +136,12 @@ export function ParticipantProfileCard({ participant, visible, onClose }: Partic
                     <Text style={styles.displayName} numberOfLines={1}>
                       {user?.display_name ?? participant.display_name}
                     </Text>
-                    {user?.pro?.status === 'subscribed' && (
-                      <Ionicons name="checkmark-circle" size={16} color={colors.purple} />
+                    {user?.pro?.status === "subscribed" && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={16}
+                        color={colors.purple}
+                      />
                     )}
                   </View>
                   {user?.username && (
@@ -132,17 +154,23 @@ export function ParticipantProfileCard({ participant, visible, onClose }: Partic
               </View>
 
               {bio ? (
-                <Text style={styles.bio} numberOfLines={3}>{bio}</Text>
+                <Text style={styles.bio} numberOfLines={3}>
+                  {bio}
+                </Text>
               ) : null}
 
               {user && (
                 <View style={styles.statsRow}>
                   <View style={styles.stat}>
-                    <Text style={styles.statCount}>{formatCount(user.following_count)}</Text>
+                    <Text style={styles.statCount}>
+                      {formatCount(user.following_count)}
+                    </Text>
                     <Text style={styles.statLabel}>Following</Text>
                   </View>
                   <View style={styles.stat}>
-                    <Text style={styles.statCount}>{formatCount(user.follower_count)}</Text>
+                    <Text style={styles.statCount}>
+                      {formatCount(user.follower_count)}
+                    </Text>
                     <Text style={styles.statLabel}>Followers</Text>
                   </View>
                 </View>
@@ -151,16 +179,27 @@ export function ParticipantProfileCard({ participant, visible, onClose }: Partic
               <View style={styles.actions}>
                 {!isOwnProfile && user && (
                   <Pressable
-                    style={[styles.followButton, isFollowing && styles.followingButton]}
+                    style={[
+                      styles.followButton,
+                      isFollowing && styles.followingButton,
+                    ]}
                     onPress={handleFollowToggle}
                     disabled={isFollowLoading}
                   >
-                    <Text style={[styles.followText, isFollowing && styles.followingText]}>
-                      {isFollowing ? 'Following' : 'Follow'}
+                    <Text
+                      style={[
+                        styles.followText,
+                        isFollowing && styles.followingText,
+                      ]}
+                    >
+                      {isFollowing ? "Following" : "Follow"}
                     </Text>
                   </Pressable>
                 )}
-                <Pressable style={styles.profileButton} onPress={handleViewProfile}>
+                <Pressable
+                  style={styles.profileButton}
+                  onPress={handleViewProfile}
+                >
                   <Text style={styles.profileButtonText}>View Profile</Text>
                 </Pressable>
               </View>
@@ -175,41 +214,41 @@ export function ParticipantProfileCard({ participant, visible, onClose }: Partic
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
     padding: 32,
   },
   card: {
     backgroundColor: colors.background.surface,
     borderRadius: 16,
     padding: 20,
-    width: '100%',
+    width: "100%",
     maxWidth: 340,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.background.border,
   },
   loadingContainer: {
     paddingVertical: 40,
-    alignItems: 'center',
+    alignItems: "center",
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 14,
   },
   headerInfo: {
     flex: 1,
   },
   nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 5,
   },
   displayName: {
     color: colors.text.primary,
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
     flexShrink: 1,
   },
   username: {
@@ -222,14 +261,14 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     marginTop: 6,
   },
   roleText: {
     color: colors.text.secondary,
     fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'capitalize',
+    fontWeight: "600",
+    textTransform: "capitalize",
   },
   bio: {
     color: colors.text.body,
@@ -238,17 +277,17 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   statsRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 24,
     marginTop: 14,
   },
   stat: {
-    alignItems: 'center',
+    alignItems: "center",
   },
   statCount: {
     color: colors.text.primary,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   statLabel: {
     color: colors.text.secondary,
@@ -263,32 +302,32 @@ const styles = StyleSheet.create({
     backgroundColor: colors.purple,
     paddingVertical: 10,
     borderRadius: 20,
-    alignItems: 'center',
+    alignItems: "center",
   },
   followingButton: {
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: colors.background.border,
   },
   followText: {
     color: colors.text.primary,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   followingText: {
     color: colors.text.secondary,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   profileButton: {
     paddingVertical: 10,
     borderRadius: 20,
-    alignItems: 'center',
+    alignItems: "center",
     borderWidth: 1,
     borderColor: colors.background.border,
   },
   profileButtonText: {
     color: colors.text.primary,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

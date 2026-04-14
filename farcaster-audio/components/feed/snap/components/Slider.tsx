@@ -1,16 +1,23 @@
-import { useState, useCallback } from 'react';
-import { View, Text, Pressable, StyleSheet, type LayoutChangeEvent, type GestureResponderEvent } from 'react-native';
-import type { SliderProps } from '@/types/snap';
-import { useSnapContext } from '../context';
-import { resolvePaletteColor } from '@/constants/snapPalette';
-import { colors } from '@/constants/theme';
+import { useState, useCallback } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  type LayoutChangeEvent,
+  type GestureResponderEvent,
+} from "react-native";
+import type { SliderProps } from "@/types/snap";
+import { useSnapContext } from "../context";
+import { resolvePaletteColor } from "@/constants/snapPalette";
+import { colors } from "@/constants/theme";
 
 /**
  * Minimal slider — no external deps. Tap/drag on the track sets the value.
  */
 export function SnapSlider({ props }: { props: SliderProps }) {
   const { accent, setInput } = useSnapContext();
-  const color = resolvePaletteColor('accent', accent);
+  const color = resolvePaletteColor("accent", accent);
 
   const clampedDefault = Math.max(
     props.min,
@@ -60,11 +67,20 @@ export function SnapSlider({ props }: { props: SliderProps }) {
         onResponderMove={(e) => updateFromX(e.nativeEvent.locationX)}
         style={styles.track}
       >
-        <View style={[styles.fill, { width: `${pct * 100}%`, backgroundColor: color }]} />
+        <View
+          style={[
+            styles.fill,
+            { width: `${pct * 100}%`, backgroundColor: color },
+          ]}
+        />
         <View
           style={[
             styles.thumb,
-            { left: `${pct * 100}%`, backgroundColor: color, borderColor: color },
+            {
+              left: `${pct * 100}%`,
+              backgroundColor: color,
+              borderColor: color,
+            },
           ]}
         />
       </Pressable>
@@ -74,21 +90,25 @@ export function SnapSlider({ props }: { props: SliderProps }) {
 
 const styles = StyleSheet.create({
   wrapper: { gap: 6 },
-  labelRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  labelRow: { flexDirection: "row", justifyContent: "space-between" },
   label: { color: colors.text.secondary, fontSize: 12 },
-  value: { color: colors.text.body, fontSize: 12, fontVariant: ['tabular-nums'] },
+  value: {
+    color: colors.text.body,
+    fontSize: 12,
+    fontVariant: ["tabular-nums"],
+  },
   track: {
     height: 24,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   fill: {
-    position: 'absolute',
+    position: "absolute",
     left: 0,
     height: 4,
     borderRadius: 999,
   },
   thumb: {
-    position: 'absolute',
+    position: "absolute",
     width: 16,
     height: 16,
     borderRadius: 8,

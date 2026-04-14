@@ -1,6 +1,6 @@
-import { Room, type RoomOptions } from 'livekit-client';
-import { AudioSession } from '@livekit/react-native';
-import { NativeModules } from 'react-native';
+import { Room, type RoomOptions } from "livekit-client";
+import { AudioSession } from "@livekit/react-native";
+import { NativeModules } from "react-native";
 
 const { AudioSessionModule } = NativeModules;
 
@@ -73,9 +73,12 @@ export async function sendReaction(key: string): Promise<void> {
   if (!localParticipant) return;
 
   const payload = new TextEncoder().encode(
-    JSON.stringify({ type: 'reaction', key }),
+    JSON.stringify({ type: "reaction", key }),
   );
-  await localParticipant.publishData(payload, { topic: 'reactions', reliable: false });
+  await localParticipant.publishData(payload, {
+    topic: "reactions",
+    reliable: false,
+  });
 }
 
 export function getActiveRoom(): Room | null {

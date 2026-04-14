@@ -1,17 +1,24 @@
-import { useState, useCallback, useRef } from 'react';
-import { View, Text, Pressable, StyleSheet, FlatList, useWindowDimensions } from 'react-native';
-import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { Avatar } from '@/components/common/Avatar';
-import { CastActions } from '@/components/feed/CastActions';
-import { CastText } from '@/components/feed/CastText';
-import { OgPreview } from '@/components/feed/OgPreview';
-import { MediaViewer } from '@/components/common/ImageViewer';
-import { VideoPlayer } from '@/components/feed/VideoPlayer';
-import { colors } from '@/constants/theme';
-import { getUserByUsername } from '@/services/api';
-import type { NeynarCast, NeynarEmbed } from '@/types/neynar';
+import { useState, useCallback, useRef } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  FlatList,
+  useWindowDimensions,
+} from "react-native";
+import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { Avatar } from "@/components/common/Avatar";
+import { CastActions } from "@/components/feed/CastActions";
+import { CastText } from "@/components/feed/CastText";
+import { OgPreview } from "@/components/feed/OgPreview";
+import { MediaViewer } from "@/components/common/ImageViewer";
+import { VideoPlayer } from "@/components/feed/VideoPlayer";
+import { colors } from "@/constants/theme";
+import { getUserByUsername } from "@/services/api";
+import type { NeynarCast, NeynarEmbed } from "@/types/neynar";
 
 const TRUNCATE_LENGTH = 280;
 
@@ -33,7 +40,7 @@ function getRelativeTime(timestamp: string): string {
   const then = new Date(timestamp).getTime();
   const diffMs = now - then;
   const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'now';
+  if (diffMin < 1) return "now";
   if (diffMin < 60) return `${diffMin}m`;
   const diffHours = Math.floor(diffMin / 60);
   if (diffHours < 24) return `${diffHours}h`;
@@ -42,18 +49,18 @@ function getRelativeTime(timestamp: string): string {
 }
 
 function isImageUrl(embed: NeynarEmbed): boolean {
-  const contentType = embed.metadata?.content_type ?? '';
-  if (contentType.startsWith('image/')) return true;
+  const contentType = embed.metadata?.content_type ?? "";
+  if (contentType.startsWith("image/")) return true;
   // Neynar populates image dimensions for image embeds even without content_type
   if (embed.metadata?.image?.width_px) return true;
-  const url = embed.url ?? '';
+  const url = embed.url ?? "";
   return /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
 }
 
 function isVideoUrl(embed: NeynarEmbed): boolean {
-  const contentType = embed.metadata?.content_type ?? '';
-  if (contentType.startsWith('video/')) return true;
-  const url = embed.url ?? '';
+  const contentType = embed.metadata?.content_type ?? "";
+  if (contentType.startsWith("video/")) return true;
+  const url = embed.url ?? "";
   return /\.(mp4|mov|m3u8|webm)(\?|$)/i.test(url);
 }
 
@@ -72,7 +79,11 @@ function EmbedImage({
     return (
       <Pressable onPress={onPress}>
         <View style={[style, styles.imageFallback]}>
-          <Ionicons name="image-outline" size={32} color={colors.text.secondary} />
+          <Ionicons
+            name="image-outline"
+            size={32}
+            color={colors.text.secondary}
+          />
         </View>
       </Pressable>
     );
@@ -109,7 +120,10 @@ function CastImages({
   if (images.length === 1) {
     const img = images[0];
     const meta = img.metadata?.image;
-    const aspectRatio = meta?.width_px && meta?.height_px ? meta.width_px / meta.height_px : 16 / 9;
+    const aspectRatio =
+      meta?.width_px && meta?.height_px
+        ? meta.width_px / meta.height_px
+        : 16 / 9;
     return (
       <View style={styles.imageContainer}>
         <EmbedImage
@@ -129,7 +143,9 @@ function CastImages({
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={(e) => {
-          const index = Math.round(e.nativeEvent.contentOffset.x / carouselWidth);
+          const index = Math.round(
+            e.nativeEvent.contentOffset.x / carouselWidth,
+          );
           setActiveIndex(index);
         }}
         keyExtractor={(item) => item.url!}
@@ -145,7 +161,10 @@ function CastImages({
         {images.slice(0, 4).map((_, i) => (
           <View
             key={i}
-            style={[styles.carouselDot, i === activeIndex && styles.carouselDotActive]}
+            style={[
+              styles.carouselDot,
+              i === activeIndex && styles.carouselDotActive,
+            ]}
           />
         ))}
       </View>
@@ -161,7 +180,8 @@ function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
   const ogImages = video.metadata?.html?.ogImage;
   const thumbnailUrl = ogImages?.[0]?.url ?? undefined;
   const meta = video.metadata?.image;
-  const aspectRatio = meta?.width_px && meta?.height_px ? meta.width_px / meta.height_px : 16 / 9;
+  const aspectRatio =
+    meta?.width_px && meta?.height_px ? meta.width_px / meta.height_px : 16 / 9;
 
   return (
     <VideoPlayer
@@ -172,7 +192,13 @@ function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
   );
 }
 
-function QuoteCast({ cast, onPress }: { cast: NeynarCast; onPress?: () => void }) {
+function QuoteCast({
+  cast,
+  onPress,
+}: {
+  cast: NeynarCast;
+  onPress?: () => void;
+}) {
   if (!cast?.author) return null;
   const content = (
     <View style={styles.quoteContainer}>
@@ -193,7 +219,12 @@ function QuoteCast({ cast, onPress }: { cast: NeynarCast; onPress?: () => void }
         <CastText text={cast.text} style={styles.quoteText} numberOfLines={3} />
       ) : null}
       {cast.embeds && cast.embeds.length > 0 ? (
-        <CastImages embeds={cast.embeds} onImagePress={() => { /* noop in quotes */ }} />
+        <CastImages
+          embeds={cast.embeds}
+          onImagePress={() => {
+            /* noop in quotes */
+          }}
+        />
       ) : null}
     </View>
   );
@@ -216,18 +247,21 @@ function CastBody({
   hiddenUrls?: Set<string>;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const shouldTruncate = !expanded && !isExpanded && text.length > TRUNCATE_LENGTH;
+  const shouldTruncate =
+    !expanded && !isExpanded && text.length > TRUNCATE_LENGTH;
   const displayText = shouldTruncate ? text.slice(0, TRUNCATE_LENGTH) : text;
 
   return (
     <Text>
-      <CastText text={displayText} style={styles.text} onMentionPress={onMentionPress} hiddenUrls={hiddenUrls} />
+      <CastText
+        text={displayText}
+        style={styles.text}
+        onMentionPress={onMentionPress}
+        hiddenUrls={hiddenUrls}
+      />
       {shouldTruncate ? (
-        <Text
-          style={styles.readMore}
-          onPress={() => setIsExpanded(true)}
-        >
-          {'... '}read more
+        <Text style={styles.readMore} onPress={() => setIsExpanded(true)}>
+          {"... "}read more
         </Text>
       ) : null}
     </Text>
@@ -247,9 +281,14 @@ export function CastCard({
   hideThreadLine,
 }: CastCardProps) {
   const router = useRouter();
-  const isLiked = cast.viewer_context?.liked ?? cast.reactions.likes.some((l) => l.fid === myFid);
-  const isRecasted = cast.viewer_context?.recasted ?? cast.reactions.recasts.some((r) => r.fid === myFid);
-  const truncatedText = cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text;
+  const isLiked =
+    cast.viewer_context?.liked ??
+    cast.reactions.likes.some((l) => l.fid === myFid);
+  const isRecasted =
+    cast.viewer_context?.recasted ??
+    cast.reactions.recasts.some((r) => r.fid === myFid);
+  const truncatedText =
+    cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text;
 
   const embeds = cast.embeds ?? [];
   const quoteCast = embeds.find((e) => e.cast)?.cast;
@@ -260,14 +299,13 @@ export function CastCard({
       .filter((e) => {
         if (!e.url || e.cast || isImageUrl(e) || isVideoUrl(e)) return false;
         // X/Twitter always renders a card (even without OG data)
-        const domain = e.url!.match(/^https?:\/\/(?:www\.)?(x\.com|twitter\.com)/);
+        const domain = e.url!.match(
+          /^https?:\/\/(?:www\.)?(x\.com|twitter\.com)/,
+        );
         if (domain) return true;
         const html = e.metadata?.html;
         const frame = e.metadata?.fc_frame ?? (e.metadata as any)?.frame;
-        const hasImage = !!(
-          frame?.image_url ||
-          html?.ogImage?.[0]?.url
-        );
+        const hasImage = !!(frame?.image_url || html?.ogImage?.[0]?.url);
         const hasTitle = !!html?.ogTitle;
         const hasDescription = !!html?.ogDescription;
         return hasImage || hasTitle || hasDescription;
@@ -275,7 +313,10 @@ export function CastCard({
       .map((e) => e.url!),
   );
 
-  const [viewerState, setViewerState] = useState<{ images: string[]; index: number } | null>(null);
+  const [viewerState, setViewerState] = useState<{
+    images: string[];
+    index: number;
+  } | null>(null);
 
   const navigateToProfile = useCallback(
     (fid: number) => router.push(`/profile/${fid}`),
@@ -304,25 +345,38 @@ export function CastCard({
         <Avatar
           pfpUrl={cast.author.pfp_url}
           displayName={cast.author.display_name}
-          size={threaded ? 'sm' : 'md'}
+          size={threaded ? "sm" : "md"}
         />
       </Pressable>
       <View style={styles.content}>
-        <Pressable style={styles.header} onPress={() => navigateToProfile(cast.author.fid)}>
+        <Pressable
+          style={styles.header}
+          onPress={() => navigateToProfile(cast.author.fid)}
+        >
           <Text style={styles.displayName} numberOfLines={1}>
             {cast.author.display_name}
           </Text>
           <Text style={styles.username}>@{cast.author.username}</Text>
-          {cast.author.pro?.status === 'subscribed' && (
+          {cast.author.pro?.status === "subscribed" && (
             <Ionicons name="checkmark-circle" size={14} color={colors.purple} />
           )}
-          <Text style={styles.dot}>{'\u00B7'}</Text>
-          <Text style={styles.timestamp}>{getRelativeTime(cast.timestamp)}</Text>
+          <Text style={styles.dot}>{"\u00B7"}</Text>
+          <Text style={styles.timestamp}>
+            {getRelativeTime(cast.timestamp)}
+          </Text>
         </Pressable>
         <Pressable onPress={onPress} disabled={!onPress}>
-          <CastBody text={cast.text} expanded={expanded} onMentionPress={handleMentionPress} hiddenUrls={renderedEmbedUrls} />
+          <CastBody
+            text={cast.text}
+            expanded={expanded}
+            onMentionPress={handleMentionPress}
+            hiddenUrls={renderedEmbedUrls}
+          />
         </Pressable>
-        <CastImages embeds={embeds} onImagePress={(images, index) => setViewerState({ images, index })} />
+        <CastImages
+          embeds={embeds}
+          onImagePress={(images, index) => setViewerState({ images, index })}
+        />
         <CastVideos embeds={embeds} />
         {embeds
           .filter((e) => e.url && !e.cast && !isImageUrl(e) && !isVideoUrl(e))
@@ -372,7 +426,7 @@ export function CastCard({
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
+    flexDirection: "row",
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.background.border,
@@ -382,14 +436,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     marginBottom: 4,
   },
   displayName: {
     color: colors.text.primary,
-    fontWeight: '600',
+    fontWeight: "600",
     fontSize: 15,
     flexShrink: 1,
   },
@@ -419,15 +473,15 @@ const styles = StyleSheet.create({
   imageContainer: {
     marginTop: 8,
     borderRadius: 12,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   singleImage: {
-    width: '100%',
+    width: "100%",
     borderRadius: 12,
   },
   dotRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     gap: 5,
     marginTop: 8,
   },
@@ -444,15 +498,15 @@ const styles = StyleSheet.create({
   },
   imageFallback: {
     backgroundColor: colors.background.border,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   // Threaded reply styles
   threadedContainer: {
     paddingLeft: 52,
   },
   threadLine: {
-    position: 'absolute',
+    position: "absolute",
     left: 35,
     top: 0,
     bottom: 0,
@@ -468,8 +522,8 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   quoteHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     marginBottom: 4,
   },
@@ -480,7 +534,7 @@ const styles = StyleSheet.create({
   },
   quoteDisplayName: {
     color: colors.text.primary,
-    fontWeight: '600',
+    fontWeight: "600",
     fontSize: 13,
     flexShrink: 1,
   },

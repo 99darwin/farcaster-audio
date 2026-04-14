@@ -1,12 +1,13 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { WINAMP } from './winampTheme';
+import { View, Text, StyleSheet } from "react-native";
+import { WINAMP } from "./winampTheme";
 
 interface WinampTimeDisplayProps {
   elapsedFormatted: string;
 }
 
-export function WinampTimeDisplay({ elapsedFormatted }: WinampTimeDisplayProps) {
-
+export function WinampTimeDisplay({
+  elapsedFormatted,
+}: WinampTimeDisplayProps) {
   return (
     <View style={styles.container}>
       <View style={styles.display}>
@@ -27,11 +28,11 @@ const styles = StyleSheet.create({
     borderRightColor: WINAMP.bevel.mid,
     paddingVertical: 2,
     paddingHorizontal: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   display: {
-    position: 'relative',
+    position: "relative",
   },
   dimText: {
     fontFamily: WINAMP.fonts.segment,
@@ -44,7 +45,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: WINAMP.time.text,
     letterSpacing: 1,
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     textShadowColor: WINAMP.time.glow,

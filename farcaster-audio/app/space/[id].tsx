@@ -1,37 +1,46 @@
-import { useEffect, useState, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Share, Image, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Toast from 'react-native-toast-message';
-import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useSpace } from '@/hooks/useSpace';
-import { useSpacePermissions } from '@/hooks/useSpacePermissions';
-import { useAuthStore } from '@/stores/authStore';
-import { useSpaceStore } from '@/stores/spaceStore';
-import { useMiniAppStore } from '@/stores/miniappStore';
-import { usePrefsStore } from '@/stores/prefsStore';
-import { WinampPlayer } from '@/components/winamp/WinampPlayer';
-import { SpeakerGrid } from '@/components/spaces/SpeakerGrid';
-import { ListenerList } from '@/components/spaces/ListenerList';
-import { HandRaiseButton } from '@/components/spaces/HandRaiseButton';
-import { HostControls } from '@/components/spaces/HostControls';
-import { ParticipantProfileCard } from '@/components/spaces/ParticipantProfileCard';
-import { SpaceChat } from '@/components/spaces/SpaceChat';
-import { EmojiReactionPanel } from '@/components/spaces/EmojiReactionPanel';
-import { EmojiReactionOverlay } from '@/components/spaces/EmojiReactionOverlay';
-import { MiniAppPicker } from '@/components/miniapp/MiniAppPicker';
-import { RsvpAvatarRow } from '@/components/spaces/RsvpAvatarRow';
-import { GlassView } from '@/components/common/GlassView';
-import { Button } from '@/components/common/Button';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { AvatarPositionProvider } from '@/contexts/AvatarPositionContext';
-import { colors, glass } from '@/constants/theme';
-import { buildSpaceUrl } from '@/utils/shareLinks';
-import { formatScheduledTime } from '@/utils/formatDate';
-import * as api from '@/services/api';
-import * as livekitService from '@/services/livekit';
-import type { Participant, Room } from '@/types/space';
+import { useEffect, useState, useCallback } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  Share,
+  Image,
+  Alert,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Toast from "react-native-toast-message";
+import * as Haptics from "expo-haptics";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSpace } from "@/hooks/useSpace";
+import { useSpacePermissions } from "@/hooks/useSpacePermissions";
+import { useAuthStore } from "@/stores/authStore";
+import { useSpaceStore } from "@/stores/spaceStore";
+import { useMiniAppStore } from "@/stores/miniappStore";
+import { usePrefsStore } from "@/stores/prefsStore";
+import { WinampPlayer } from "@/components/winamp/WinampPlayer";
+import { SpeakerGrid } from "@/components/spaces/SpeakerGrid";
+import { ListenerList } from "@/components/spaces/ListenerList";
+import { HandRaiseButton } from "@/components/spaces/HandRaiseButton";
+import { HostControls } from "@/components/spaces/HostControls";
+import { ParticipantProfileCard } from "@/components/spaces/ParticipantProfileCard";
+import { SpaceChat } from "@/components/spaces/SpaceChat";
+import { EmojiReactionPanel } from "@/components/spaces/EmojiReactionPanel";
+import { EmojiReactionOverlay } from "@/components/spaces/EmojiReactionOverlay";
+import { MiniAppPicker } from "@/components/miniapp/MiniAppPicker";
+import { RsvpAvatarRow } from "@/components/spaces/RsvpAvatarRow";
+import { GlassView } from "@/components/common/GlassView";
+import { Button } from "@/components/common/Button";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import { AvatarPositionProvider } from "@/contexts/AvatarPositionContext";
+import { colors, glass } from "@/constants/theme";
+import { buildSpaceUrl } from "@/utils/shareLinks";
+import { formatScheduledTime } from "@/utils/formatDate";
+import * as api from "@/services/api";
+import * as livekitService from "@/services/livekit";
+import type { Participant, Room } from "@/types/space";
 
 // ─── Scheduled space view (no LiveKit, no participants) ───
 
@@ -54,16 +63,22 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
 
       const hostParticipant: Participant = {
         fid: user!.fid,
-        role: 'host',
+        role: "host",
         is_muted: false,
         is_speaking: false,
         hand_raised: false,
-        display_name: user!.display_name || user!.username || `User ${user!.fid}`,
+        display_name:
+          user!.display_name || user!.username || `User ${user!.fid}`,
         pfp_url: user!.pfp_url ?? null,
       };
 
-      useSpaceStore.getState().joinSpace(response.room, [hostParticipant], 'host');
-      await livekitService.connectToRoom(response.livekit_ws_url, response.livekit_token);
+      useSpaceStore
+        .getState()
+        .joinSpace(response.room, [hostParticipant], "host");
+      await livekitService.connectToRoom(
+        response.livekit_ws_url,
+        response.livekit_token,
+      );
       await livekitService.enableMicrophone();
       useSpaceStore.getState().setConnected(true);
       useSpaceStore.getState().setMuted(false);
@@ -72,9 +87,13 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
       // is now "active", so the parent component will render the live view
       router.replace(`/space/${id}`);
     } catch (err) {
-      console.error('[ScheduledSpace] Go live error:', err);
+      console.error("[ScheduledSpace] Go live error:", err);
       useSpaceStore.getState().leaveSpace();
-      Toast.show({ type: 'error', text1: 'Error', text2: api.getErrorMessage(err) });
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: api.getErrorMessage(err),
+      });
     } finally {
       setIsStarting(false);
     }
@@ -85,7 +104,7 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
     const wasGoing = isGoing;
     // Optimistic update
     setIsGoing(!wasGoing);
-    setRsvpCount((c) => wasGoing ? c - 1 : c + 1);
+    setRsvpCount((c) => (wasGoing ? c - 1 : c + 1));
     try {
       if (wasGoing) {
         await api.unrsvpRoom(id);
@@ -95,8 +114,12 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
     } catch (err) {
       // Rollback
       setIsGoing(wasGoing);
-      setRsvpCount((c) => wasGoing ? c + 1 : c - 1);
-      Toast.show({ type: 'error', text1: 'Error', text2: api.getErrorMessage(err) });
+      setRsvpCount((c) => (wasGoing ? c + 1 : c - 1));
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: api.getErrorMessage(err),
+      });
     } finally {
       setIsTogglingRsvp(false);
     }
@@ -104,21 +127,25 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
 
   const handleCancel = () => {
     Alert.alert(
-      'Cancel Space',
-      'Are you sure you want to cancel this scheduled space?',
+      "Cancel Space",
+      "Are you sure you want to cancel this scheduled space?",
       [
-        { text: 'Keep', style: 'cancel' },
+        { text: "Keep", style: "cancel" },
         {
-          text: 'Cancel Space',
-          style: 'destructive',
+          text: "Cancel Space",
+          style: "destructive",
           onPress: async () => {
             setIsCancelling(true);
             try {
               await api.endRoom(id);
-              Toast.show({ type: 'info', text1: 'Space cancelled' });
+              Toast.show({ type: "info", text1: "Space cancelled" });
               router.back();
             } catch (err) {
-              Toast.show({ type: 'error', text1: 'Error', text2: api.getErrorMessage(err) });
+              Toast.show({
+                type: "error",
+                text1: "Error",
+                text2: api.getErrorMessage(err),
+              });
               setIsCancelling(false);
             }
           },
@@ -133,11 +160,14 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
         {/* Host avatar */}
         <View style={styles.scheduledAvatarWrap}>
           {room.host.pfp_url ? (
-            <Image source={{ uri: room.host.pfp_url }} style={styles.scheduledAvatar} />
+            <Image
+              source={{ uri: room.host.pfp_url }}
+              style={styles.scheduledAvatar}
+            />
           ) : (
             <View style={styles.scheduledAvatar}>
               <Text style={styles.scheduledAvatarText}>
-                {(room.host.display_name || '?')[0].toUpperCase()}
+                {(room.host.display_name || "?")[0].toUpperCase()}
               </Text>
             </View>
           )}
@@ -158,9 +188,7 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
           </View>
         )}
 
-        {rsvpCount > 0 && (
-          <RsvpAvatarRow users={rsvpUsers} count={rsvpCount} />
-        )}
+        {rsvpCount > 0 && <RsvpAvatarRow users={rsvpUsers} count={rsvpCount} />}
 
         {isHost ? (
           <View style={styles.scheduledActions}>
@@ -178,7 +206,7 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
               accessibilityLabel="Cancel this scheduled space"
             >
               <Text style={styles.cancelBtnText}>
-                {isCancelling ? 'Cancelling...' : 'Cancel Space'}
+                {isCancelling ? "Cancelling..." : "Cancel Space"}
               </Text>
             </Pressable>
           </View>
@@ -189,14 +217,23 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
               disabled={isTogglingRsvp}
               style={[styles.rsvpBtn, isGoing && styles.rsvpBtnActive]}
               accessibilityRole="button"
-              accessibilityLabel={isGoing ? 'Remove RSVP' : 'RSVP to this space'}
+              accessibilityLabel={
+                isGoing ? "Remove RSVP" : "RSVP to this space"
+              }
               accessibilityState={{ selected: isGoing }}
             >
               <View style={styles.rsvpBtnContent}>
-                <Text style={[styles.rsvpBtnText, isGoing && styles.rsvpBtnTextActive]}>
-                  {isGoing ? 'Going' : "I'm Going"}
+                <Text
+                  style={[
+                    styles.rsvpBtnText,
+                    isGoing && styles.rsvpBtnTextActive,
+                  ]}
+                >
+                  {isGoing ? "Going" : "I'm Going"}
                 </Text>
-                {isGoing && <Ionicons name="checkmark" size={16} color="#fff" />}
+                {isGoing && (
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                )}
               </View>
             </Pressable>
             <Text style={styles.scheduledWaiting}>
@@ -209,14 +246,18 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             Share.share({
-              message: `"${room.title}" on Juke — ${room.scheduled_at ? formatScheduledTime(room.scheduled_at) : ''}`,
+              message: `"${room.title}" on Juke — ${room.scheduled_at ? formatScheduledTime(room.scheduled_at) : ""}`,
               url: buildSpaceUrl(id),
             });
           }}
           style={styles.scheduledShareBtn}
           accessibilityLabel="Share space"
         >
-          <Ionicons name="share-outline" size={20} color={colors.text.secondary} />
+          <Ionicons
+            name="share-outline"
+            size={20}
+            color={colors.text.secondary}
+          />
           <Text style={styles.scheduledShareText}>Share</Text>
         </Pressable>
       </View>
@@ -257,8 +298,11 @@ export default function SpaceScreen() {
   const [isJoining, setIsJoining] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [showHostControls, setShowHostControls] = useState(false);
-  const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
-  const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants');
+  const [selectedParticipant, setSelectedParticipant] =
+    useState<Participant | null>(null);
+  const [activeTab, setActiveTab] = useState<"participants" | "chat">(
+    "participants",
+  );
   const [isMiniAppPickerVisible, setIsMiniAppPickerVisible] = useState(false);
   const addedMiniApps = useMiniAppStore((s) => s.addedMiniApps);
   const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
@@ -271,8 +315,12 @@ export default function SpaceScreen() {
   // Navigate all remaining participants back to the home screen.
   useEffect(() => {
     setOnRoomEnded(() => {
-      Toast.show({ type: 'info', text1: 'Space ended', text2: 'The host ended this space' });
-      router.replace('/');
+      Toast.show({
+        type: "info",
+        text1: "Space ended",
+        text2: "The host ended this space",
+      });
+      router.replace("/");
     });
   }, [setOnRoomEnded, router]);
 
@@ -286,21 +334,30 @@ export default function SpaceScreen() {
 
     // Fetch room info first to check if it's scheduled
     setIsJoining(true);
-    api.getRoom(id)
+    api
+      .getRoom(id)
       .then((detail) => {
-        if (detail.room.status === 'scheduled') {
+        if (detail.room.status === "scheduled") {
           setScheduledRoom(detail.room);
           setIsJoining(false);
           return;
         }
         // Active room — join normally
         return joinRoom(id).catch((err) => {
-          Toast.show({ type: 'error', text1: 'Error', text2: err.response?.data?.detail || 'Failed to join space' });
+          Toast.show({
+            type: "error",
+            text1: "Error",
+            text2: err.response?.data?.detail || "Failed to join space",
+          });
           router.back();
         });
       })
       .catch((err) => {
-        Toast.show({ type: 'error', text1: 'Error', text2: api.getErrorMessage(err) });
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: api.getErrorMessage(err),
+        });
         router.back();
       })
       .finally(() => setIsJoining(false));
@@ -309,7 +366,7 @@ export default function SpaceScreen() {
   const handleLeave = useCallback(async () => {
     if (!id) return;
     setIsLeaving(true);
-    router.replace('/');
+    router.replace("/");
     await leaveRoom(id);
   }, [id, leaveRoom, router]);
 
@@ -320,67 +377,112 @@ export default function SpaceScreen() {
       await api.raiseHand(id, { raised: newState });
       useSpaceStore.getState().setHandRaised(newState);
     } catch (err) {
-      console.error('Failed to raise hand:', err);
+      console.error("Failed to raise hand:", err);
     }
   }, [id, isHandRaised]);
 
-  const handlePromote = useCallback(async (fid: number) => {
-    if (!id) return;
-    useSpaceStore.getState().updateParticipant(fid, { role: 'speaker', is_muted: false });
-    try {
-      await api.promoteParticipant(id, fid);
-    } catch (err) {
-      useSpaceStore.getState().updateParticipant(fid, { role: 'listener', is_muted: true });
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to promote participant' });
-    }
-  }, [id]);
+  const handlePromote = useCallback(
+    async (fid: number) => {
+      if (!id) return;
+      useSpaceStore
+        .getState()
+        .updateParticipant(fid, { role: "speaker", is_muted: false });
+      try {
+        await api.promoteParticipant(id, fid);
+      } catch (err) {
+        useSpaceStore
+          .getState()
+          .updateParticipant(fid, { role: "listener", is_muted: true });
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Failed to promote participant",
+        });
+      }
+    },
+    [id],
+  );
 
-  const handleDemote = useCallback(async (fid: number) => {
-    if (!id) return;
-    useSpaceStore.getState().updateParticipant(fid, { role: 'listener', is_muted: true });
-    try {
-      await api.demoteParticipant(id, fid);
-    } catch (err) {
-      useSpaceStore.getState().updateParticipant(fid, { role: 'speaker' });
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to demote participant' });
-    }
-  }, [id]);
+  const handleDemote = useCallback(
+    async (fid: number) => {
+      if (!id) return;
+      useSpaceStore
+        .getState()
+        .updateParticipant(fid, { role: "listener", is_muted: true });
+      try {
+        await api.demoteParticipant(id, fid);
+      } catch (err) {
+        useSpaceStore.getState().updateParticipant(fid, { role: "speaker" });
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Failed to demote participant",
+        });
+      }
+    },
+    [id],
+  );
 
-  const handleMute = useCallback(async (fid: number) => {
-    if (!id) return;
-    try {
-      await api.muteParticipant(id, fid);
-    } catch (err) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to mute participant' });
-    }
-  }, [id]);
+  const handleMute = useCallback(
+    async (fid: number) => {
+      if (!id) return;
+      try {
+        await api.muteParticipant(id, fid);
+      } catch (err) {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Failed to mute participant",
+        });
+      }
+    },
+    [id],
+  );
 
-  const handleKick = useCallback(async (fid: number) => {
-    if (!id) return;
-    try {
-      await api.kickParticipant(id, fid);
-    } catch (err) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to kick participant' });
-    }
-  }, [id]);
+  const handleKick = useCallback(
+    async (fid: number) => {
+      if (!id) return;
+      try {
+        await api.kickParticipant(id, fid);
+      } catch (err) {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Failed to kick participant",
+        });
+      }
+    },
+    [id],
+  );
 
-  const handleBan = useCallback(async (fid: number) => {
-    if (!id) return;
-    try {
-      await api.banParticipant(id, fid, { reason: 'Removed by host' });
-    } catch (err) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to ban participant' });
-    }
-  }, [id]);
+  const handleBan = useCallback(
+    async (fid: number) => {
+      if (!id) return;
+      try {
+        await api.banParticipant(id, fid, { reason: "Removed by host" });
+      } catch (err) {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Failed to ban participant",
+        });
+      }
+    },
+    [id],
+  );
 
   const handleEndSpace = useCallback(async () => {
     if (!id) return;
     try {
       await api.endRoom(id);
-      router.replace('/');
+      router.replace("/");
       await leaveRoom(id);
     } catch (err) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to end space' });
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Failed to end space",
+      });
     }
   }, [id, router, leaveRoom]);
 
@@ -394,9 +496,9 @@ export default function SpaceScreen() {
   }
 
   const speakers = participants.filter(
-    (p) => p.role === 'host' || p.role === 'co_host' || p.role === 'speaker'
+    (p) => p.role === "host" || p.role === "co_host" || p.role === "speaker",
   );
-  const listeners = participants.filter((p) => p.role === 'listener');
+  const listeners = participants.filter((p) => p.role === "listener");
 
   // ─── Shared modals (used by both views) ───
   const modals = (
@@ -432,7 +534,7 @@ export default function SpaceScreen() {
             domain: miniApp.domain,
             manifest: null,
             config: miniApp.config,
-            location: { type: 'launcher' },
+            location: { type: "launcher" },
           });
         }}
       />
@@ -460,7 +562,12 @@ export default function SpaceScreen() {
           onSendReaction={sendReaction}
           onParticipantPress={setSelectedParticipant}
           onOpenHostControls={() => setShowHostControls(true)}
-          onShare={() => Share.share({ message: `Join "${room.title}" on Juke`, url: buildSpaceUrl(id) })}
+          onShare={() =>
+            Share.share({
+              message: `Join "${room.title}" on Juke`,
+              url: buildSpaceUrl(id),
+            })
+          }
         />
         {modals}
       </AvatarPositionProvider>
@@ -470,146 +577,218 @@ export default function SpaceScreen() {
   // ─── Standard mode ───
   return (
     <AvatarPositionProvider>
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Go back">
-          <Ionicons name="chevron-back" size={24} color={colors.text.primary} />
-        </Pressable>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>{room.title}</Text>
-          <View style={styles.statusRow}>
-            <View style={styles.liveDot} />
-            <Text style={styles.statusText}>Live</Text>
-            <Text style={styles.listenerCount}>
-              {participants.length} {participants.length === 1 ? 'person' : 'people'}
-            </Text>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <Pressable
+            onPress={() => router.back()}
+            style={styles.backBtn}
+            accessibilityLabel="Go back"
+          >
+            <Ionicons
+              name="chevron-back"
+              size={24}
+              color={colors.text.primary}
+            />
+          </Pressable>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>{room.title}</Text>
+            <View style={styles.statusRow}>
+              <View style={styles.liveDot} />
+              <Text style={styles.statusText}>Live</Text>
+              <Text style={styles.listenerCount}>
+                {participants.length}{" "}
+                {participants.length === 1 ? "person" : "people"}
+              </Text>
+            </View>
+            {!isConnected && (
+              <Text style={styles.reconnecting}>Reconnecting...</Text>
+            )}
           </View>
-          {!isConnected && (
-            <Text style={styles.reconnecting}>Reconnecting...</Text>
-          )}
         </View>
-      </View>
 
-      {hasChatTab && (
-        <View style={styles.tabBar}>
-          <Pressable
-            style={[styles.tab, activeTab === 'participants' && styles.tabActive]}
-            onPress={() => setActiveTab('participants')}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: activeTab === 'participants' }}
-          >
-            <Ionicons
-              name={activeTab === 'participants' ? 'people' : 'people-outline'}
-              size={18}
-              color={activeTab === 'participants' ? colors.text.primary : colors.text.secondary}
-            />
-            <Text style={[styles.tabText, activeTab === 'participants' && styles.tabTextActive]}>
-              Participants
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.tab, activeTab === 'chat' && styles.tabActive]}
-            onPress={() => setActiveTab('chat')}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: activeTab === 'chat' }}
-          >
-            <Ionicons
-              name={activeTab === 'chat' ? 'chatbubble' : 'chatbubble-outline'}
-              size={18}
-              color={activeTab === 'chat' ? colors.text.primary : colors.text.secondary}
-            />
-            <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>
-              Chat
-            </Text>
-          </Pressable>
-        </View>
-      )}
-
-      {activeTab === 'participants' || !hasChatTab ? (
-        <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
-          <SpeakerGrid speakers={speakers} hostFid={room.host_fid} onParticipantPress={setSelectedParticipant} />
-          <ListenerList listeners={listeners} onParticipantPress={setSelectedParticipant} />
-        </ScrollView>
-      ) : (
-        <SpaceChat
-          castHash={room.cast_hash!}
-          viewerFid={user!.fid}
-          keyboardVerticalOffset={insets.bottom + 96}
-          bottomInset={insets.bottom + 84}
-        />
-      )}
-
-      {(activeTab === 'participants' || !hasChatTab) && (
-        <View style={[styles.reactionPanel, { bottom: insets.bottom + 92 }]}>
-          <EmojiReactionPanel onReaction={sendReaction} />
-        </View>
-      )}
-
-      <GlassView style={[styles.controls, { bottom: insets.bottom + 12 }]}>
-        {permissions.isListener && (
-          <HandRaiseButton isRaised={isHandRaised} onPress={handleRaiseHand} />
+        {hasChatTab && (
+          <View style={styles.tabBar}>
+            <Pressable
+              style={[
+                styles.tab,
+                activeTab === "participants" && styles.tabActive,
+              ]}
+              onPress={() => setActiveTab("participants")}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === "participants" }}
+            >
+              <Ionicons
+                name={
+                  activeTab === "participants" ? "people" : "people-outline"
+                }
+                size={18}
+                color={
+                  activeTab === "participants"
+                    ? colors.text.primary
+                    : colors.text.secondary
+                }
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === "participants" && styles.tabTextActive,
+                ]}
+              >
+                Participants
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.tab, activeTab === "chat" && styles.tabActive]}
+              onPress={() => setActiveTab("chat")}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === "chat" }}
+            >
+              <Ionicons
+                name={
+                  activeTab === "chat" ? "chatbubble" : "chatbubble-outline"
+                }
+                size={18}
+                color={
+                  activeTab === "chat"
+                    ? colors.text.primary
+                    : colors.text.secondary
+                }
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === "chat" && styles.tabTextActive,
+                ]}
+              >
+                Chat
+              </Text>
+            </Pressable>
+          </View>
         )}
-        {permissions.canSelfMute && (
+
+        {activeTab === "participants" || !hasChatTab ? (
+          <ScrollView
+            style={styles.scrollContent}
+            contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
+          >
+            <SpeakerGrid
+              speakers={speakers}
+              hostFid={room.host_fid}
+              onParticipantPress={setSelectedParticipant}
+            />
+            <ListenerList
+              listeners={listeners}
+              onParticipantPress={setSelectedParticipant}
+            />
+          </ScrollView>
+        ) : (
+          <SpaceChat
+            castHash={room.cast_hash!}
+            viewerFid={user!.fid}
+            keyboardVerticalOffset={insets.bottom + 96}
+            bottomInset={insets.bottom + 84}
+          />
+        )}
+
+        {(activeTab === "participants" || !hasChatTab) && (
+          <View style={[styles.reactionPanel, { bottom: insets.bottom + 92 }]}>
+            <EmojiReactionPanel onReaction={sendReaction} />
+          </View>
+        )}
+
+        <GlassView style={[styles.controls, { bottom: insets.bottom + 12 }]}>
+          {permissions.isListener && (
+            <HandRaiseButton
+              isRaised={isHandRaised}
+              onPress={handleRaiseHand}
+            />
+          )}
+          {permissions.canSelfMute && (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                toggleMute();
+              }}
+              style={[styles.controlIcon, isMuted && styles.controlIconMuted]}
+              accessibilityLabel={
+                isMuted ? "Unmute microphone" : "Mute microphone"
+              }
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name={isMuted ? "mic-off" : "mic"}
+                size={24}
+                color={colors.text.primary}
+              />
+            </Pressable>
+          )}
+          {(permissions.canPromote ||
+            permissions.canMuteOthers ||
+            permissions.canKick ||
+            permissions.canEndRoom) && (
+            <Pressable
+              onPress={() => setShowHostControls(true)}
+              style={styles.controlIcon}
+              accessibilityLabel="Host controls"
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name="settings-outline"
+                size={24}
+                color={colors.text.primary}
+              />
+            </Pressable>
+          )}
           <Pressable
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              toggleMute();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setIsMiniAppPickerVisible(true);
             }}
-            style={[styles.controlIcon, isMuted && styles.controlIconMuted]}
-            accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-            accessibilityRole="button"
-          >
-            <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={24} color={colors.text.primary} />
-          </Pressable>
-        )}
-        {(permissions.canPromote || permissions.canMuteOthers || permissions.canKick || permissions.canEndRoom) && (
-          <Pressable
-            onPress={() => setShowHostControls(true)}
             style={styles.controlIcon}
-            accessibilityLabel="Host controls"
+            accessibilityLabel="Open mini app"
             accessibilityRole="button"
           >
-            <Ionicons name="settings-outline" size={24} color={colors.text.primary} />
+            <Ionicons
+              name="apps-outline"
+              size={24}
+              color={colors.text.primary}
+            />
           </Pressable>
-        )}
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setIsMiniAppPickerVisible(true);
-          }}
-          style={styles.controlIcon}
-          accessibilityLabel="Open mini app"
-          accessibilityRole="button"
-        >
-          <Ionicons name="apps-outline" size={24} color={colors.text.primary} />
-        </Pressable>
-        <Pressable
-          onPress={() => {
-            if (!id || !room) return;
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            Share.share({
-              message: `Join "${room.title}" on Juke`,
-              url: buildSpaceUrl(id),
-            });
-          }}
-          style={styles.controlIcon}
-          accessibilityLabel="Share space"
-          accessibilityRole="button"
-        >
-          <Ionicons name="share-outline" size={24} color={colors.text.primary} />
-        </Pressable>
-        <Pressable
-          onPress={handleLeave}
-          style={[styles.controlIcon, styles.controlIconLeave]}
-          accessibilityLabel="Leave space"
-          accessibilityRole="button"
-        >
-          <Ionicons name="exit-outline" size={24} color={colors.text.primary} />
-        </Pressable>
-      </GlassView>
+          <Pressable
+            onPress={() => {
+              if (!id || !room) return;
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              Share.share({
+                message: `Join "${room.title}" on Juke`,
+                url: buildSpaceUrl(id),
+              });
+            }}
+            style={styles.controlIcon}
+            accessibilityLabel="Share space"
+            accessibilityRole="button"
+          >
+            <Ionicons
+              name="share-outline"
+              size={24}
+              color={colors.text.primary}
+            />
+          </Pressable>
+          <Pressable
+            onPress={handleLeave}
+            style={[styles.controlIcon, styles.controlIconLeave]}
+            accessibilityLabel="Leave space"
+            accessibilityRole="button"
+          >
+            <Ionicons
+              name="exit-outline"
+              size={24}
+              color={colors.text.primary}
+            />
+          </Pressable>
+        </GlassView>
 
-      {modals}
-    </View>
+        {modals}
+      </View>
     </AvatarPositionProvider>
   );
 }
@@ -618,50 +797,65 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.main },
   // Standard mode header
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: 16,
     gap: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.background.border,
   },
-  backBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  backBtn: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerText: { flex: 1 },
-  title: { color: colors.text.primary, fontSize: 22, fontWeight: '700' },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
-  statusText: { color: colors.error, fontSize: 14, fontWeight: '600' },
+  title: { color: colors.text.primary, fontSize: 22, fontWeight: "700" },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 4,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.live,
+  },
+  statusText: { color: colors.error, fontSize: 14, fontWeight: "600" },
   listenerCount: { color: colors.text.secondary, fontSize: 14 },
   reconnecting: { color: colors.warning, fontSize: 13, marginTop: 4 },
   tabBar: {
-    flexDirection: 'row',
+    flexDirection: "row",
     backgroundColor: glass.overlayColor,
     borderBottomWidth: 1,
     borderBottomColor: glass.borderColor,
   },
   tab: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     paddingVertical: 10,
     borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    borderBottomColor: "transparent",
   },
   tabActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderBottomColor: colors.text.primary,
   },
-  tabText: { color: colors.text.secondary, fontSize: 14, fontWeight: '500' },
+  tabText: { color: colors.text.secondary, fontSize: 14, fontWeight: "500" },
   tabTextActive: { color: colors.text.primary },
   scrollContent: { flex: 1 },
   controls: {
-    position: 'absolute',
-    alignSelf: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    alignItems: 'center',
+    position: "absolute",
+    alignSelf: "center",
+    flexDirection: "row",
+    justifyContent: "space-evenly",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 12,
     gap: 12,
@@ -671,18 +865,18 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
   },
   controlIconMuted: { backgroundColor: glass.mutedOverlay },
   controlIconLeave: { backgroundColor: glass.dangerOverlay },
-  reactionPanel: { position: 'absolute', alignSelf: 'center' },
+  reactionPanel: { position: "absolute", alignSelf: "center" },
   // Scheduled space styles
   scheduledContent: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     padding: 32,
   },
   scheduledAvatarWrap: {
@@ -693,21 +887,21 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     backgroundColor: colors.background.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 2,
     borderColor: colors.background.border,
   },
   scheduledAvatarText: {
     color: colors.text.primary,
     fontSize: 28,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   scheduledTitle: {
     color: colors.text.primary,
     fontSize: 26,
-    fontWeight: '700',
-    textAlign: 'center',
+    fontWeight: "700",
+    textAlign: "center",
     marginBottom: 8,
   },
   scheduledHost: {
@@ -716,10 +910,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   scheduledTimeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    backgroundColor: 'rgba(216, 90, 48, 0.12)',
+    backgroundColor: "rgba(216, 90, 48, 0.12)",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
@@ -728,10 +922,10 @@ const styles = StyleSheet.create({
   scheduledTimeText: {
     color: colors.accent,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   scheduledActions: {
-    width: '100%',
+    width: "100%",
     marginBottom: 16,
   },
   scheduledWaiting: {
@@ -740,8 +934,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   scheduledShareBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     paddingVertical: 14,
     paddingHorizontal: 20,
@@ -752,28 +946,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   scheduledBackBtn: {
-    position: 'absolute',
-    alignSelf: 'center',
+    position: "absolute",
+    alignSelf: "center",
     minHeight: 44,
     minWidth: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   scheduledBackText: {
     color: colors.text.secondary,
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   cancelBtn: {
     marginTop: 12,
     paddingVertical: 10,
-    alignItems: 'center',
+    alignItems: "center",
     minHeight: 44,
   },
   cancelBtnText: {
     color: colors.error,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   rsvpBtn: {
     borderWidth: 1.5,
@@ -781,12 +975,12 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     paddingVertical: 12,
     paddingHorizontal: 32,
-    alignItems: 'center',
+    alignItems: "center",
     minHeight: 44,
   },
   rsvpBtnContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
   rsvpBtnActive: {
@@ -796,9 +990,9 @@ const styles = StyleSheet.create({
   rsvpBtnText: {
     color: colors.accent,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   rsvpBtnTextActive: {
-    color: '#fff',
+    color: "#fff",
   },
 });

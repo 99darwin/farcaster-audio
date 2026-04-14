@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { View, StyleSheet, Animated, Dimensions } from 'react-native';
-import { Image } from 'expo-image';
-import { useAvatarPosition } from '@/contexts/AvatarPositionContext';
-import { emojiImageUrl } from '@/constants/emoji';
+import { useEffect, useRef, useState, useCallback } from "react";
+import { View, StyleSheet, Animated, Dimensions } from "react-native";
+import { Image } from "expo-image";
+import { useAvatarPosition } from "@/contexts/AvatarPositionContext";
+import { emojiImageUrl } from "@/constants/emoji";
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+const SCREEN_WIDTH = Dimensions.get("window").width;
 const ANIMATION_DURATION = 2000;
 const MAX_VISIBLE = 20;
 
@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   floatingEmoji: {
-    position: 'absolute',
+    position: "absolute",
   },
   emojiImage: {
     width: 36,

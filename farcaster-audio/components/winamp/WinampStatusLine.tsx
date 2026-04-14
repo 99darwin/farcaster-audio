@@ -1,12 +1,15 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
+import { View, Text, StyleSheet } from "react-native";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
 
 interface WinampStatusLineProps {
   participantCount: number;
   isConnected: boolean;
 }
 
-export function WinampStatusLine({ participantCount, isConnected }: WinampStatusLineProps) {
+export function WinampStatusLine({
+  participantCount,
+  isConnected,
+}: WinampStatusLineProps) {
   return (
     <View style={styles.container}>
       <View style={styles.row}>
@@ -25,8 +28,13 @@ export function WinampStatusLine({ participantCount, isConnected }: WinampStatus
         <Text style={styles.text}>44</Text>
         <Text style={styles.textDim}>kHz</Text>
         <View style={styles.divider} />
-        <Text style={[styles.badge, isConnected ? styles.badgeStereo : styles.badgeMono]}>
-          {isConnected ? 'STEREO' : 'MONO'}
+        <Text
+          style={[
+            styles.badge,
+            isConnected ? styles.badgeStereo : styles.badgeMono,
+          ]}
+        >
+          {isConnected ? "STEREO" : "MONO"}
         </Text>
       </View>
     </View>
@@ -44,21 +52,21 @@ const styles = StyleSheet.create({
     borderRightColor: WINAMP.bevel.mid,
     paddingVertical: 3,
     paddingHorizontal: 6,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 4,
   },
   liveDotOuter: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: 'rgba(255, 34, 68, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(255, 34, 68, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   liveDot: {
     width: 5,
@@ -71,8 +79,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   liveDotWarn: {
-    backgroundColor: '#fbbf24',
-    shadowColor: '#fbbf24',
+    backgroundColor: "#fbbf24",
+    shadowColor: "#fbbf24",
   },
   text: {
     fontFamily: WINAMP.fonts.pixel,
@@ -81,7 +89,7 @@ const styles = StyleSheet.create({
   },
   liveText: {
     color: WINAMP.accent.red,
-    textShadowColor: 'rgba(255, 34, 68, 0.5)',
+    textShadowColor: "rgba(255, 34, 68, 0.5)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4,
   },
@@ -105,12 +113,12 @@ const styles = StyleSheet.create({
   badgeStereo: {
     color: WINAMP.accent.cyan,
     borderColor: WINAMP.accent.cyan,
-    textShadowColor: 'rgba(0, 229, 255, 0.4)',
+    textShadowColor: "rgba(0, 229, 255, 0.4)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4,
   },
   badgeMono: {
-    color: '#fbbf24',
-    borderColor: '#fbbf24',
+    color: "#fbbf24",
+    borderColor: "#fbbf24",
   },
 });

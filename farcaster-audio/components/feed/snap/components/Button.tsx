@@ -1,10 +1,17 @@
-import { Pressable, Text, View, StyleSheet, ActivityIndicator, Linking } from 'react-native';
-import { useRouter } from 'expo-router';
-import type { ButtonProps, SnapEvents } from '@/types/snap';
-import { useSnapContext } from '../context';
-import { useComposeStore } from '@/stores/composeStore';
-import { resolvePaletteColor } from '@/constants/snapPalette';
-import { colors } from '@/constants/theme';
+import {
+  Pressable,
+  Text,
+  View,
+  StyleSheet,
+  ActivityIndicator,
+  Linking,
+} from "react-native";
+import { useRouter } from "expo-router";
+import type { ButtonProps, SnapEvents } from "@/types/snap";
+import { useSnapContext } from "../context";
+import { useComposeStore } from "@/stores/composeStore";
+import { resolvePaletteColor } from "@/constants/snapPalette";
+import { colors } from "@/constants/theme";
 
 interface Props {
   id: string;
@@ -15,48 +22,48 @@ interface Props {
 export function SnapButton({ id, props, on }: Props) {
   const { accent, submitButton, signerStatus, submitting } = useSnapContext();
   const router = useRouter();
-  const accentColor = resolvePaletteColor('accent', accent);
-  const primary = props.variant !== 'secondary';
+  const accentColor = resolvePaletteColor("accent", accent);
+  const primary = props.variant !== "secondary";
 
-  const action = on?.press?.action ?? 'submit';
+  const action = on?.press?.action ?? "submit";
   const params = on?.press?.params as Record<string, unknown> | undefined;
-  const isSubmit = action === 'submit';
+  const isSubmit = action === "submit";
   const canInteract = !submitting;
 
   const handlePress = () => {
     if (!canInteract) return;
 
     switch (action) {
-      case 'submit':
+      case "submit":
         submitButton(id).catch(() => {});
         break;
 
-      case 'open_url': {
+      case "open_url": {
         const target = params?.target as string | undefined;
         if (target) Linking.openURL(target).catch(() => {});
         break;
       }
 
-      case 'open_snap': {
+      case "open_snap": {
         // TODO: render inline snap — for now open externally
         const target = params?.target as string | undefined;
         if (target) Linking.openURL(target).catch(() => {});
         break;
       }
 
-      case 'view_cast': {
+      case "view_cast": {
         const hash = params?.hash as string | undefined;
         if (hash) router.push(`/cast/${hash}`);
         break;
       }
 
-      case 'view_profile': {
+      case "view_profile": {
         const fid = params?.fid as number | undefined;
         if (fid) router.push(`/profile/${fid}`);
         break;
       }
 
-      case 'compose_cast': {
+      case "compose_cast": {
         useComposeStore.getState().requestCompose({
           text: (params?.text as string) ?? undefined,
           embeds: (params?.embeds as string[]) ?? undefined,
@@ -64,7 +71,7 @@ export function SnapButton({ id, props, on }: Props) {
         break;
       }
 
-      case 'open_mini_app': {
+      case "open_mini_app": {
         const target = params?.target as string | undefined;
         if (target) Linking.openURL(target).catch(() => {});
         break;
@@ -77,7 +84,7 @@ export function SnapButton({ id, props, on }: Props) {
     }
   };
 
-  const showEnableHint = isSubmit && signerStatus !== 'approved';
+  const showEnableHint = isSubmit && signerStatus !== "approved";
 
   return (
     <Pressable
@@ -87,19 +94,23 @@ export function SnapButton({ id, props, on }: Props) {
         styles.button,
         primary
           ? { backgroundColor: accentColor }
-          : { borderWidth: 1, borderColor: accentColor, backgroundColor: 'transparent' },
+          : {
+              borderWidth: 1,
+              borderColor: accentColor,
+              backgroundColor: "transparent",
+            },
         pressed && canInteract ? { opacity: 0.8 } : null,
       ]}
     >
       <View style={styles.row}>
         {submitting ? (
-          <ActivityIndicator size="small" color={primary ? '#ffffff' : accentColor} />
+          <ActivityIndicator
+            size="small"
+            color={primary ? "#ffffff" : accentColor}
+          />
         ) : null}
         <Text
-          style={[
-            styles.label,
-            { color: primary ? '#ffffff' : accentColor },
-          ]}
+          style={[styles.label, { color: primary ? "#ffffff" : accentColor }]}
           numberOfLines={1}
         >
           {props.label}
@@ -107,7 +118,9 @@ export function SnapButton({ id, props, on }: Props) {
       </View>
       {showEnableHint ? (
         <Text style={styles.hint}>
-          {signerStatus === 'pending_approval' ? 'Awaiting approval' : 'Tap to enable'}
+          {signerStatus === "pending_approval"
+            ? "Awaiting approval"
+            : "Tap to enable"}
         </Text>
       ) : null}
     </Pressable>
@@ -119,17 +132,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   hint: {
     marginTop: 2,

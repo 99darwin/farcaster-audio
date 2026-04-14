@@ -1,19 +1,19 @@
-import { useState, useMemo } from 'react';
-import { View, Pressable, Text, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { WinampTitleBar } from './WinampTitleBar';
-import { WinampMarquee } from './WinampMarquee';
-import { WinampVisualizer } from './WinampVisualizer';
-import { WinampTimeDisplay } from './WinampTimeDisplay';
-import { WinampStatusLine } from './WinampStatusLine';
-import { WinampTransport } from './WinampTransport';
-import { WinampVolumeSlider } from './WinampVolumeSlider';
-import { WinampPlaylist } from './WinampPlaylist';
-import { WinampEQPanel } from './WinampEQPanel';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
-import { useElapsedTime } from '@/hooks/useElapsedTime';
-import type { Participant, Room } from '@/types/space';
+import { useState, useMemo } from "react";
+import { View, Pressable, Text, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { WinampTitleBar } from "./WinampTitleBar";
+import { WinampMarquee } from "./WinampMarquee";
+import { WinampVisualizer } from "./WinampVisualizer";
+import { WinampTimeDisplay } from "./WinampTimeDisplay";
+import { WinampStatusLine } from "./WinampStatusLine";
+import { WinampTransport } from "./WinampTransport";
+import { WinampVolumeSlider } from "./WinampVolumeSlider";
+import { WinampPlaylist } from "./WinampPlaylist";
+import { WinampEQPanel } from "./WinampEQPanel";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
+import { useElapsedTime } from "@/hooks/useElapsedTime";
+import type { Participant, Room } from "@/types/space";
 
 interface WinampPlayerProps {
   room: Room;
@@ -75,8 +75,8 @@ function SeekBar() {
 
 const seekStyles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginHorizontal: PANEL_MARGIN,
     gap: 4,
   },
@@ -89,14 +89,14 @@ const seekStyles = StyleSheet.create({
     borderLeftColor: WINAMP.bevel.dark,
     borderBottomColor: WINAMP.bevel.mid,
     borderRightColor: WINAMP.bevel.mid,
-    flexDirection: 'row',
-    alignItems: 'center',
-    overflow: 'hidden',
+    flexDirection: "row",
+    alignItems: "center",
+    overflow: "hidden",
   },
   fill: {
     flex: 1,
-    height: '100%',
-    backgroundColor: 'rgba(107, 63, 160, 0.3)',
+    height: "100%",
+    backgroundColor: "rgba(107, 63, 160, 0.3)",
   },
   liveIndicator: {
     width: 10,
@@ -108,8 +108,8 @@ const seekStyles = StyleSheet.create({
     borderLeftColor: WINAMP.bevel.light,
     borderBottomColor: WINAMP.bevel.dark,
     borderRightColor: WINAMP.bevel.dark,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   liveDot: {
     width: 3,
@@ -126,14 +126,22 @@ const seekStyles = StyleSheet.create({
     fontSize: 5,
     color: WINAMP.accent.cyan,
     width: 22,
-    textShadowColor: 'rgba(0, 229, 255, 0.4)',
+    textShadowColor: "rgba(0, 229, 255, 0.4)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 3,
   },
 });
 
 // Toggle button (EQ / PL)
-function ToggleButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function ToggleButton({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       onPress={onPress}
@@ -147,7 +155,9 @@ function ToggleButton({ label, active, onPress }: { label: string; active: boole
       accessibilityLabel={label}
       accessibilityState={{ selected: active }}
     >
-      <Text style={[toggleStyles.text, active && toggleStyles.textActive]}>{label}</Text>
+      <Text style={[toggleStyles.text, active && toggleStyles.textActive]}>
+        {label}
+      </Text>
       {active && <View style={toggleStyles.indicator} />}
     </Pressable>
   );
@@ -164,8 +174,8 @@ const toggleStyles = StyleSheet.create({
     borderBottomColor: WINAMP.bevel.dark,
     borderRightColor: WINAMP.bevel.dark,
     minWidth: 30,
-    alignItems: 'center',
-    position: 'relative',
+    alignItems: "center",
+    position: "relative",
   },
   buttonActive: {
     backgroundColor: WINAMP.titleBarDark,
@@ -180,17 +190,17 @@ const toggleStyles = StyleSheet.create({
   text: {
     fontFamily: WINAMP.fonts.pixel,
     fontSize: 6,
-    color: '#7a7a9a',
+    color: "#7a7a9a",
     letterSpacing: 1,
   },
   textActive: {
     color: WINAMP.accent.cyan,
-    textShadowColor: 'rgba(0, 229, 255, 0.5)',
+    textShadowColor: "rgba(0, 229, 255, 0.5)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4,
   },
   indicator: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 4,
     right: 4,
@@ -225,7 +235,10 @@ export function WinampPlayer({
   const { formatted: elapsedFormatted } = useElapsedTime(room.started_at);
 
   const hasHostControls =
-    permissions.canPromote || permissions.canMuteOthers || permissions.canKick || permissions.canEndRoom;
+    permissions.canPromote ||
+    permissions.canMuteOthers ||
+    permissions.canKick ||
+    permissions.canEndRoom;
 
   const activeSpeakerCount = useMemo(
     () => participants.filter((p) => p.is_speaking).length,
@@ -263,7 +276,12 @@ export function WinampPlayer({
   }
 
   return (
-    <View style={[styles.shell, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View
+      style={[
+        styles.shell,
+        { paddingTop: insets.top, paddingBottom: insets.bottom },
+      ]}
+    >
       {/* Outer chrome panel with border */}
       <View style={styles.shellInner}>
         {/* ═══ MAIN WINDOW ═══ */}
@@ -276,7 +294,7 @@ export function WinampPlayer({
         {/* Marquee */}
         <WinampMarquee
           title={room.title}
-          hostName={room.host?.display_name || room.host?.username || 'Unknown'}
+          hostName={room.host?.display_name || room.host?.username || "Unknown"}
           listenerCount={listeners.length}
         />
 
@@ -285,7 +303,7 @@ export function WinampPlayer({
         {/* Visualizer */}
         <WinampVisualizer
           activeSpeakerCount={activeSpeakerCount}
-          isSpeaking={!isMuted && myRole !== 'listener'}
+          isSpeaking={!isMuted && myRole !== "listener"}
         />
 
         <Groove />
@@ -321,7 +339,11 @@ export function WinampPlayer({
             <WinampVolumeSlider />
           </View>
           <View style={styles.togglesWrap}>
-            <ToggleButton label="EQ" active={showEQ} onPress={() => setShowEQ(!showEQ)} />
+            <ToggleButton
+              label="EQ"
+              active={showEQ}
+              onPress={() => setShowEQ(!showEQ)}
+            />
             <ToggleButton label="PL" active={true} onPress={() => {}} />
           </View>
         </View>
@@ -365,14 +387,14 @@ const styles = StyleSheet.create({
     borderRightColor: WINAMP.bevel.dark,
   },
   infoRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
+    flexDirection: "row",
+    alignItems: "stretch",
     gap: 2,
     marginHorizontal: PANEL_MARGIN,
   },
   controlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginHorizontal: PANEL_MARGIN,
     gap: 6,
     paddingVertical: 2,
@@ -381,13 +403,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   togglesWrap: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 3,
   },
   // Shaded mode
   shadedInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 3,

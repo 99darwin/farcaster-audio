@@ -1,7 +1,7 @@
-import React, { memo } from 'react';
-import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
+import React, { memo } from "react";
+import { View, Text, Pressable, StyleSheet, Alert } from "react-native";
+import * as Haptics from "expo-haptics";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
 
 interface WinampTransportProps {
   isMuted: boolean;
@@ -46,13 +46,21 @@ function TransportButton({
       accessibilityRole="button"
     >
       {/* Inner shadow for depth */}
-      <View style={[styles.btnInner, isActive && styles.btnInnerActive, isDestructive && styles.btnInnerDestructive]}>
-        <Text style={[
-          styles.btnIcon,
-          isActive && styles.btnIconGlow,
-          isDestructive && styles.btnIconRed,
-          disabled && styles.btnIconDisabled,
-        ]}>
+      <View
+        style={[
+          styles.btnInner,
+          isActive && styles.btnInnerActive,
+          isDestructive && styles.btnInnerDestructive,
+        ]}
+      >
+        <Text
+          style={[
+            styles.btnIcon,
+            isActive && styles.btnIconGlow,
+            isDestructive && styles.btnIconRed,
+            disabled && styles.btnIconDisabled,
+          ]}
+        >
           {icon}
         </Text>
       </View>
@@ -71,9 +79,9 @@ export const WinampTransport = memo(function WinampTransport({
 }: WinampTransportProps) {
   const handleLeave = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    Alert.alert('Leave Space', 'Are you sure you want to leave?', [
-      { text: 'Stay', style: 'cancel' },
-      { text: 'Leave', style: 'destructive', onPress: onLeave },
+    Alert.alert("Leave Space", "Are you sure you want to leave?", [
+      { text: "Stay", style: "cancel" },
+      { text: "Leave", style: "destructive", onPress: onLeave },
     ]);
   };
 
@@ -86,12 +94,21 @@ export const WinampTransport = memo(function WinampTransport({
     <View style={styles.outer}>
       <View style={styles.container}>
         <TransportButton
-          icon={'\u23EE'}
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPrev(); }}
-          accessibilityLabel={hasHostControls ? 'Host controls' : isListener ? 'Raise hand' : 'Previous'}
+          icon={"\u23EE"}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onPrev();
+          }}
+          accessibilityLabel={
+            hasHostControls
+              ? "Host controls"
+              : isListener
+                ? "Raise hand"
+                : "Previous"
+          }
         />
         <TransportButton
-          icon={'\u25B6'}
+          icon={"\u25B6"}
           onPress={handleMute}
           isActive={!isMuted && !isListener}
           disabled={isListener}
@@ -99,7 +116,7 @@ export const WinampTransport = memo(function WinampTransport({
           wide
         />
         <TransportButton
-          icon={'\u23F8'}
+          icon={"\u23F8"}
           onPress={handleMute}
           isActive={isMuted && !isListener}
           disabled={isListener}
@@ -107,14 +124,17 @@ export const WinampTransport = memo(function WinampTransport({
           wide
         />
         <TransportButton
-          icon={'\u25A0'}
+          icon={"\u25A0"}
           onPress={handleLeave}
           isDestructive
           accessibilityLabel="Leave space"
         />
         <TransportButton
-          icon={'\u23ED'}
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onNext(); }}
+          icon={"\u23ED"}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onNext();
+          }}
           accessibilityLabel="Share space"
         />
       </View>
@@ -128,9 +148,9 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 4,
   },
   btn: {
@@ -155,9 +175,9 @@ const styles = StyleSheet.create({
     borderRightColor: WINAMP.titleBarDark,
   },
   btnDestructive: {
-    backgroundColor: '#1a0a0a',
-    borderBottomColor: '#3a1515',
-    borderRightColor: '#3a1515',
+    backgroundColor: "#1a0a0a",
+    borderBottomColor: "#3a1515",
+    borderRightColor: "#3a1515",
   },
   btnPressed: {
     borderTopColor: WINAMP.bevel.dark,
@@ -170,8 +190,8 @@ const styles = StyleSheet.create({
   },
   btnInner: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: WINAMP.button.pressed,
     borderWidth: 1,
     borderTopColor: WINAMP.bevel.dark,
@@ -185,25 +205,25 @@ const styles = StyleSheet.create({
     borderBottomColor: WINAMP.titleBarActive,
   },
   btnInnerDestructive: {
-    backgroundColor: '#150808',
+    backgroundColor: "#150808",
   },
   btnIcon: {
     fontSize: 16,
-    color: '#aaaacc',
+    color: "#aaaacc",
   },
   btnIconGlow: {
-    color: '#ffffff',
+    color: "#ffffff",
     textShadowColor: WINAMP.accent.cyan,
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 8,
   },
   btnIconRed: {
     color: WINAMP.accent.red,
-    textShadowColor: 'rgba(255, 34, 68, 0.6)',
+    textShadowColor: "rgba(255, 34, 68, 0.6)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 6,
   },
   btnIconDisabled: {
-    color: '#444466',
+    color: "#444466",
   },
 });

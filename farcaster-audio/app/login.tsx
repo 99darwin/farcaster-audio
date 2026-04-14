@@ -1,12 +1,12 @@
-import { useState } from 'react';
-import { View, Text, Image, StyleSheet, Pressable, Alert } from 'react-native';
-import { Redirect } from 'expo-router';
-import { SignInButton } from '@/components/auth/SignInButton';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { useAuth } from '@/hooks/useAuth';
-import { useAuthStore } from '@/stores/authStore';
-import { colors } from '@/constants/theme';
-import * as api from '@/services/api';
+import { useState } from "react";
+import { View, Text, Image, StyleSheet, Pressable, Alert } from "react-native";
+import { Redirect } from "expo-router";
+import { SignInButton } from "@/components/auth/SignInButton";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import { useAuth } from "@/hooks/useAuth";
+import { useAuthStore } from "@/stores/authStore";
+import { colors } from "@/constants/theme";
+import * as api from "@/services/api";
 
 export default function LoginScreen() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -26,8 +26,8 @@ export default function LoginScreen() {
       const response = await api.devLogin();
       await useAuthStore.getState().setAuth(response);
     } catch (err) {
-      console.error('Dev login failed:', err);
-      Alert.alert('Dev Login Failed', api.getErrorMessage(err));
+      console.error("Dev login failed:", err);
+      Alert.alert("Dev Login Failed", api.getErrorMessage(err));
     } finally {
       setDevLoading(false);
     }
@@ -37,7 +37,7 @@ export default function LoginScreen() {
     <View style={styles.container}>
       <View style={styles.header} accessibilityRole="header">
         <Image
-          source={require('@/assets/logo.png')}
+          source={require("@/assets/logo.png")}
           style={styles.logo}
           resizeMode="contain"
           accessibilityLabel="Juke"
@@ -46,8 +46,14 @@ export default function LoginScreen() {
       </View>
       <View style={styles.buttonContainer}>
         <SignInButton />
-        <Pressable onPress={devLogin} style={styles.devButton} disabled={devLoading}>
-          <Text style={styles.devButtonText}>{devLoading ? 'Logging in...' : 'Demo Login'}</Text>
+        <Pressable
+          onPress={devLogin}
+          style={styles.devButton}
+          disabled={devLoading}
+        >
+          <Text style={styles.devButtonText}>
+            {devLoading ? "Logging in..." : "Demo Login"}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -58,12 +64,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background.main,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 32,
   },
   header: {
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 32,
   },
   logo: {
@@ -76,8 +82,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   buttonContainer: {
-    width: '100%',
-    alignItems: 'center',
+    width: "100%",
+    alignItems: "center",
   },
   devButton: {
     marginTop: 24,

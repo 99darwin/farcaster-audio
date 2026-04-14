@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Animated, StyleSheet, type LayoutChangeEvent } from 'react-native';
-import { WINAMP, PANEL_MARGIN } from './winampTheme';
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  View,
+  Animated,
+  StyleSheet,
+  type LayoutChangeEvent,
+} from "react-native";
+import { WINAMP, PANEL_MARGIN } from "./winampTheme";
 
 const SCROLL_SPEED = 40; // pixels per second
 
@@ -10,7 +15,11 @@ interface WinampMarqueeProps {
   listenerCount: number;
 }
 
-export function WinampMarquee({ title, hostName, listenerCount }: WinampMarqueeProps) {
+export function WinampMarquee({
+  title,
+  hostName,
+  listenerCount,
+}: WinampMarqueeProps) {
   const scrollX = useRef(new Animated.Value(0)).current;
   const [containerWidth, setContainerWidth] = useState(0);
   const [textWidth, setTextWidth] = useState(0);
@@ -83,20 +92,20 @@ const styles = StyleSheet.create({
     borderRightColor: WINAMP.bevel.mid,
     paddingVertical: 5,
     paddingHorizontal: 4,
-    overflow: 'hidden',
-    position: 'relative',
+    overflow: "hidden",
+    position: "relative",
   },
   scanlines: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
+    justifyContent: "space-between",
     opacity: 0.15,
   },
   scanline: {
     height: 1,
-    backgroundColor: '#000000',
+    backgroundColor: "#000000",
   },
   overflow: {
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   text: {
     fontFamily: WINAMP.fonts.pixel,

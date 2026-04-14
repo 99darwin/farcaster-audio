@@ -1,10 +1,10 @@
-import { useRef, useCallback, useEffect } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
-import { useSpaceStore } from '@/stores/spaceStore';
-import { useAuthStore } from '@/stores/authStore';
-import * as api from '@/services/api';
-import * as livekitService from '@/services/livekit';
-import { Config } from '@/constants/config';
+import { useRef, useCallback, useEffect } from "react";
+import { AppState, AppStateStatus } from "react-native";
+import { useSpaceStore } from "@/stores/spaceStore";
+import { useAuthStore } from "@/stores/authStore";
+import * as api from "@/services/api";
+import * as livekitService from "@/services/livekit";
+import { Config } from "@/constants/config";
 
 interface ReconnectState {
   attempts: number;
@@ -29,13 +29,15 @@ export function useReconnect() {
   const stateRef = useRef<ReconnectState>({
     attempts: 0,
     isReconnecting: false,
-    token: '',
+    token: "",
     tokenExpiresAt: 0,
   });
 
   const isTokenExpiringSoon = useCallback(() => {
     const now = Date.now() / 1000;
-    return stateRef.current.tokenExpiresAt - now < Config.TOKEN_REFRESH_BUFFER_SEC;
+    return (
+      stateRef.current.tokenExpiresAt - now < Config.TOKEN_REFRESH_BUFFER_SEC
+    );
   }, []);
 
   const reconnect = useCallback(async () => {
@@ -55,14 +57,17 @@ export function useReconnect() {
       try {
         // 1. Refresh token if needed
         if (isTokenExpiringSoon() || !stateRef.current.token) {
-          const { livekit_token, expires_at } = await api.refreshRoomToken(room.id);
+          const { livekit_token, expires_at } = await api.refreshRoomToken(
+            room.id,
+          );
           stateRef.current.token = livekit_token;
-          stateRef.current.tokenExpiresAt = new Date(expires_at).getTime() / 1000;
+          stateRef.current.tokenExpiresAt =
+            new Date(expires_at).getTime() / 1000;
         }
 
         // 2. Check if room still exists
         const roomData = await api.getRoom(room.id);
-        if (roomData.room.status !== 'active') {
+        if (roomData.room.status !== "active") {
           leaveSpace();
           stateRef.current.isReconnecting = false;
           return;
@@ -101,23 +106,35 @@ export function useReconnect() {
     // Max attempts reached — give up
     stateRef.current.isReconnecting = false;
     leaveSpace();
-  }, [room, user, setConnected, setRoom, setParticipants, setMyRole, leaveSpace, isTokenExpiringSoon]);
+  }, [
+    room,
+    user,
+    setConnected,
+    setRoom,
+    setParticipants,
+    setMyRole,
+    leaveSpace,
+    isTokenExpiringSoon,
+  ]);
 
   // Handle app state changes (background/foreground)
   useEffect(() => {
     if (!room) return;
 
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active') {
+      if (nextAppState === "active") {
         // App came to foreground — check connection
         const activeRoom = livekitService.getActiveRoom();
-        if (activeRoom?.state !== 'connected') {
+        if (activeRoom?.state !== "connected") {
           reconnect();
         }
       }
     };
 
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    const subscription = AppState.addEventListener(
+      "change",
+      handleAppStateChange,
+    );
     return () => subscription.remove();
   }, [room, reconnect]);
 
@@ -131,7 +148,8 @@ export function useReconnect() {
           .refreshRoomToken(room.id)
           .then(({ livekit_token, expires_at }) => {
             stateRef.current.token = livekit_token;
-            stateRef.current.tokenExpiresAt = new Date(expires_at).getTime() / 1000;
+            stateRef.current.tokenExpiresAt =
+              new Date(expires_at).getTime() / 1000;
           })
           .catch(() => {});
       }

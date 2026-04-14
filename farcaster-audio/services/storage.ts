@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from "expo-secure-store";
 
 /**
  * Keychain accessibility for all stored credentials. `_THIS_DEVICE_ONLY`
@@ -10,9 +10,9 @@ const SECURE_STORE_OPTS: SecureStore.SecureStoreOptions = {
 };
 
 const KEYS = {
-  JWT: 'auth_jwt',
-  REFRESH_TOKEN: 'auth_refresh_token',
-  USER_PROFILE: 'user_profile',
+  JWT: "auth_jwt",
+  REFRESH_TOKEN: "auth_refresh_token",
+  USER_PROFILE: "user_profile",
 } as const;
 
 export interface StoredTokens {
@@ -22,9 +22,16 @@ export interface StoredTokens {
 
 // --- Tokens ---
 
-export async function saveTokens(jwt: string, refreshToken: string): Promise<void> {
+export async function saveTokens(
+  jwt: string,
+  refreshToken: string,
+): Promise<void> {
   await SecureStore.setItemAsync(KEYS.JWT, jwt, SECURE_STORE_OPTS);
-  await SecureStore.setItemAsync(KEYS.REFRESH_TOKEN, refreshToken, SECURE_STORE_OPTS);
+  await SecureStore.setItemAsync(
+    KEYS.REFRESH_TOKEN,
+    refreshToken,
+    SECURE_STORE_OPTS,
+  );
 }
 
 export async function getTokens(): Promise<StoredTokens | null> {
@@ -51,15 +58,25 @@ export interface StoredUserProfile {
   is_admin: boolean;
 }
 
-export async function saveUserProfile(profile: StoredUserProfile): Promise<void> {
-  await SecureStore.setItemAsync(KEYS.USER_PROFILE, JSON.stringify(profile), SECURE_STORE_OPTS);
+export async function saveUserProfile(
+  profile: StoredUserProfile,
+): Promise<void> {
+  await SecureStore.setItemAsync(
+    KEYS.USER_PROFILE,
+    JSON.stringify(profile),
+    SECURE_STORE_OPTS,
+  );
 }
 
 export async function getUserProfile(): Promise<StoredUserProfile | null> {
   const data = await SecureStore.getItemAsync(KEYS.USER_PROFILE);
   if (!data) return null;
   const parsed = JSON.parse(data);
-  return { ...parsed, is_pro: parsed.is_pro ?? false, is_admin: parsed.is_admin ?? false };
+  return {
+    ...parsed,
+    is_pro: parsed.is_pro ?? false,
+    is_admin: parsed.is_admin ?? false,
+  };
 }
 
 export async function clearUserProfile(): Promise<void> {
@@ -68,7 +85,7 @@ export async function clearUserProfile(): Promise<void> {
 
 // --- Push Token ---
 
-const PUSH_TOKEN_KEY = 'push_token';
+const PUSH_TOKEN_KEY = "push_token";
 
 export async function savePushToken(token: string): Promise<void> {
   await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token, SECURE_STORE_OPTS);
@@ -84,14 +101,22 @@ export async function clearPushToken(): Promise<void> {
 
 // --- Notification Timestamp ---
 
-const LAST_SEEN_NOTIFICATION_KEY = 'last_seen_notification_ts';
+const LAST_SEEN_NOTIFICATION_KEY = "last_seen_notification_ts";
 
-export async function getLastSeenNotificationTimestamp(): Promise<string | null> {
+export async function getLastSeenNotificationTimestamp(): Promise<
+  string | null
+> {
   return SecureStore.getItemAsync(LAST_SEEN_NOTIFICATION_KEY);
 }
 
-export async function saveLastSeenNotificationTimestamp(timestamp: string): Promise<void> {
-  await SecureStore.setItemAsync(LAST_SEEN_NOTIFICATION_KEY, timestamp, SECURE_STORE_OPTS);
+export async function saveLastSeenNotificationTimestamp(
+  timestamp: string,
+): Promise<void> {
+  await SecureStore.setItemAsync(
+    LAST_SEEN_NOTIFICATION_KEY,
+    timestamp,
+    SECURE_STORE_OPTS,
+  );
 }
 
 // --- Clear All ---
