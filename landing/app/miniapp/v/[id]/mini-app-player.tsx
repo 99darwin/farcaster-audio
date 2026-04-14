@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { Waveform, BAR_COUNT } from "@/components/waveform";
@@ -312,6 +313,21 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
         onEnded={handleEnded}
         onLoadedMetadata={() => setIsLoaded(true)}
       />
+
+      {/* Back to feed */}
+      <Link
+        href="/miniapp"
+        className="mb-4 flex items-center gap-1 self-start text-xs text-white/40 transition-colors hover:text-white/60"
+      >
+        <svg viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+          <path
+            fillRule="evenodd"
+            d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z"
+            clipRule="evenodd"
+          />
+        </svg>
+        Feed
+      </Link>
 
       {/* Author chip */}
       <button
