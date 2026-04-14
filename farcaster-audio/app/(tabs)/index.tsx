@@ -29,6 +29,7 @@ export default function HomeScreen() {
     handleRecast,
     handleVoiceNoteLike,
     handleVoiceNoteRecast,
+    handleVoiceNoteDelete,
     handlePublishCast,
   } = useFeed();
 
@@ -98,6 +99,7 @@ export default function HomeScreen() {
         onReply={openReply}
         onVoiceNoteLike={handleVoiceNoteLike}
         onVoiceNoteRecast={handleVoiceNoteRecast}
+        onVoiceNoteDelete={handleVoiceNoteDelete}
         ListHeaderComponent={<SpacesRail />}
         error={error}
         onRetry={fetch}

@@ -102,6 +102,7 @@ interface FeedListProps {
   onReply: (cast: NeynarCast) => void;
   onVoiceNoteLike?: (id: string, isLiked: boolean) => void;
   onVoiceNoteRecast?: (id: string, isRecasted: boolean) => void;
+  onVoiceNoteDelete?: (id: string) => void;
   ListHeaderComponent?: React.ReactElement | null;
   error?: string | null;
   onRetry?: () => void;
@@ -122,6 +123,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     onReply,
     onVoiceNoteLike,
     onVoiceNoteRecast,
+    onVoiceNoteDelete,
     ListHeaderComponent,
     error,
     onRetry,
@@ -147,6 +149,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
             item={item.data}
             onLike={stableVoiceNoteLike}
             onRecast={stableVoiceNoteRecast}
+            onDelete={onVoiceNoteDelete}
           />
         );
       }
@@ -170,6 +173,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
       onReply,
       stableVoiceNoteLike,
       stableVoiceNoteRecast,
+      onVoiceNoteDelete,
       handleCastPress,
     ],
   );

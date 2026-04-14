@@ -1,18 +1,30 @@
-import { useEffect, useCallback, useMemo, useState } from 'react';
-import { FlatList, View, Text, StyleSheet, RefreshControl } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useRef } from 'react';
-import { useAuthStore } from '@/stores/authStore';
-import { useComposeStore } from '@/stores/composeStore';
-import { useProfile } from '@/hooks/useProfile';
-import { ProfileHeader, type ProfileTab } from '@/components/profile/ProfileHeader';
-import { CastCard } from '@/components/feed/CastCard';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { ErrorView } from '@/components/common/ErrorView';
-import { colors } from '@/constants/theme';
-import { ComposeModal } from '@/components/feed/ComposeModal';
-import { likeCast, recastCast, removeLike, removeRecast, publishCast } from '@/services/neynar';
-import type { NeynarCast } from '@/types/neynar';
+import { useEffect, useCallback, useMemo, useState } from "react";
+import { FlatList, View, Text, StyleSheet, RefreshControl } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRef } from "react";
+import { useAuthStore } from "@/stores/authStore";
+import { useComposeStore } from "@/stores/composeStore";
+import { useProfile } from "@/hooks/useProfile";
+import {
+  ProfileHeader,
+  type ProfileTab,
+} from "@/components/profile/ProfileHeader";
+import { CastCard } from "@/components/feed/CastCard";
+import { VoiceNoteFeedItem } from "@/components/voice-notes/VoiceNoteFeedItem";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import { ErrorView } from "@/components/common/ErrorView";
+import { colors } from "@/constants/theme";
+import { ComposeModal } from "@/components/feed/ComposeModal";
+import {
+  likeCast,
+  recastCast,
+  removeLike,
+  removeRecast,
+  publishCast,
+} from "@/services/neynar";
+import * as voiceNotesApi from "@/services/voiceNotes";
+import type { NeynarCast } from "@/types/neynar";
+import type { VoiceNoteDetail } from "@/types/voiceNote";
 
 export default function ProfileScreen() {
   const { fid: fidParam } = useLocalSearchParams<{ fid: string }>();
@@ -21,9 +33,11 @@ export default function ProfileScreen() {
   const myFid = useAuthStore((s) => s.user?.fid) ?? 0;
   const isOwnProfile = fid === myFid;
 
-  const [activeTab, setActiveTab] = useState<ProfileTab>('casts');
+  const [activeTab, setActiveTab] = useState<ProfileTab>("casts");
   const [composeVisible, setComposeVisible] = useState(false);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+    null,
+  );
 
   // Listen for compose intents from snap buttons
   const composeSignal = useComposeStore((s) => s.composeSignal);
@@ -50,9 +64,35 @@ export default function ProfileScreen() {
     toggleFollow,
   } = useProfile(fid);
 
+  // Voice notes state
+  const [profileVoiceNotes, setProfileVoiceNotes] = useState<VoiceNoteDetail[]>([]);
+  const [vnCursor, setVnCursor] = useState<string | null>(null);
+  const [vnLoading, setVnLoading] = useState(false);
+
+  const fetchVoiceNotes = useCallback(async () => {
+    setVnLoading(true);
+    try {
+      const data = await voiceNotesApi.getUserVoiceNotes(fid);
+      setProfileVoiceNotes(data.voice_notes);
+      setVnCursor(data.next_cursor);
+    } catch {}
+    setVnLoading(false);
+  }, [fid]);
+
+  const fetchMoreVoiceNotes = useCallback(async () => {
+    if (vnLoading || !vnCursor) return;
+    setVnLoading(true);
+    try {
+      const data = await voiceNotesApi.getUserVoiceNotes(fid, 20, vnCursor);
+      setProfileVoiceNotes((prev) => [...prev, ...data.voice_notes]);
+      setVnCursor(data.next_cursor);
+    } catch {}
+    setVnLoading(false);
+  }, [fid, vnCursor, vnLoading]);
+
   const filteredCasts = useMemo(
     () =>
-      activeTab === 'casts'
+      activeTab === "casts"
         ? casts.filter((c) => !c.parent_hash)
         : casts.filter((c) => !!c.parent_hash),
     [casts, activeTab],
@@ -60,7 +100,8 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     fetchProfile();
-  }, [fetchProfile]);
+    fetchVoiceNotes();
+  }, [fetchProfile, fetchVoiceNotes]);
 
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {
@@ -97,8 +138,18 @@ export default function ProfileScreen() {
   }, []);
 
   const handlePublish = useCallback(
-    async (text: string, _parentHash?: string, imageUris?: string[], quote?: { fid: number; hash: string }) => {
-      await publishCast(text, undefined, imageUris && imageUris.length > 0 ? imageUris : undefined, quote);
+    async (
+      text: string,
+      _parentHash?: string,
+      imageUris?: string[],
+      quote?: { fid: number; hash: string },
+    ) => {
+      await publishCast(
+        text,
+        undefined,
+        imageUris && imageUris.length > 0 ? imageUris : undefined,
+        quote,
+      );
       await fetchProfile();
     },
     [fetchProfile],
@@ -111,6 +162,73 @@ export default function ProfileScreen() {
     [router],
   );
 
+  const handleVoiceNoteLike = useCallback(
+    async (id: string, isLiked: boolean) => {
+      // Optimistic update
+      setProfileVoiceNotes((prev) =>
+        prev.map((vn) => {
+          if (vn.voice_note.id !== id) return vn;
+          const counts = { ...vn.reaction_counts };
+          const viewer = [...vn.viewer_reactions];
+          if (isLiked) {
+            counts.like = Math.max(0, (counts.like || 0) - 1);
+            const idx = viewer.indexOf("like");
+            if (idx !== -1) viewer.splice(idx, 1);
+          } else {
+            counts.like = (counts.like || 0) + 1;
+            if (!viewer.includes("like")) viewer.push("like");
+          }
+          return { ...vn, reaction_counts: counts, viewer_reactions: viewer };
+        }),
+      );
+      try {
+        if (isLiked) await voiceNotesApi.removeReaction(id, "like");
+        else await voiceNotesApi.addReaction(id, "like");
+      } catch {
+        fetchVoiceNotes();
+      }
+    },
+    [fetchVoiceNotes],
+  );
+
+  const handleVoiceNoteRecast = useCallback(
+    async (id: string, isRecasted: boolean) => {
+      setProfileVoiceNotes((prev) =>
+        prev.map((vn) => {
+          if (vn.voice_note.id !== id) return vn;
+          const counts = { ...vn.reaction_counts };
+          const viewer = [...vn.viewer_reactions];
+          if (isRecasted) {
+            counts.recast = Math.max(0, (counts.recast || 0) - 1);
+            const idx = viewer.indexOf("recast");
+            if (idx !== -1) viewer.splice(idx, 1);
+          } else {
+            counts.recast = (counts.recast || 0) + 1;
+            if (!viewer.includes("recast")) viewer.push("recast");
+          }
+          return { ...vn, reaction_counts: counts, viewer_reactions: viewer };
+        }),
+      );
+      try {
+        if (isRecasted) await voiceNotesApi.removeReaction(id, "recast");
+        else await voiceNotesApi.addReaction(id, "recast");
+      } catch {
+        fetchVoiceNotes();
+      }
+    },
+    [fetchVoiceNotes],
+  );
+
+  const handleVoiceNoteDelete = useCallback(
+    async (id: string) => {
+      try {
+        await voiceNotesApi.deleteVoiceNote(id);
+        setProfileVoiceNotes((prev) => prev.filter((vn) => vn.voice_note.id !== id));
+      } catch {}
+    },
+    [],
+  );
+
   if (isLoading && !user) {
     return <LoadingSpinner fullScreen />;
   }
@@ -121,57 +239,106 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={filteredCasts}
-        keyExtractor={(item) => item.hash}
-        ListHeaderComponent={
-          user ? (
-            <ProfileHeader
-              user={user}
-              isOwnProfile={isOwnProfile}
-              onFollowToggle={toggleFollow}
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
+      {activeTab === "voice_notes" ? (
+        <FlatList
+          data={profileVoiceNotes}
+          keyExtractor={(item) => `vn-${item.voice_note.id}`}
+          ListHeaderComponent={
+            user ? (
+              <ProfileHeader
+                user={user}
+                isOwnProfile={isOwnProfile}
+                onFollowToggle={toggleFollow}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+              />
+            ) : null
+          }
+          renderItem={({ item }) => (
+            <VoiceNoteFeedItem
+              item={item}
+              onLike={handleVoiceNoteLike}
+              onRecast={handleVoiceNoteRecast}
+              onDelete={handleVoiceNoteDelete}
             />
-          ) : null
-        }
-        renderItem={({ item }) => (
-          <CastCard
-            cast={item}
-            myFid={myFid}
-            onLike={handleLike}
-            onRecast={handleRecast}
-            onQuoteCast={handleQuoteCast}
-            onReply={handleReply}
-            onPress={() => handleCastPress(item.hash)}
-          />
-        )}
-        onEndReached={fetchMoreCasts}
-        onEndReachedThreshold={0.5}
-        refreshControl={
-          <RefreshControl
-            refreshing={false}
-            onRefresh={fetchProfile}
-            tintColor={colors.accent}
-          />
-        }
-        ListFooterComponent={
-          isCastsLoading && casts.length > 0 ? (
-            <View style={styles.footer}>
-              <LoadingSpinner size="small" />
-            </View>
-          ) : null
-        }
-        ListEmptyComponent={
-          !isLoading ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>
-                {activeTab === 'casts' ? 'No casts yet' : 'No replies yet'}
-              </Text>
-            </View>
-          ) : null
-        }
-      />
+          )}
+          onEndReached={fetchMoreVoiceNotes}
+          onEndReachedThreshold={0.5}
+          refreshControl={
+            <RefreshControl
+              refreshing={false}
+              onRefresh={() => { fetchProfile(); fetchVoiceNotes(); }}
+              tintColor={colors.accent}
+            />
+          }
+          ListFooterComponent={
+            vnLoading ? (
+              <View style={styles.footer}>
+                <LoadingSpinner size="small" />
+              </View>
+            ) : null
+          }
+          ListEmptyComponent={
+            !vnLoading ? (
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>No voice notes yet</Text>
+              </View>
+            ) : null
+          }
+        />
+      ) : (
+        <FlatList
+          data={filteredCasts}
+          keyExtractor={(item) => item.hash}
+          ListHeaderComponent={
+            user ? (
+              <ProfileHeader
+                user={user}
+                isOwnProfile={isOwnProfile}
+                onFollowToggle={toggleFollow}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+              />
+            ) : null
+          }
+          renderItem={({ item }) => (
+            <CastCard
+              cast={item}
+              myFid={myFid}
+              onLike={handleLike}
+              onRecast={handleRecast}
+              onQuoteCast={handleQuoteCast}
+              onReply={handleReply}
+              onPress={() => handleCastPress(item.hash)}
+            />
+          )}
+          onEndReached={fetchMoreCasts}
+          onEndReachedThreshold={0.5}
+          refreshControl={
+            <RefreshControl
+              refreshing={false}
+              onRefresh={fetchProfile}
+              tintColor={colors.accent}
+            />
+          }
+          ListFooterComponent={
+            isCastsLoading && casts.length > 0 ? (
+              <View style={styles.footer}>
+                <LoadingSpinner size="small" />
+              </View>
+            ) : null
+          }
+          ListEmptyComponent={
+            !isLoading ? (
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>
+                  {activeTab === "casts" ? "No casts yet" : "No replies yet"}
+                </Text>
+              </View>
+            ) : null
+          }
+        />
+      )}
       <ComposeModal
         isVisible={composeVisible}
         onClose={() => {
@@ -195,10 +362,10 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: 20,
-    alignItems: 'center',
+    alignItems: "center",
   },
   empty: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: 40,
   },
   emptyText: {

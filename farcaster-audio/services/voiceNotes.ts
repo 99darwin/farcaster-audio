@@ -78,6 +78,20 @@ export async function getVoiceNoteFeed(
   return data;
 }
 
+export async function getUserVoiceNotes(
+  fid: number,
+  limit: number = 20,
+  cursor?: string,
+): Promise<VoiceNoteFeedResponse> {
+  const params: Record<string, string | number> = { limit };
+  if (cursor) params.cursor = cursor;
+  const { data } = await apiClient.get<VoiceNoteFeedResponse>(
+    `/v1/voice-notes/user/${fid}`,
+    { params },
+  );
+  return data;
+}
+
 // --- Plays ---
 
 export async function recordPlay(

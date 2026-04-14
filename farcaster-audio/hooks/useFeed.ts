@@ -61,6 +61,7 @@ export function useFeed() {
   const vnSetVoiceNotes = useVoiceNoteStore((s) => s.setVoiceNotes);
   const vnSetLoading = useVoiceNoteStore((s) => s.setLoading);
   const vnUpdateReaction = useVoiceNoteStore((s) => s.updateReaction);
+  const vnRemoveVoiceNote = useVoiceNoteStore((s) => s.removeVoiceNote);
   const user = useAuthStore((s) => s.user);
 
   // Build merged feed items
@@ -185,6 +186,16 @@ export function useFeed() {
     [vnUpdateReaction],
   );
 
+  const handleVoiceNoteDelete = useCallback(
+    async (voiceNoteId: string) => {
+      try {
+        await voiceNotesApi.deleteVoiceNote(voiceNoteId);
+        vnRemoveVoiceNote(voiceNoteId);
+      } catch {}
+    },
+    [vnRemoveVoiceNote],
+  );
+
   const handlePublishCast = useCallback(
     async (
       text: string,
@@ -217,6 +228,7 @@ export function useFeed() {
     handleRecast,
     handleVoiceNoteLike,
     handleVoiceNoteRecast,
+    handleVoiceNoteDelete,
     handlePublishCast,
   };
 }

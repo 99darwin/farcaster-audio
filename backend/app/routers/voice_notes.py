@@ -282,6 +282,25 @@ async def get_feed(
     return VoiceNoteFeedResponse(voice_notes=items, next_cursor=next_cursor)
 
 
+@router.get("/user/{fid}", response_model=VoiceNoteFeedResponse)
+async def get_user_voice_notes(
+    fid: int = Path(...),
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=50),
+    current_user: int | None = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get voice notes by a specific user."""
+    items, next_cursor = await voice_note_service.get_user_voice_notes(
+        db=db,
+        fid=fid,
+        viewer_fid=current_user,
+        cursor=cursor,
+        limit=limit,
+    )
+    return VoiceNoteFeedResponse(voice_notes=items, next_cursor=next_cursor)
+
+
 @router.get("/{voice_note_id}", response_model=VoiceNoteDetailResponse)
 async def get_voice_note(
     voice_note_id: uuid.UUID = Path(...),
