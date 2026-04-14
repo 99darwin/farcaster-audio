@@ -5,8 +5,11 @@ import { colors } from "@/constants/theme";
 import { useMiniAppStore } from "@/stores/miniappStore";
 import { resolveMiniApp } from "@/services/manifest";
 import { fetchSnap, getCachedSnap } from "@/services/snapClient";
+import { getVoiceNote } from "@/services/voiceNotes";
 import type { SnapResponse } from "@/types/snap";
+import type { VoiceNoteDetail } from "@/types/voiceNote";
 import { SnapCard } from "@/components/feed/snap/SnapCard";
+import { VoiceNotePlayer } from "@/components/voice-notes/VoiceNotePlayer";
 import type { NeynarEmbed } from "@/types/neynar";
 import type { CastEmbedLocationContext } from "@/types/miniapp";
 
@@ -129,6 +132,14 @@ function getDomain(url: string): string {
   }
 }
 
+/** Match juke.audio/v/{uuid} URLs — these are our own voice note embeds */
+const JUKE_VN_PATTERN = /^https?:\/\/(?:www\.)?juke\.audio\/v\/([0-9a-f-]{36})$/i;
+
+function getJukeVoiceNoteId(url: string): string | null {
+  const match = url.match(JUKE_VN_PATTERN);
+  return match ? match[1] : null;
+}
+
 function isTwitterUrl(url: string): boolean {
   const domain = getDomain(url);
   return domain === "x.com" || domain === "twitter.com";
@@ -177,6 +188,34 @@ interface OgPreviewProps {
 export function OgPreview({ embed, castContext }: OgPreviewProps) {
   const url = embed.url;
   const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
+
+  // Detect our own voice note embeds and render natively
+  const voiceNoteId = url ? getJukeVoiceNoteId(url) : null;
+  const [vnDetail, setVnDetail] = useState<VoiceNoteDetail | null>(null);
+
+  useEffect(() => {
+    if (!voiceNoteId) return;
+    let cancelled = false;
+    getVoiceNote(voiceNoteId)
+      .then((detail) => {
+        if (!cancelled) setVnDetail(detail);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [voiceNoteId]);
+
+  if (voiceNoteId && vnDetail) {
+    return (
+      <View style={styles.voiceNoteEmbed}>
+        <VoiceNotePlayer voiceNote={vnDetail.voice_note} variant="compact" />
+      </View>
+    );
+  }
+
+  // If it's a Juke URL but still loading, show nothing (avoid miniapp card flash)
+  if (voiceNoteId) return null;
 
   // Snap detection: only for non-mini-app URLs with no existing frame metadata.
   // Seed from the session cache so scrolled-back-into-view cards render instantly.
@@ -384,6 +423,15 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: 12,
     marginTop: 8,
+  },
+  // Native voice note embed
+  voiceNoteEmbed: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.background.border,
+    borderRadius: 12,
+    padding: 12,
+    overflow: "hidden",
   },
   // Mini-app styles
   miniAppContainer: {
