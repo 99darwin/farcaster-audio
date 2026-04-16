@@ -10,9 +10,10 @@ import { useNavigation } from "expo-router";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { NotificationItem } from "@/components/notifications/NotificationItem";
+import { ComposeModal } from "@/components/feed/ComposeModal";
 import { getLastSeenNotificationTimestamp } from "@/services/storage";
 import { colors, typography } from "@/constants/theme";
-import type { NeynarNotification } from "@/types/neynar";
+import type { NeynarCast, NeynarNotification } from "@/types/neynar";
 
 export default function NotificationsScreen() {
   const {
@@ -25,11 +26,37 @@ export default function NotificationsScreen() {
     refresh,
     markAsRead,
     handleLike,
+    handleRecast,
+    handlePublishCast,
   } = useNotifications();
 
   const navigation = useNavigation();
   const [lastSeenTs, setLastSeenTs] = useState<string | null>(null);
   const hasFetched = useRef(false);
+
+  const [isComposeVisible, setIsComposeVisible] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+    null,
+  );
+
+  const openReply = useCallback((cast: NeynarCast) => {
+    setReplyTarget(cast);
+    setQuoteCastTarget(null);
+    setIsComposeVisible(true);
+  }, []);
+
+  const openQuoteCast = useCallback((cast: NeynarCast) => {
+    setQuoteCastTarget(cast);
+    setReplyTarget(null);
+    setIsComposeVisible(true);
+  }, []);
+
+  const closeCompose = useCallback(() => {
+    setIsComposeVisible(false);
+    setReplyTarget(null);
+    setQuoteCastTarget(null);
+  }, []);
 
   useEffect(() => {
     if (hasFetched.current) return;
@@ -76,9 +103,12 @@ export default function NotificationsScreen() {
         notification={item}
         isUnread={isUnread(item)}
         onLike={handleLike}
+        onRecast={handleRecast}
+        onReply={openReply}
+        onQuoteCast={openQuoteCast}
       />
     ),
-    [isUnread, handleLike],
+    [isUnread, handleLike, handleRecast, openReply, openQuoteCast],
   );
 
   const handleEndReached = useCallback(() => {
@@ -122,6 +152,14 @@ export default function NotificationsScreen() {
         contentContainerStyle={
           notifications.length === 0 ? styles.emptyContainer : undefined
         }
+      />
+
+      <ComposeModal
+        isVisible={isComposeVisible}
+        onClose={closeCompose}
+        onPublish={handlePublishCast}
+        replyTo={replyTarget}
+        quoteCast={quoteCastTarget}
       />
     </View>
   );

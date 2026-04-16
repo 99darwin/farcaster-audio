@@ -1,7 +1,7 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Avatar } from "@/components/common/Avatar";
+import { CastActions } from "@/components/feed/CastActions";
 import {
   NotificationTypeBadge,
   TYPE_META,
@@ -9,6 +9,7 @@ import {
 import { QuotedCastInline } from "@/components/notifications/QuotedCastInline";
 import { colors, typography } from "@/constants/theme";
 import type {
+  NeynarCast,
   NeynarCastAuthor,
   NeynarNotification,
 } from "@/types/neynar";
@@ -72,12 +73,18 @@ interface NotificationItemProps {
   notification: NeynarNotification;
   isUnread: boolean;
   onLike?: (hash: string, isLiked: boolean) => void;
+  onRecast?: (hash: string, isRecasted: boolean) => void;
+  onReply?: (cast: NeynarCast) => void;
+  onQuoteCast?: (cast: NeynarCast) => void;
 }
 
 export function NotificationItem({
   notification,
   isUnread,
   onLike,
+  onRecast,
+  onReply,
+  onQuoteCast,
 }: NotificationItemProps) {
   const router = useRouter();
   const { type, cast, most_recent_timestamp } = notification;
@@ -95,15 +102,10 @@ export function NotificationItem({
     if (type === "follows") {
       router.push(`/profile/${actor.fid}`);
     } else if (cast?.hash) {
-      // Navigate to thread root so replies show full context.
-      // If the notification cast is itself a reply, focus on it within the thread.
-      const threadHash = cast.thread_hash ?? cast.parent_hash ?? cast.hash;
-      const focusHash = cast.hash !== threadHash ? cast.hash : undefined;
-      router.push(
-        focusHash
-          ? `/cast/${threadHash}?focusHash=${focusHash}`
-          : `/cast/${threadHash}`,
-      );
+      // Navigate directly to the cast so the reply/mention/quote is always
+      // the focus of the detail screen — avoids deep-nesting focus bugs where
+      // a reply many levels below the thread root isn't rendered on-screen.
+      router.push(`/cast/${cast.hash}`);
     }
   };
 
@@ -113,7 +115,10 @@ export function NotificationItem({
       ? ` and ${extraCount} other${extraCount > 1 ? "s" : ""}`
       : "";
   const actionText = ACTION_TEXT[type] ?? type;
-  const quotedCast = type === "quote" ? (cast?.embeds?.find((e) => e.cast)?.cast ?? null) : null;
+  const quotedCast =
+    type === "quote" ? (cast?.embeds?.find((e) => e.cast)?.cast ?? null) : null;
+
+  const showActions = type === "reply" && cast?.hash;
 
   return (
     <Pressable
@@ -148,23 +153,26 @@ export function NotificationItem({
           </Text>
         ) : null}
         {quotedCast ? <QuotedCastInline cast={quotedCast} /> : null}
-      </View>
-      {type !== "follows" && cast?.hash && onLike && (
-        <Pressable
-          onPress={() => onLike(cast.hash, cast.viewer_context?.liked ?? false)}
-          style={styles.likeButton}
-          hitSlop={8}
-          accessibilityLabel={cast.viewer_context?.liked ? "Unlike" : "Like"}
-        >
-          <Ionicons
-            name={cast.viewer_context?.liked ? "heart" : "heart-outline"}
-            size={18}
-            color={
-              cast.viewer_context?.liked ? colors.error : colors.text.secondary
+        {showActions && cast ? (
+          <CastActions
+            likesCount={cast.reactions.likes_count}
+            recastsCount={cast.reactions.recasts_count}
+            repliesCount={cast.replies.count}
+            isLiked={cast.viewer_context?.liked ?? false}
+            isRecasted={cast.viewer_context?.recasted ?? false}
+            onLike={() =>
+              onLike?.(cast.hash, cast.viewer_context?.liked ?? false)
             }
+            onRecast={() =>
+              onRecast?.(cast.hash, cast.viewer_context?.recasted ?? false)
+            }
+            onQuoteCast={() => onQuoteCast?.(cast)}
+            onReply={() => onReply?.(cast)}
+            authorUsername={cast.author.username}
+            castHash={cast.hash}
           />
-        </Pressable>
-      )}
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -172,7 +180,7 @@ export function NotificationItem({
 const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -217,12 +225,5 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: typography.size.body2,
     lineHeight: 18,
-  },
-  likeButton: {
-    padding: 8,
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });
