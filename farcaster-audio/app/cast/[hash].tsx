@@ -60,20 +60,28 @@ export default function CastThreadScreen() {
     fetch();
   }, [fetch]);
 
-  // Scroll to the focused reply once thread data is loaded.
+  // Fire scroll-to-focus once, as soon as both (a) replies are loaded and
+  // (b) the FlatList has measured enough items to honor scrollToIndex.
+  // requestAnimationFrame alone runs before FlatList item layout on the
+  // first fetch, so the scroll silently no-ops; onContentSizeChange fires
+  // after measurement, making this reliable.
+  const hasFocusScrolledRef = useRef(false);
   useEffect(() => {
+    hasFocusScrolledRef.current = false;
+  }, [hash, focusHash]);
+
+  const attemptFocusScroll = useCallback(() => {
+    if (hasFocusScrolledRef.current) return;
     if (!focusHash || replies.length === 0) return;
     if (rootCast?.hash === focusHash) return; // header already visible
     const index = findTopLevelIndexContaining(replies, focusHash);
     if (index < 0) return;
-    const raf = requestAnimationFrame(() => {
-      flatListRef.current?.scrollToIndex({
-        index,
-        animated: true,
-        viewPosition: 0.2,
-      });
+    hasFocusScrolledRef.current = true;
+    flatListRef.current?.scrollToIndex({
+      index,
+      animated: true,
+      viewPosition: 0.05,
     });
-    return () => cancelAnimationFrame(raf);
   }, [focusHash, replies, rootCast?.hash]);
 
   const handleScrollToIndexFailed = useCallback(
@@ -82,14 +90,14 @@ export default function CastThreadScreen() {
       highestMeasuredFrameIndex: number;
       averageItemLength: number;
     }) => {
-      // Reply rows have variable height; retry after a short delay.
+      // Reply rows have variable height; retry after layout settles.
       setTimeout(() => {
         flatListRef.current?.scrollToIndex({
           index: info.index,
           animated: true,
-          viewPosition: 0.2,
+          viewPosition: 0.05,
         });
-      }, 100);
+      }, 200);
     },
     [],
   );
@@ -176,6 +184,8 @@ export default function CastThreadScreen() {
         data={replies}
         keyExtractor={(item) => item.hash}
         onScrollToIndexFailed={handleScrollToIndexFailed}
+        onContentSizeChange={attemptFocusScroll}
+        onLayout={attemptFocusScroll}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
