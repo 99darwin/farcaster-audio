@@ -30,8 +30,10 @@ export default function CastThreadScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const myFid = user?.fid ?? 0;
-  const { rootCast, ancestors, replies, isLoading, error, fetch } =
-    useCastThread(hash!, myFid);
+  const { rootCast, replies, isLoading, error, fetch } = useCastThread(
+    hash!,
+    myFid,
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [composeVisible, setComposeVisible] = useState(false);
   const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
@@ -58,20 +60,28 @@ export default function CastThreadScreen() {
     fetch();
   }, [fetch]);
 
-  // Scroll to the focused reply once thread data is loaded.
+  // Fire scroll-to-focus once, as soon as both (a) replies are loaded and
+  // (b) the FlatList has measured enough items to honor scrollToIndex.
+  // requestAnimationFrame alone runs before FlatList item layout on the
+  // first fetch, so the scroll silently no-ops; onContentSizeChange fires
+  // after measurement, making this reliable.
+  const hasFocusScrolledRef = useRef(false);
   useEffect(() => {
+    hasFocusScrolledRef.current = false;
+  }, [hash, focusHash]);
+
+  const attemptFocusScroll = useCallback(() => {
+    if (hasFocusScrolledRef.current) return;
     if (!focusHash || replies.length === 0) return;
     if (rootCast?.hash === focusHash) return; // header already visible
     const index = findTopLevelIndexContaining(replies, focusHash);
     if (index < 0) return;
-    const raf = requestAnimationFrame(() => {
-      flatListRef.current?.scrollToIndex({
-        index,
-        animated: true,
-        viewPosition: 0.2,
-      });
+    hasFocusScrolledRef.current = true;
+    flatListRef.current?.scrollToIndex({
+      index,
+      animated: true,
+      viewPosition: 0.05,
     });
-    return () => cancelAnimationFrame(raf);
   }, [focusHash, replies, rootCast?.hash]);
 
   const handleScrollToIndexFailed = useCallback(
@@ -80,14 +90,14 @@ export default function CastThreadScreen() {
       highestMeasuredFrameIndex: number;
       averageItemLength: number;
     }) => {
-      // Reply rows have variable height; retry after a short delay.
+      // Reply rows have variable height; retry after layout settles.
       setTimeout(() => {
         flatListRef.current?.scrollToIndex({
           index: info.index,
           animated: true,
-          viewPosition: 0.2,
+          viewPosition: 0.05,
         });
-      }, 100);
+      }, 200);
     },
     [],
   );
@@ -174,6 +184,8 @@ export default function CastThreadScreen() {
         data={replies}
         keyExtractor={(item) => item.hash}
         onScrollToIndexFailed={handleScrollToIndexFailed}
+        onContentSizeChange={attemptFocusScroll}
+        onLayout={attemptFocusScroll}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -182,33 +194,17 @@ export default function CastThreadScreen() {
           />
         }
         ListHeaderComponent={
-          <View>
-            {ancestors.map((ancestor) => (
-              <View key={ancestor.hash} style={styles.ancestor}>
-                <CastCard
-                  cast={ancestor}
-                  myFid={myFid}
-                  onLike={handleLike}
-                  onRecast={handleRecast}
-                  onQuoteCast={handleQuoteCast}
-                  onReply={handleReply}
-                  onPress={() => router.push(`/cast/${ancestor.hash}`)}
-                />
-                <View style={styles.ancestorConnector} />
-              </View>
-            ))}
-            {rootCast ? (
-              <CastCard
-                cast={rootCast}
-                myFid={myFid}
-                onLike={handleLike}
-                onRecast={handleRecast}
-                onQuoteCast={handleQuoteCast}
-                onReply={handleReply}
-                expanded
-              />
-            ) : null}
-          </View>
+          rootCast ? (
+            <CastCard
+              cast={rootCast}
+              myFid={myFid}
+              onLike={handleLike}
+              onRecast={handleRecast}
+              onQuoteCast={handleQuoteCast}
+              onReply={handleReply}
+              expanded
+            />
+          ) : null
         }
         renderItem={({ item }) => (
           <ThreadedReplies
@@ -252,17 +248,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background.main,
-  },
-  ancestor: {
-    position: "relative",
-  },
-  ancestorConnector: {
-    position: "absolute",
-    left: 31,
-    bottom: -8,
-    width: 2,
-    height: 16,
-    backgroundColor: colors.background.border,
   },
   empty: {
     alignItems: "center",

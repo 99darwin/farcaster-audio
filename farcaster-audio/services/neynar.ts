@@ -2,7 +2,6 @@ import axios from "axios";
 import { Config } from "@/constants/config";
 import { getTokens } from "@/services/storage";
 import type {
-  NeynarCast,
   NeynarCastWithReplies,
   NeynarFeedResponse,
 } from "@/types/neynar";
@@ -109,7 +108,7 @@ export async function removeRecast(castHash: string): Promise<void> {
 export async function fetchCastThread(
   castHash: string,
   _viewerFid?: number,
-  replyDepth: number = 4,
+  replyDepth: number = 5,
 ): Promise<{ conversation: { cast: NeynarCastWithReplies } }> {
   const params: Record<string, string | number> = {
     hash: castHash,
@@ -117,30 +116,4 @@ export async function fetchCastThread(
   };
   const { data } = await neynarClient.get("/v1/feed/cast/thread", { params });
   return data;
-}
-
-/**
- * Walk up a cast's parent_hash chain and return ancestors, ordered
- * top-most first (thread root) and direct parent last. Stops at the
- * root or at maxDepth, whichever comes first.
- */
-export async function fetchAncestorChain(
-  startParentHash: string,
-  maxDepth: number = 5,
-): Promise<NeynarCast[]> {
-  const chain: NeynarCast[] = [];
-  let nextHash: string | null = startParentHash;
-  while (nextHash && chain.length < maxDepth) {
-    try {
-      const { conversation } = await fetchCastThread(nextHash, undefined, 0);
-      const cast = conversation?.cast;
-      if (!cast) break;
-      const { direct_replies: _d, ...rest } = cast;
-      chain.unshift(rest as NeynarCast);
-      nextHash = cast.parent_hash ?? null;
-    } catch {
-      break;
-    }
-  }
-  return chain;
 }
