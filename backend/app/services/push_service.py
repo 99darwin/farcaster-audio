@@ -28,6 +28,14 @@ PREFS_CACHE_TTL = 300  # 5 minutes
 MAX_TOKENS_PER_USER = 10
 
 
+def _preview(text: str, max_len: int = 140) -> str:
+    """Collapse whitespace and truncate a cast preview for push bodies."""
+    clean = " ".join((text or "").split())
+    if len(clean) <= max_len:
+        return clean
+    return clean[: max_len - 1].rstrip() + "…"
+
+
 class PushService:
     def __init__(self, db: AsyncSession, redis: aioredis.Redis):
         self.db = db
@@ -326,7 +334,8 @@ class PushService:
                 target_fid = parent_author_fid
                 notification_type = "reply"
                 title = "New Reply"
-                body = f"{author_name} replied to your cast"
+                preview = _preview(cast_data.get("text", ""))
+                body = f"{author_name}: {preview}" if preview else f"{author_name} replied to your cast"
                 data = {"type": "reply", "url": cast_url}
 
             # Send mention notifications (separate from reply)
@@ -337,10 +346,16 @@ class PushService:
                 if not is_active:
                     continue
                 if await self.is_enabled(mfid, "mention"):
+                    mention_preview = _preview(cast_data.get("text", ""))
+                    mention_body = (
+                        f"{author_name} mentioned you: {mention_preview}"
+                        if mention_preview
+                        else f"{author_name} mentioned you in a cast"
+                    )
                     await self.send_push(
                         fid=mfid,
                         title="You were mentioned",
-                        body=f"{author_name} mentioned you in a cast",
+                        body=mention_body,
                         data={"type": "mention", "url": cast_url},
                     )
 
@@ -349,21 +364,22 @@ class PushService:
             reaction_type = reaction_data.get("reaction_type")
             cast = reaction_data.get("cast", {})
             cast_author = cast.get("author")
-            logger.info("reaction cast.author type=%s value=%s", type(cast_author).__name__, cast_author)
+            logger.debug("reaction cast.author type=%s value=%s", type(cast_author).__name__, cast_author)
             target_fid = cast_author.get("fid") if isinstance(cast_author, dict) else cast_author
             reactor = reaction_data.get("user", {})
             reactor_name = reactor.get("display_name") or reactor.get("username", "Someone")
             cast_hash = cast.get("hash", "")
 
+            cast_preview = _preview(cast.get("text", ""))
             if reaction_type in ("like", 1):
                 notification_type = "likes"
                 title = "New Like"
-                body = f"{reactor_name} liked your cast"
+                body = f"{reactor_name} liked: {cast_preview}" if cast_preview else f"{reactor_name} liked your cast"
                 data = {"type": "like", "url": f"/cast/{cast_hash}"}
             elif reaction_type in ("recast", 2):
                 notification_type = "recasts"
                 title = "New Recast"
-                body = f"{reactor_name} recasted your cast"
+                body = f"{reactor_name} recasted: {cast_preview}" if cast_preview else f"{reactor_name} recasted your cast"
                 data = {"type": "recast", "url": f"/cast/{cast_hash}"}
 
         elif event_type == "follow.created":

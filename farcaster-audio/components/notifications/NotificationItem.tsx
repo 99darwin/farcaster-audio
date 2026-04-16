@@ -2,8 +2,16 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Avatar } from "@/components/common/Avatar";
+import {
+  NotificationTypeBadge,
+  TYPE_META,
+} from "@/components/notifications/NotificationTypeBadge";
+import { QuotedCastInline } from "@/components/notifications/QuotedCastInline";
 import { colors, typography } from "@/constants/theme";
-import type { NeynarNotification, NeynarCastAuthor } from "@/types/neynar";
+import type {
+  NeynarCastAuthor,
+  NeynarNotification,
+} from "@/types/neynar";
 
 function getRelativeTime(timestamp: string): string {
   const now = Date.now();
@@ -18,12 +26,26 @@ function getRelativeTime(timestamp: string): string {
   return `${diffDays}d`;
 }
 
+function getLongRelativeTime(timestamp: string): string {
+  const now = Date.now();
+  const then = new Date(timestamp).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+}
+
 const ACTION_TEXT: Record<string, string> = {
   likes: "liked your cast",
   recasts: "recasted your cast",
   follows: "followed you",
   reply: "replied to your cast",
   mention: "mentioned you",
+  quote: "quoted your cast",
 };
 
 function getActor(notification: NeynarNotification): NeynarCastAuthor | null {
@@ -37,15 +59,13 @@ function getActor(notification: NeynarNotification): NeynarCastAuthor | null {
   if (type === "follows" && notification.follows?.length) {
     return notification.follows[0].user;
   }
-  if ((type === "reply" || type === "mention") && notification.cast) {
+  if (
+    (type === "reply" || type === "mention" || type === "quote") &&
+    notification.cast
+  ) {
     return notification.cast.author;
   }
   return null;
-}
-
-function getExtraCount(notification: NeynarNotification): number {
-  const total = notification.count ?? 0;
-  return Math.max(0, total - 1);
 }
 
 interface NotificationItemProps {
@@ -62,9 +82,14 @@ export function NotificationItem({
   const router = useRouter();
   const { type, cast, most_recent_timestamp } = notification;
   const actor = getActor(notification);
-  const extraCount = getExtraCount(notification);
+  const extraCount = Math.max(0, (notification.count ?? 0) - 1);
 
   if (!actor) return null;
+
+  const meta = TYPE_META[type];
+  const rowBackground = isUnread
+    ? colors.background.surface
+    : colors.background.main;
 
   const handlePress = () => {
     if (type === "follows") {
@@ -87,23 +112,33 @@ export function NotificationItem({
     extraCount > 0
       ? ` and ${extraCount} other${extraCount > 1 ? "s" : ""}`
       : "";
+  const actionText = ACTION_TEXT[type] ?? type;
+  const quotedCast = type === "quote" ? (cast?.embeds?.find((e) => e.cast)?.cast ?? null) : null;
 
   return (
     <Pressable
-      style={[styles.container, isUnread && styles.unread]}
+      style={[styles.container, { backgroundColor: rowBackground }]}
       onPress={handlePress}
-      accessibilityLabel={`${displayName} ${ACTION_TEXT[type] ?? type}`}
+      accessibilityLabel={`${displayName}${othersText} ${actionText}, ${getLongRelativeTime(most_recent_timestamp)}`}
     >
-      <Avatar pfpUrl={actor.pfp_url} displayName={displayName} size="sm" />
+      {isUnread ? (
+        <View style={[styles.unreadBar, { backgroundColor: meta.color }]} />
+      ) : null}
+      <View style={styles.avatarWrap}>
+        <Avatar pfpUrl={actor.pfp_url} displayName={displayName} size="md" />
+        <View style={styles.badgeAnchor}>
+          <NotificationTypeBadge type={type} ringColor={rowBackground} />
+        </View>
+      </View>
       <View style={styles.content}>
         <Text style={styles.actionLine} numberOfLines={2}>
           <Text style={styles.username}>{displayName}</Text>
           {othersText ? (
             <Text style={styles.action}>{othersText}</Text>
-          ) : null}{" "}
-          <Text style={styles.action}>{ACTION_TEXT[type] ?? type}</Text>
-          {"  "}
+          ) : null}
+          <Text style={styles.action}> {actionText}</Text>
           <Text style={styles.time}>
+            {"  ·  "}
             {getRelativeTime(most_recent_timestamp)}
           </Text>
         </Text>
@@ -112,6 +147,7 @@ export function NotificationItem({
             {cast.text}
           </Text>
         ) : null}
+        {quotedCast ? <QuotedCastInline cast={quotedCast} /> : null}
       </View>
       {type !== "follows" && cast?.hash && onLike && (
         <Pressable
@@ -138,14 +174,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: colors.background.main,
+    paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.background.border,
     gap: 12,
   },
-  unread: {
-    backgroundColor: colors.background.surface,
+  unreadBar: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+  },
+  avatarWrap: {
+    position: "relative",
+  },
+  badgeAnchor: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
   },
   content: {
     flex: 1,

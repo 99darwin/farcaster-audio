@@ -99,7 +99,7 @@ async def get_notifications(
             if not good:
                 continue
             n = {**n, "follows": good, "count": len(good)}
-        elif ntype in ("reply", "mention"):
+        elif ntype in ("reply", "mention", "quote"):
             author = n.get("cast", {}).get("author", {})
             fid = author.get("fid", 0)
             neynar_score = author.get("experimental", {}).get("neynar_user_score")
