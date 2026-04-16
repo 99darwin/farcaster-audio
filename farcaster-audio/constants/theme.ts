@@ -19,6 +19,7 @@ export const colors = {
   live: "#ef4444",
   success: "#22c55e",
   warning: "#fbbf24",
+  info: "#3b82f6",
 } as const;
 
 export const spacing = {

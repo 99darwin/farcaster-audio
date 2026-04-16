@@ -116,7 +116,8 @@ export type NotificationType =
   | "recasts"
   | "follows"
   | "reply"
-  | "mention";
+  | "mention"
+  | "quote";
 
 export interface NeynarNotificationReaction {
   object: string;

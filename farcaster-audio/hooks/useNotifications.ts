@@ -2,7 +2,13 @@ import { useCallback } from "react";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { useAuthStore } from "@/stores/authStore";
 import * as api from "@/services/api";
-import { likeCast, removeLike } from "@/services/neynar";
+import {
+  likeCast,
+  recastCast,
+  removeLike,
+  removeRecast,
+  publishCast,
+} from "@/services/neynar";
 import { saveLastSeenNotificationTimestamp } from "@/services/storage";
 
 export function useNotifications() {
@@ -23,6 +29,7 @@ export function useNotifications() {
   const setRefreshing = useNotificationStore((s) => s.setRefreshing);
   const setError = useNotificationStore((s) => s.setError);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
+  const updateCastReaction = useNotificationStore((s) => s.updateCastReaction);
 
   const user = useAuthStore((s) => s.user);
 
@@ -82,6 +89,7 @@ export function useNotifications() {
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {
       if (!user) return;
+      updateCastReaction(castHash, "like", !isLiked, user.fid);
       try {
         if (isLiked) {
           await removeLike(castHash);
@@ -89,10 +97,44 @@ export function useNotifications() {
           await likeCast(castHash);
         }
       } catch {
-        // Silently fail — notification list doesn't need optimistic updates
+        updateCastReaction(castHash, "like", isLiked, user.fid);
       }
     },
-    [user],
+    [user, updateCastReaction],
+  );
+
+  const handleRecast = useCallback(
+    async (castHash: string, isRecasted: boolean) => {
+      if (!user) return;
+      updateCastReaction(castHash, "recast", !isRecasted, user.fid);
+      try {
+        if (isRecasted) {
+          await removeRecast(castHash);
+        } else {
+          await recastCast(castHash);
+        }
+      } catch {
+        updateCastReaction(castHash, "recast", isRecasted, user.fid);
+      }
+    },
+    [user, updateCastReaction],
+  );
+
+  const handlePublishCast = useCallback(
+    async (
+      text: string,
+      parentHash?: string,
+      imageUris?: string[],
+      quote?: { fid: number; hash: string },
+    ) => {
+      await publishCast(
+        text,
+        parentHash,
+        imageUris && imageUris.length > 0 ? imageUris : undefined,
+        quote,
+      );
+    },
+    [],
   );
 
   return {
@@ -107,5 +149,7 @@ export function useNotifications() {
     refresh,
     markAsRead,
     handleLike,
+    handleRecast,
+    handlePublishCast,
   };
 }
