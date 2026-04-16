@@ -30,8 +30,10 @@ export default function CastThreadScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const myFid = user?.fid ?? 0;
-  const { rootCast, ancestors, replies, isLoading, error, fetch } =
-    useCastThread(hash!, myFid);
+  const { rootCast, replies, isLoading, error, fetch } = useCastThread(
+    hash!,
+    myFid,
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [composeVisible, setComposeVisible] = useState(false);
   const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
@@ -182,33 +184,17 @@ export default function CastThreadScreen() {
           />
         }
         ListHeaderComponent={
-          <View>
-            {ancestors.map((ancestor) => (
-              <View key={ancestor.hash} style={styles.ancestor}>
-                <CastCard
-                  cast={ancestor}
-                  myFid={myFid}
-                  onLike={handleLike}
-                  onRecast={handleRecast}
-                  onQuoteCast={handleQuoteCast}
-                  onReply={handleReply}
-                  onPress={() => router.push(`/cast/${ancestor.hash}`)}
-                />
-                <View style={styles.ancestorConnector} />
-              </View>
-            ))}
-            {rootCast ? (
-              <CastCard
-                cast={rootCast}
-                myFid={myFid}
-                onLike={handleLike}
-                onRecast={handleRecast}
-                onQuoteCast={handleQuoteCast}
-                onReply={handleReply}
-                expanded
-              />
-            ) : null}
-          </View>
+          rootCast ? (
+            <CastCard
+              cast={rootCast}
+              myFid={myFid}
+              onLike={handleLike}
+              onRecast={handleRecast}
+              onQuoteCast={handleQuoteCast}
+              onReply={handleReply}
+              expanded
+            />
+          ) : null
         }
         renderItem={({ item }) => (
           <ThreadedReplies
@@ -252,17 +238,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background.main,
-  },
-  ancestor: {
-    position: "relative",
-  },
-  ancestorConnector: {
-    position: "absolute",
-    left: 31,
-    bottom: -8,
-    width: 2,
-    height: 16,
-    backgroundColor: colors.background.border,
   },
   empty: {
     alignItems: "center",

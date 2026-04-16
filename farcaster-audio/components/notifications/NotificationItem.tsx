@@ -102,10 +102,15 @@ export function NotificationItem({
     if (type === "follows") {
       router.push(`/profile/${actor.fid}`);
     } else if (cast?.hash) {
-      // Navigate directly to the cast so the reply/mention/quote is always
-      // the focus of the detail screen — avoids deep-nesting focus bugs where
-      // a reply many levels below the thread root isn't rendered on-screen.
-      router.push(`/cast/${cast.hash}`);
+      // Open the full thread so parent context is visible, and pass
+      // focusHash so the tapped reply is highlighted + scrolled to.
+      const threadHash = cast.thread_hash ?? cast.parent_hash ?? cast.hash;
+      const focusHash = cast.hash !== threadHash ? cast.hash : undefined;
+      router.push(
+        focusHash
+          ? `/cast/${threadHash}?focusHash=${focusHash}`
+          : `/cast/${threadHash}`,
+      );
     }
   };
 
