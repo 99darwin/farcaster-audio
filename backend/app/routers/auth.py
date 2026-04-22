@@ -703,19 +703,42 @@ async def miniapp_quickauth(
             detail="Quick Auth audience not configured",
         )
 
+    # python-jose's jwt.decode only accepts a single string for `audience`.
+    # Decode without audience validation, then match the claim against our
+    # allowlist manually so we can support multiple domains (prod + preview
+    # URLs) and log the actual `aud` when it doesn't match.
     try:
         claims = jwt.decode(
             token,
             key,
             algorithms=[unverified_header.get("alg", "RS256")],
             issuer=settings.QUICKAUTH_ISSUER,
-            audience=list(audiences),
+            options={"verify_aud": False},
         )
     except JWTError as exc:
         logger.warning("quick-auth jwt verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Quick Auth token",
+        )
+
+    aud_claim = claims.get("aud")
+    aud_values: list[str] = (
+        [a for a in aud_claim if isinstance(a, str)]
+        if isinstance(aud_claim, list)
+        else [aud_claim]
+        if isinstance(aud_claim, str)
+        else []
+    )
+    if not any(a in audiences for a in aud_values):
+        logger.warning(
+            "quick-auth aud mismatch: token aud=%s, allowed=%s",
+            aud_values,
+            sorted(audiences),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Quick Auth token audience not allowed",
         )
 
     sub = claims.get("sub")
