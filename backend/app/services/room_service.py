@@ -537,6 +537,146 @@ class RoomService:
         await self.db.commit()
         return RsvpResponse(status="removed")
 
+    # -----------------------------------------------------------------------
+    # Recording
+    # -----------------------------------------------------------------------
+
+    async def start_recording(self, room_id: str, fid: int) -> dict:
+        """Start a room-composite egress to S3. Host/co-host only.
+
+        Stores the resulting ``egress_id`` in Redis keyed by room so
+        ``stop_recording`` can later find it. Sets ``rooms.recording = True``
+        and publishes a ``recording_started`` event; the
+        ``recording_url`` is only populated once the LiveKit ``egress_ended``
+        webhook fires.
+        """
+        room = await self._get_room_or_404(room_id)
+
+        if room.status != "active":
+            raise HTTPException(status_code=400, detail="Room is not active")
+
+        actor_role = await self._get_actor_role(room_id, fid)
+        if actor_role not in ("host", "co_host"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only hosts and co-hosts can start recording",
+            )
+
+        if room.recording:
+            raise HTTPException(
+                status_code=409,
+                detail="Recording is already in progress",
+            )
+
+        try:
+            egress_id = await self.livekit.start_room_composite_egress(room_id)
+        except Exception as exc:
+            logger.exception("LiveKit start egress failed for room %s", room_id)
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to start recording via media server",
+            ) from exc
+
+        # Redis TTL: match the LiveKit token TTL ceiling (6h) — long enough to
+        # outlast any reasonable room while preventing orphaned keys.
+        await self.redis.redis.set(
+            f"room:{room_id}:egress_id",
+            egress_id,
+            ex=6 * 60 * 60,
+        )
+
+        await self.db.execute(
+            update(Room).where(Room.id == room.id).values(recording=True)
+        )
+        await self.db.commit()
+
+        await self.redis.publish_room_event(
+            room_id,
+            {
+                "event": "recording_started",
+                "room_id": room_id,
+                "by_fid": fid,
+            },
+        )
+
+        logger.info(
+            "Recording started for room %s by fid=%s (egress_id=%s)",
+            room_id,
+            fid,
+            egress_id,
+        )
+        return {"egress_id": egress_id, "status": "recording"}
+
+    async def stop_recording(self, room_id: str, fid: int) -> dict:
+        """Stop the active egress. Host/co-host only.
+
+        Leaves ``rooms.recording = True`` until the LiveKit ``egress_ended``
+        webhook fires with the final file URL, at which point the webhook
+        flips ``recording`` back to False and populates ``recording_url``.
+        """
+        room = await self._get_room_or_404(room_id)
+
+        actor_role = await self._get_actor_role(room_id, fid)
+        if actor_role not in ("host", "co_host"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only hosts and co-hosts can stop recording",
+            )
+
+        if not room.recording:
+            raise HTTPException(
+                status_code=409,
+                detail="Recording is not active",
+            )
+
+        await self._stop_egress_for_room(room_id, fid, publish_event=True)
+        return {"status": "stopping"}
+
+    async def _stop_egress_for_room(
+        self, room_id: str, fid: int, publish_event: bool
+    ) -> None:
+        """Internal helper: look up egress_id in Redis, stop it, and publish.
+
+        Tolerates a missing Redis key (e.g. after a restart) — in that case
+        we can't stop the egress but we still want to publish the event so
+        clients clear their UI.
+        """
+        egress_id = await self.redis.redis.get(f"room:{room_id}:egress_id")
+
+        if egress_id:
+            try:
+                await self.livekit.stop_egress(egress_id)
+            except Exception:
+                logger.exception(
+                    "LiveKit stop egress failed for room %s (egress_id=%s)",
+                    room_id,
+                    egress_id,
+                )
+        else:
+            logger.warning(
+                "No egress_id found in Redis for room %s during stop_recording",
+                room_id,
+            )
+
+        await self.redis.redis.delete(f"room:{room_id}:egress_id")
+
+        if publish_event:
+            await self.redis.publish_room_event(
+                room_id,
+                {
+                    "event": "recording_stopped",
+                    "room_id": room_id,
+                    "by_fid": fid,
+                },
+            )
+
+        logger.info(
+            "Recording stop requested for room %s by fid=%s (egress_id=%s)",
+            room_id,
+            fid,
+            egress_id,
+        )
+
     async def end_room(self, room_id: str, fid: int) -> None:
         """
         End an active room or cancel a scheduled room.
@@ -563,6 +703,18 @@ class RoomService:
         actor_role = await self._get_actor_role(room_id, fid)
         if not permission_service.can_end_room(actor_role):
             raise HTTPException(status_code=403, detail="Only hosts and co-hosts can end the room")
+
+        # If the room is currently recording, stop the egress before tearing down
+        # LiveKit — otherwise the egress worker will be force-disconnected and
+        # the final file may not be flushed/uploaded.
+        if room.recording:
+            try:
+                await self._stop_egress_for_room(room_id, fid, publish_event=True)
+            except Exception:
+                logger.exception(
+                    "Failed to stop egress for room %s during end_room (continuing)",
+                    room_id,
+                )
 
         # Update DB
         now = _utcnow()

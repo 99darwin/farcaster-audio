@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from livekit import api
 
@@ -139,6 +139,47 @@ class LiveKitService:
         """Delete a LiveKit room, disconnecting all participants."""
         await self.api.room.delete_room(
             api.DeleteRoomRequest(room=room_id)
+        )
+
+    # ------------------------------------------------------------------
+    # Egress (recording)
+    # ------------------------------------------------------------------
+
+    async def start_room_composite_egress(self, room_id: str) -> str:
+        """Start an audio-only room-composite egress writing OGG to S3.
+
+        Returns the egress_id so callers can stop it later. The final file
+        location is reported back via the ``egress_ended`` LiveKit webhook,
+        which persists the URL onto ``rooms.recording_url``.
+        """
+        timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        filepath = f"recordings/{room_id}/{timestamp}.ogg"
+
+        output = api.EncodedFileOutput(
+            file_type=api.EncodedFileType.OGG,
+            filepath=filepath,
+            s3=api.S3Upload(
+                access_key=settings.AWS_ACCESS_KEY_ID,
+                secret=settings.AWS_SECRET_ACCESS_KEY,
+                region=settings.AWS_DEFAULT_REGION,
+                bucket=settings.AWS_S3_BUCKET_NAME,
+                endpoint=settings.AWS_ENDPOINT_URL,
+            ),
+        )
+
+        request = api.RoomCompositeEgressRequest(
+            room_name=room_id,
+            audio_only=True,
+            file_outputs=[output],
+        )
+
+        egress_info = await self.api.egress.start_room_composite_egress(request)
+        return egress_info.egress_id
+
+    async def stop_egress(self, egress_id: str) -> None:
+        """Stop a running egress. Safe to call if egress already ended."""
+        await self.api.egress.stop_egress(
+            api.StopEgressRequest(egress_id=egress_id)
         )
 
     async def close(self) -> None:

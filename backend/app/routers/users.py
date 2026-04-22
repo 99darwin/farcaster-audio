@@ -3,13 +3,17 @@ Users router — proxies Neynar user profile and follow/unfollow endpoints.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from sqlalchemy import select
 
 from app.config import settings
 from app.dependencies import get_current_user, get_db, get_spam_service, require_non_demo_user
+from app.models.room import Room
 from app.routers.feed import _neynar_headers, _raise_upstream_error, _get_signer_uuid
+from app.schemas.room import RecordingListResponse, RecordingResponse
 from app.services.spam_service import SpamService
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -185,3 +189,70 @@ async def unfollow_user(
         _raise_upstream_error(resp)
 
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Recordings
+# ---------------------------------------------------------------------------
+
+RECORDING_RETENTION_DAYS = 30
+
+
+@router.get("/{fid}/recordings", response_model=RecordingListResponse)
+async def list_user_recordings(
+    fid: int = Path(..., ge=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    cursor: int = Query(default=0, ge=0),
+    _current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> RecordingListResponse:
+    """Return recorded spaces hosted by ``fid`` within the retention window.
+
+    Only rooms whose ``recording_url`` has been populated (i.e. the egress
+    webhook has fired) and whose ``ended_at`` falls within the last
+    ``RECORDING_RETENTION_DAYS`` are included. Older rows are filtered here
+    as a safety net; the retention cleanup job removes them outright.
+    """
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(
+        days=RECORDING_RETENTION_DAYS
+    )
+
+    query = (
+        select(Room)
+        .where(
+            Room.host_fid == fid,
+            Room.recording_url.is_not(None),
+            Room.started_at >= cutoff,
+        )
+        .order_by(Room.started_at.desc())
+        .offset(cursor)
+        .limit(limit + 1)
+    )
+    result = await db.execute(query)
+    rows = list(result.scalars().all())
+
+    has_more = len(rows) > limit
+    page = rows[:limit]
+
+    recordings: list[RecordingResponse] = []
+    for room in page:
+        duration_seconds: int | None = None
+        if room.ended_at and room.started_at:
+            duration_seconds = max(
+                0, int((room.ended_at - room.started_at).total_seconds())
+            )
+        recordings.append(
+            RecordingResponse(
+                room_id=str(room.id),
+                title=room.title,
+                recording_url=room.recording_url or "",
+                started_at=room.started_at.isoformat()
+                if room.started_at
+                else "",
+                ended_at=room.ended_at.isoformat() if room.ended_at else None,
+                duration_seconds=duration_seconds,
+            )
+        )
+
+    next_cursor = str(cursor + limit) if has_more else None
+    return RecordingListResponse(recordings=recordings, next_cursor=next_cursor)
