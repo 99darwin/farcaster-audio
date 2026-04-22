@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { Waveform, BAR_COUNT } from "@/components/waveform";
+import { authenticateMiniapp } from "@/lib/miniapp-auth";
 import {
   formatDuration,
   formatTimestamp,
@@ -180,31 +181,13 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
     if (audio) audio.playbackRate = SPEED_OPTIONS[next];
   }, [speedIndex]);
 
-  // Auth via SIWF
+  // Auth via SIWF (shared helper; see lib/miniapp-auth.ts)
   const authenticate = useCallback(async () => {
-    try {
-      // Fetch server-generated nonce (one-time use, prevents replay)
-      const nonceResp = await fetch(`${API_BASE_URL}/v1/auth/miniapp-nonce`);
-      if (!nonceResp.ok) return null;
-      const { nonce } = await nonceResp.json();
-      const result = await sdk.actions.signIn({ nonce });
-      const resp = await fetch(`${API_BASE_URL}/v1/auth/miniapp-verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: result.message,
-          signature: result.signature,
-          nonce,
-        }),
-      });
-      if (!resp.ok) return null;
-      const body = await resp.json();
-      setToken(body.token);
-      setViewerFid(body.fid);
-      return body.token;
-    } catch {
-      return null;
-    }
+    const result = await authenticateMiniapp();
+    if (!result) return null;
+    setToken(result.token);
+    setViewerFid(result.fid);
+    return result.token;
   }, []);
 
   const handleReaction = useCallback(
