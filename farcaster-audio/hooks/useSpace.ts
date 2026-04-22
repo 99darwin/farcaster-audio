@@ -187,6 +187,14 @@ export function useSpace() {
             }
 
             if (
+              topic === "space_state" &&
+              data.type === "recording_state" &&
+              typeof data.recording === "boolean"
+            ) {
+              store.setRecording(data.recording);
+            }
+
+            if (
               topic === "reactions" &&
               data.type === "reaction" &&
               data.key &&

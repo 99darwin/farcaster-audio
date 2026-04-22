@@ -10,6 +10,7 @@ interface SpaceStore {
   isConnected: boolean;
   isMuted: boolean;
   isHandRaised: boolean;
+  isRecording: boolean;
 
   // Live spaces for discovery rail
   activeLiveSpaces: Room[];
@@ -26,6 +27,7 @@ interface SpaceStore {
   setConnected: (connected: boolean) => void;
   setMuted: (muted: boolean) => void;
   setHandRaised: (raised: boolean) => void;
+  setRecording: (recording: boolean) => void;
 
   // Actions - discovery
   setActiveLiveSpaces: (spaces: Room[]) => void;
@@ -53,6 +55,7 @@ const INITIAL_STATE = {
   isConnected: false,
   isMuted: true,
   isHandRaised: false,
+  isRecording: false,
   chatNewReplyTick: 0,
 };
 
@@ -91,6 +94,11 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
   setConnected: (isConnected) => set({ isConnected }),
   setMuted: (isMuted) => set({ isMuted }),
   setHandRaised: (isHandRaised) => set({ isHandRaised }),
+  setRecording: (isRecording) =>
+    set((state) => ({
+      isRecording,
+      room: state.room ? { ...state.room, recording: isRecording } : state.room,
+    })),
 
   // Chat
   bumpChatNewReply: () =>
@@ -110,6 +118,7 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
       isMuted: myRole === "listener",
       isHandRaised: false,
       handQueue: [],
+      isRecording: room.recording ?? false,
     }),
 
   leaveSpace: () => set(INITIAL_STATE),
