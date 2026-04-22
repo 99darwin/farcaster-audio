@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { safeImageUrl } from "@/lib/safe-url";
 import { getActiveSpaces, type Space } from "@/lib/spaces";
 
 const POLL_INTERVAL_MS = 30_000;
@@ -101,12 +102,13 @@ function LiveSpaceCard({ space }: { space: Space }) {
       className="group relative flex h-24 w-44 shrink-0 flex-col justify-between overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 transition-colors hover:border-white/20 hover:bg-white/[0.06]"
     >
       <div className="flex items-center gap-2">
-        {space.host.pfp_url ? (
+        {safeImageUrl(space.host.pfp_url) ? (
           <img
-            src={space.host.pfp_url}
+            src={safeImageUrl(space.host.pfp_url) as string}
             alt=""
             width={24}
             height={24}
+            referrerPolicy="no-referrer"
             className="h-6 w-6 shrink-0 rounded-full object-cover"
           />
         ) : (

@@ -9,7 +9,9 @@ import {
   Track,
   type RemoteTrack,
 } from "livekit-client";
-import { authenticateMiniapp } from "@/lib/miniapp-auth";
+import { getCachedMiniappAuth } from "@/lib/miniapp-auth";
+import { jukeSpaceUrl } from "@/lib/deeplink";
+import { safeImageUrl } from "@/lib/safe-url";
 import {
   joinSpaceAsListener,
   type SpaceDetailResponse,
@@ -96,10 +98,18 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
     setPhase("authenticating");
     setErrorMessage(null);
 
-    const auth = await authenticateMiniapp();
-    if (!auth) {
+    const auth = await getCachedMiniappAuth();
+    if (!auth.ok) {
       setPhase("error");
-      setErrorMessage("Sign-in required to listen");
+      setErrorMessage(
+        auth.reason === "user_cancelled"
+          ? "Sign-in required to listen"
+          : auth.reason === "verify_failed"
+            ? "Authentication failed"
+            : auth.reason === "network"
+              ? "Network error — please try again"
+              : "Couldn't sign in",
+      );
       return;
     }
 
@@ -153,13 +163,16 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
         if (fid === null) continue;
         if (!byFid.has(fid)) {
           // Speaker who just joined but isn't in our initial list; backfill
-          // with minimal data from the LiveKit Participant.
+          // with a minimal placeholder. We intentionally do NOT trust
+          // `p.name` from LiveKit — it's populated by the SFU from the JWT
+          // claim and could display an unverified string. The authoritative
+          // display name arrives when the backend participant list refreshes.
           byFid.set(fid, {
             fid,
             role: "listener",
             is_muted: false,
             hand_raised: false,
-            display_name: p.name || `fid:${fid}`,
+            display_name: `fid:${fid}`,
             pfp_url: null,
           });
         }
@@ -182,6 +195,9 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
       await room.connect(join.livekit_ws_url, join.livekit_token, {
         autoSubscribe: true,
       });
+      // Clear the token from memory once the WebSocket connection is
+      // established; LiveKit holds its own copy internally for reconnects.
+      join.livekit_token = "";
       setPhase("listening");
     } catch {
       setPhase("error");
@@ -199,9 +215,14 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
     window.history.back();
   }, []);
 
+  const jukeDeeplink = jukeSpaceUrl(spaceId);
   const handleOpenInJuke = useCallback(() => {
-    sdk.actions.openUrl(`juke://space/${spaceId}`);
-  }, [spaceId]);
+    if (!jukeDeeplink) {
+      console.warn("[space-listener] refusing to open invalid space id", spaceId);
+      return;
+    }
+    sdk.actions.openUrl(jukeDeeplink);
+  }, [jukeDeeplink, spaceId]);
 
   const speakers = participants.filter(
     (p) => p.role === "host" || p.role === "co_host" || p.role === "speaker",
@@ -239,12 +260,13 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
 
       {/* Host chip */}
       <div className="mb-6 flex items-center gap-2 text-xs text-white/50">
-        {roomMeta.host.pfp_url ? (
+        {safeImageUrl(roomMeta.host.pfp_url) ? (
           <img
-            src={roomMeta.host.pfp_url}
+            src={safeImageUrl(roomMeta.host.pfp_url) as string}
             alt=""
             width={20}
             height={20}
+            referrerPolicy="no-referrer"
             className="h-5 w-5 rounded-full object-cover"
           />
         ) : (
@@ -374,6 +396,7 @@ interface SpeakerCellProps {
 
 function SpeakerCell({ participant, isSpeaking }: SpeakerCellProps) {
   const initial = participant.display_name.charAt(0).toUpperCase();
+  const safePfp = safeImageUrl(participant.pfp_url);
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div
@@ -381,10 +404,11 @@ function SpeakerCell({ participant, isSpeaking }: SpeakerCellProps) {
           isSpeaking ? "border-[#D85A30]" : "border-white/10"
         }`}
       >
-        {participant.pfp_url ? (
+        {safePfp ? (
           <img
-            src={participant.pfp_url}
+            src={safePfp}
             alt=""
+            referrerPolicy="no-referrer"
             className="h-full w-full object-cover"
           />
         ) : (
