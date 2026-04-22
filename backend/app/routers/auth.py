@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 
 from eth_account.messages import encode_defunct
 from eth_account import Account
@@ -577,3 +578,166 @@ async def miniapp_verify(
     token = jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
     return MiniAppVerifyResponse(token=token, fid=fid)
+
+
+# --- Farcaster Quick Auth ---------------------------------------------------
+#
+# Quick Auth (https://miniapps.farcaster.xyz/docs/sdk/quick-auth) is the
+# recommended modern auth path for Mini Apps. The client calls
+# `sdk.quickAuth.getToken()` which returns a JWT signed by Farcaster's
+# auth.farcaster.xyz server. We verify that JWT here (signature via JWKS,
+# issuer, audience, expiry) and exchange it for our own short-lived session
+# JWT so the rest of the API remains auth-method-agnostic.
+
+_jwks_cache: dict = {"keys": [], "expires_at": 0.0}
+QUICKAUTH_JWKS_CACHE_TTL = 3600  # seconds
+
+
+class QuickAuthVerifyRequest(BaseModel):
+    token: str
+
+
+async def _fetch_quickauth_jwks(force: bool = False) -> list[dict]:
+    """Fetch and cache the Farcaster Quick Auth JWKS (1 hour TTL).
+
+    `force=True` bypasses the cache — used when the incoming token has a
+    kid that isn't in the cached JWKS, in case keys were rotated.
+    """
+    now = time.time()
+    if not force and _jwks_cache["keys"] and now < _jwks_cache["expires_at"]:
+        return _jwks_cache["keys"]
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(settings.QUICKAUTH_JWKS_URL, timeout=10.0)
+        resp.raise_for_status()
+        data = resp.json()
+    keys = data.get("keys", [])
+    _jwks_cache["keys"] = keys
+    _jwks_cache["expires_at"] = now + QUICKAUTH_JWKS_CACHE_TTL
+    return keys
+
+
+def _allowed_quickauth_audiences() -> set[str]:
+    return {
+        a.strip()
+        for a in settings.QUICKAUTH_ALLOWED_AUDIENCES.split(",")
+        if a.strip()
+    }
+
+
+@router.post("/miniapp-quickauth", response_model=MiniAppVerifyResponse)
+async def miniapp_quickauth(
+    body: QuickAuthVerifyRequest,
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Verify a Farcaster Quick Auth JWT and issue our own session JWT.
+
+    Flow on the client: `sdk.quickAuth.getToken()` returns a JWT issued by
+    `auth.farcaster.xyz` with `sub=fid`, `aud=<miniapp domain>`. We verify
+    the signature against the issuer's JWKS, check iss/aud/exp, then mint a
+    session JWT matching the shape of `/miniapp-verify` for drop-in reuse.
+    """
+    # Share the existing rate-limit budget with /miniapp-verify so a
+    # malicious client can't bypass it by splitting across both endpoints.
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+        request.client.host if request.client else "unknown"
+    )
+    rate_key = f"{MINIAPP_VERIFY_RATE_PREFIX}{client_ip}"
+    pipe = redis.pipeline()
+    pipe.incr(rate_key)
+    pipe.expire(rate_key, MINIAPP_VERIFY_RATE_WINDOW)
+    count, _ = await pipe.execute()
+    if count > MINIAPP_VERIFY_RATE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many verification attempts",
+        )
+
+    token = body.token
+    if not isinstance(token, str) or not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token"
+        )
+
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed token header"
+        )
+    kid = unverified_header.get("kid")
+    if not kid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing kid"
+        )
+
+    # Look up the signing key. If not in cache, refresh once in case keys
+    # were rotated; a second miss means the token isn't ours to verify.
+    try:
+        keys = await _fetch_quickauth_jwks()
+    except httpx.HTTPError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to reach Farcaster Quick Auth",
+        )
+    key = next((k for k in keys if k.get("kid") == kid), None)
+    if key is None:
+        try:
+            keys = await _fetch_quickauth_jwks(force=True)
+        except httpx.HTTPError:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Unable to reach Farcaster Quick Auth",
+            )
+        key = next((k for k in keys if k.get("kid") == kid), None)
+    if key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown signing key"
+        )
+
+    audiences = _allowed_quickauth_audiences()
+    if not audiences:
+        # Misconfigured server; fail closed rather than accepting any aud.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Quick Auth audience not configured",
+        )
+
+    try:
+        claims = jwt.decode(
+            token,
+            key,
+            algorithms=[unverified_header.get("alg", "RS256")],
+            issuer=settings.QUICKAUTH_ISSUER,
+            audience=list(audiences),
+        )
+    except JWTError as exc:
+        logger.warning("quick-auth jwt verification failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Quick Auth token",
+        )
+
+    sub = claims.get("sub")
+    try:
+        fid = int(sub) if sub is not None else None
+    except (TypeError, ValueError):
+        fid = None
+    if fid is None or fid <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing fid in Quick Auth token",
+        )
+
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=MINIAPP_JWT_EXPIRY_HOURS)
+    payload = {
+        "fid": fid,
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    session_token = jwt.encode(
+        payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM
+    )
+
+    return MiniAppVerifyResponse(token=session_token, fid=fid)

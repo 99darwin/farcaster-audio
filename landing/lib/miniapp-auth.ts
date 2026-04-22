@@ -42,16 +42,15 @@ export type MiniappAuthResult =
   | { ok: true; token: string; fid: number }
   | { ok: false; reason: MiniappAuthError };
 
-// Plain desktop browsers outside a Farcaster host will never resolve
-// `sdk.actions.signIn`. Use the SDK's explicit detection method, with a
-// short timeout as a defensive fallback in case the host check itself
-// stalls.
+// Plain desktop browsers outside a Farcaster host will never respond to
+// the miniapp signIn bridge. Use the SDK's explicit detection method,
+// with a short timeout as a defensive fallback in case the host check
+// itself stalls.
 const MINIAPP_CHECK_TIMEOUT_MS = 3000;
-// If signIn still hasn't resolved after this long, the bridge is wedged
-// (e.g., Warpcast web modal dismissed without reject, unverified domain
-// manifest, etc.) — treat as not_in_miniapp so the UI falls back to app
-// CTAs instead of leaving the user stuck.
-const SIGNIN_TIMEOUT_MS = 15_000;
+// If Quick Auth still hasn't resolved after this long, the host bridge
+// is wedged (unverified manifest, host viewer gaps, etc.) — treat as
+// not_in_miniapp so the UI falls back to app CTAs instead of hanging.
+const QUICKAUTH_TIMEOUT_MS = 15_000;
 
 async function isInMiniappHost(): Promise<boolean> {
   try {
@@ -60,7 +59,7 @@ async function isInMiniappHost(): Promise<boolean> {
     );
     const result = await Promise.race([sdk.isInMiniApp(), timeout]);
     // Diagnostic — temporary until we validate the desktop browser flow
-    // end-to-end. Remove once the UX is confirmed stable.
+    // end-to-end on Quick Auth. Remove once the UX is confirmed stable.
     // eslint-disable-next-line no-console
     console.info("[miniapp-auth] isInMiniApp ->", result);
     return result;
@@ -70,76 +69,61 @@ async function isInMiniappHost(): Promise<boolean> {
 }
 
 /**
- * SIWF authentication flow for Farcaster miniapps.
+ * Quick Auth flow for Farcaster miniapps.
  *
  * Flow:
- *   1. Fetch a server-generated nonce (one-time use, prevents replay).
- *   2. Prompt user via `sdk.actions.signIn` (Sign-In With Farcaster).
- *   3. POST signature + nonce to backend, receive JWT + FID.
+ *   1. `sdk.quickAuth.getToken()` — the SDK handles nonce generation and
+ *      SIWF exchange with `auth.farcaster.xyz`, returning a JWT.
+ *   2. POST the Quick Auth JWT to our backend, which verifies it via
+ *      Farcaster's JWKS and returns our own session JWT.
  *
  * Returns a discriminated union so callers can react to specific failure
  * modes (user dismissal vs network error vs server verify failure).
  */
 export async function authenticateMiniapp(): Promise<MiniappAuthResult> {
-  // Bail out early in plain desktop browsers — otherwise signIn hangs
-  // indefinitely with no miniapp host to respond.
+  // Bail out early in plain desktop browsers — otherwise the Quick Auth
+  // SDK call hangs indefinitely with no host to respond.
   if (!(await isInMiniappHost())) {
     return { ok: false, reason: "not_in_miniapp" };
   }
 
-  let nonce: string;
+  let quickAuthToken: string;
   try {
-    const nonceResp = await fetch(`${API_BASE_URL}/v1/auth/miniapp-nonce`);
-    if (!nonceResp.ok) return { ok: false, reason: "network" };
-    const nonceBody = (await nonceResp.json()) as { nonce?: unknown };
-    if (typeof nonceBody.nonce !== "string" || nonceBody.nonce.length === 0) {
-      return { ok: false, reason: "invalid_response" };
-    }
-    nonce = nonceBody.nonce;
-  } catch {
-    return { ok: false, reason: "network" };
-  }
-
-  let signResult: { message: string; signature: string };
-  try {
-    // Safety net: if the host check passed but signIn still stalls
-    // (ignored prompt, broken bridge), fall through after SIGNIN_TIMEOUT_MS
-    // rather than leaving the UI stuck forever.
-    const signinTimeout = new Promise<never>((_, reject) =>
+    // Safety net: if Quick Auth stalls (host viewer gap, unverified
+    // manifest, etc.), fall through after QUICKAUTH_TIMEOUT_MS rather
+    // than leaving the UI stuck forever.
+    const authTimeout = new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error("signin_timeout")),
-        SIGNIN_TIMEOUT_MS,
+        () => reject(new Error("quickauth_timeout")),
+        QUICKAUTH_TIMEOUT_MS,
       ),
     );
-    signResult = await Promise.race([
-      sdk.actions.signIn({ nonce }),
-      signinTimeout,
+    const result = await Promise.race([
+      sdk.quickAuth.getToken(),
+      authTimeout,
     ]);
+    quickAuthToken = result.token;
   } catch (err) {
-    // The miniapp SDK throws `SignIn.RejectedByUser` for dismissal; we
-    // don't have a stable type here, so check the error name defensively.
+    // The miniapp SDK throws `SignIn.RejectedByUser` for dismissal;
+    // defensively check by name since the type isn't re-exported here.
     const name = (err as { name?: string })?.name ?? "";
     const message = (err as { message?: string })?.message ?? "";
     if (name.includes("Rejected")) {
       return { ok: false, reason: "user_cancelled" };
     }
-    if (message === "signin_timeout") {
+    if (message === "quickauth_timeout") {
       return { ok: false, reason: "not_in_miniapp" };
     }
     return { ok: false, reason: "network" };
   }
 
-  const verifyUrl = `${API_BASE_URL}/v1/auth/miniapp-verify`;
+  const verifyUrl = `${API_BASE_URL}/v1/auth/miniapp-quickauth`;
   let resp: Response;
   try {
     resp = await fetch(verifyUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: signResult.message,
-        signature: signResult.signature,
-        nonce,
-      }),
+      body: JSON.stringify({ token: quickAuthToken }),
     });
   } catch {
     return { ok: false, reason: "network" };
