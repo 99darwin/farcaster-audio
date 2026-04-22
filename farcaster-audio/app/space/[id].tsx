@@ -486,6 +486,29 @@ export default function SpaceScreen() {
     }
   }, [id, router, leaveRoom]);
 
+  const isRecording = useSpaceStore((s) => s.isRecording);
+
+  const handleToggleRecording = useCallback(async () => {
+    if (!id) return;
+    // Optimistic update so the host's UI feels responsive.
+    const prev = useSpaceStore.getState().isRecording;
+    useSpaceStore.getState().setRecording(!prev);
+    try {
+      if (prev) {
+        await api.stopRecording(id);
+      } else {
+        await api.startRecording(id);
+      }
+    } catch (err) {
+      useSpaceStore.getState().setRecording(prev);
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: api.getErrorMessage(err),
+      });
+    }
+  }, [id]);
+
   // Show scheduled space view
   if (scheduledRoom && id) {
     return <ScheduledSpaceScreen room={scheduledRoom} id={id} />;
@@ -521,6 +544,8 @@ export default function SpaceScreen() {
         onKick={handleKick}
         onBan={handleBan}
         onEndSpace={handleEndSpace}
+        onToggleRecording={handleToggleRecording}
+        isRecording={isRecording}
         hostFid={room.host_fid}
       />
       <MiniAppPicker
@@ -599,6 +624,15 @@ export default function SpaceScreen() {
                 {participants.length}{" "}
                 {participants.length === 1 ? "person" : "people"}
               </Text>
+              {isRecording && (
+                <View
+                  style={styles.recBadge}
+                  accessibilityLabel="This space is being recorded"
+                >
+                  <View style={styles.recDot} />
+                  <Text style={styles.recText}>REC</Text>
+                </View>
+              )}
             </View>
             {!isConnected && (
               <Text style={styles.reconnecting}>Reconnecting...</Text>
@@ -827,6 +861,28 @@ const styles = StyleSheet.create({
   statusText: { color: colors.error, fontSize: 14, fontWeight: "600" },
   listenerCount: { color: colors.text.secondary, fontSize: 14 },
   reconnecting: { color: colors.warning, fontSize: 13, marginTop: 4 },
+  recBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: "rgba(255, 59, 48, 0.15)",
+    marginLeft: 4,
+  },
+  recDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.error,
+  },
+  recText: {
+    color: colors.error,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
   tabBar: {
     flexDirection: "row",
     backgroundColor: glass.overlayColor,

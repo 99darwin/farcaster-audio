@@ -28,6 +28,8 @@ interface HostControlsProps {
   onKick: (fid: number) => void;
   onBan: (fid: number) => void;
   onEndSpace: () => void;
+  onToggleRecording: () => void;
+  isRecording: boolean;
   hostFid: number;
 }
 
@@ -43,6 +45,8 @@ export function HostControls({
   onKick,
   onBan,
   onEndSpace,
+  onToggleRecording,
+  isRecording,
   hostFid,
 }: HostControlsProps) {
   // Refresh participants and hand queue from backend when modal opens
@@ -75,6 +79,28 @@ export function HostControls({
       [
         { text: "Cancel", style: "cancel" },
         { text: "End Space", style: "destructive", onPress: onEndSpace },
+      ],
+    );
+  };
+
+  const handleToggleRecording = () => {
+    if (isRecording) {
+      Alert.alert("Stop Recording", "Stop recording this space?", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Stop Recording",
+          style: "destructive",
+          onPress: onToggleRecording,
+        },
+      ]);
+      return;
+    }
+    Alert.alert(
+      "Record Space",
+      "Audio will be saved for 30 days and appear on your profile.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Start Recording", onPress: onToggleRecording },
       ],
     );
   };
@@ -238,6 +264,40 @@ export function HostControls({
               </View>
             )}
 
+            {/* Recording */}
+            <View style={styles.section}>
+              <Pressable
+                onPress={handleToggleRecording}
+                style={styles.recordingRow}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isRecording ? "Stop recording space" : "Record space"
+                }
+              >
+                <View style={styles.recordingIconWrap}>
+                  {isRecording ? (
+                    <View style={styles.recordingDot} />
+                  ) : (
+                    <Ionicons
+                      name="radio-button-on"
+                      size={22}
+                      color={colors.error}
+                    />
+                  )}
+                </View>
+                <View style={styles.recordingText}>
+                  <Text style={styles.recordingTitle}>
+                    {isRecording ? "Recording" : "Record Space"}
+                  </Text>
+                  <Text style={styles.recordingSubtitle}>
+                    {isRecording
+                      ? "Tap to stop. Recording will save to your profile."
+                      : "Saved for 30 days on your profile."}
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
+
             {/* Danger Zone */}
             <View style={[styles.section, styles.dangerSection]}>
               <Button
@@ -313,5 +373,35 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.background.border,
+  },
+  recordingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    minHeight: 56,
+  },
+  recordingIconWrap: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recordingDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: colors.error,
+  },
+  recordingText: { flex: 1 },
+  recordingTitle: {
+    color: colors.text.primary,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  recordingSubtitle: {
+    color: colors.text.secondary,
+    fontSize: 13,
+    marginTop: 2,
   },
 });
