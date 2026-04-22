@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     FARCASTER_APP_FID: int = 0
     MINIAPP_WEBHOOK_SECRET: str = ""
 
+    # Farcaster Quick Auth — https://miniapps.farcaster.xyz/docs/sdk/quick-auth
+    # Comma-separated list of allowed `aud` values in incoming Quick Auth JWTs.
+    # The host sets `aud` to the domain rendering the miniapp, so we must list
+    # prod + any preview/staging domains that should be able to sign users in.
+    QUICKAUTH_ALLOWED_AUDIENCES: str = "juke.audio"
+    QUICKAUTH_ISSUER: str = "https://auth.farcaster.xyz"
+    QUICKAUTH_JWKS_URL: str = "https://auth.farcaster.xyz/.well-known/jwks.json"
+
     # Spam filtering
     SPAM_FILTER_ENABLED: bool = True
 
