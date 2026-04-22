@@ -9,6 +9,7 @@ Endpoints:
   POST   /v1/admin/recordings/cleanup                 Run recording retention cleanup
 """
 
+import hmac
 import logging
 
 import httpx
@@ -130,10 +131,27 @@ def _verify_admin_secret(request: Request) -> None:
     """Gate ops endpoints called by external schedulers via shared secret.
 
     Sent as ``X-Admin-Secret: <ADMIN_SECRET>``. We require the secret to be
-    configured (not empty) so a missing env var can't silently grant access.
+    configured (not empty) so a missing env var can't silently grant access,
+    and use a constant-time comparison to prevent timing side-channels.
+
+    NOTE: ``X-Admin-Secret`` is a privileged header — add it to the scrub
+    allowlist in Sentry / OpenTelemetry config so it never appears in traces
+    or breadcrumbs. See ``sentry_sdk.init(send_default_pii=False)`` + any
+    custom ``before_send`` redaction hook.
+
+    TODO(ops): Consider a Railway-level IP allowlist for ``/v1/admin/*`` so
+    the shared secret is defense-in-depth rather than the sole gate.
     """
+    # Fail closed: if the secret is unset we refuse every request. We do this
+    # BEFORE the compare so a misconfigured env can't silently grant access.
+    if not settings.ADMIN_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin secret",
+        )
+
     provided = request.headers.get("x-admin-secret", "")
-    if not settings.ADMIN_SECRET or provided != settings.ADMIN_SECRET:
+    if not hmac.compare_digest(provided or "", settings.ADMIN_SECRET or ""):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid admin secret",
