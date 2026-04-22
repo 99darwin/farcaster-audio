@@ -35,11 +35,30 @@ export type MiniappAuthError =
   | "user_cancelled"
   | "network"
   | "verify_failed"
-  | "invalid_response";
+  | "invalid_response"
+  | "not_in_miniapp";
 
 export type MiniappAuthResult =
   | { ok: true; token: string; fid: number }
   | { ok: false; reason: MiniappAuthError };
+
+// Plain desktop browsers outside a Farcaster host will never resolve
+// `sdk.actions.signIn`. Use the SDK's explicit detection method, with a
+// short timeout as a defensive fallback in case the host check itself
+// stalls.
+const MINIAPP_CHECK_TIMEOUT_MS = 3000;
+const SIGNIN_TIMEOUT_MS = 60_000;
+
+async function isInMiniappHost(): Promise<boolean> {
+  try {
+    const timeout = new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(false), MINIAPP_CHECK_TIMEOUT_MS),
+    );
+    return await Promise.race([sdk.isInMiniApp(), timeout]);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * SIWF authentication flow for Farcaster miniapps.
@@ -53,6 +72,12 @@ export type MiniappAuthResult =
  * modes (user dismissal vs network error vs server verify failure).
  */
 export async function authenticateMiniapp(): Promise<MiniappAuthResult> {
+  // Bail out early in plain desktop browsers — otherwise signIn hangs
+  // indefinitely with no miniapp host to respond.
+  if (!(await isInMiniappHost())) {
+    return { ok: false, reason: "not_in_miniapp" };
+  }
+
   let nonce: string;
   try {
     const nonceResp = await fetch(`${API_BASE_URL}/v1/auth/miniapp-nonce`);
@@ -68,13 +93,29 @@ export async function authenticateMiniapp(): Promise<MiniappAuthResult> {
 
   let signResult: { message: string; signature: string };
   try {
-    signResult = await sdk.actions.signIn({ nonce });
+    // Safety net: if the host check passed but signIn still stalls
+    // (ignored prompt, broken bridge), fall through after SIGNIN_TIMEOUT_MS
+    // rather than leaving the UI stuck forever.
+    const signinTimeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("signin_timeout")),
+        SIGNIN_TIMEOUT_MS,
+      ),
+    );
+    signResult = await Promise.race([
+      sdk.actions.signIn({ nonce }),
+      signinTimeout,
+    ]);
   } catch (err) {
     // The miniapp SDK throws `SignIn.RejectedByUser` for dismissal; we
     // don't have a stable type here, so check the error name defensively.
     const name = (err as { name?: string })?.name ?? "";
+    const message = (err as { message?: string })?.message ?? "";
     if (name.includes("Rejected")) {
       return { ok: false, reason: "user_cancelled" };
+    }
+    if (message === "signin_timeout") {
+      return { ok: false, reason: "not_in_miniapp" };
     }
     return { ok: false, reason: "network" };
   }
