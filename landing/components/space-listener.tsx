@@ -247,6 +247,12 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
   const speakers = participants.filter(
     (p) => p.role === "host" || p.role === "co_host" || p.role === "speaker",
   );
+  const listeners = participants.filter((p) => p.role === "listener");
+  const [showAllListeners, setShowAllListeners] = useState(false);
+  const LISTENER_PREVIEW = 14;
+  const visibleListeners = showAllListeners
+    ? listeners
+    : listeners.slice(0, LISTENER_PREVIEW);
 
   return (
     <div className="relative flex min-h-screen flex-col px-4 pb-28 pt-6">
@@ -319,6 +325,30 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
           </div>
         )}
       </section>
+
+      {/* Listener grid */}
+      {listeners.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.15em] text-white/40">
+            Listeners ({listeners.length})
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {visibleListeners.map((p) => (
+              <ListenerAvatar key={p.fid} participant={p} />
+            ))}
+          </div>
+          {listeners.length > LISTENER_PREVIEW && (
+            <button
+              onClick={() => setShowAllListeners((prev) => !prev)}
+              className="mt-3 text-[11px] font-medium text-white/50 transition-colors hover:text-white/70"
+            >
+              {showAllListeners
+                ? "Show less"
+                : `Show all ${listeners.length}`}
+            </button>
+          )}
+        </section>
+      )}
 
       {/* Phase-driven primary action area */}
       {phase === "idle" && (
@@ -482,6 +512,34 @@ function SpeakerCell({ participant, isSpeaking }: SpeakerCellProps) {
       <span className="line-clamp-1 font-mono text-[10px] text-white/50">
         {participant.display_name}
       </span>
+    </div>
+  );
+}
+
+interface ListenerAvatarProps {
+  participant: SpaceParticipant;
+}
+
+function ListenerAvatar({ participant }: ListenerAvatarProps) {
+  const initial = participant.display_name.charAt(0).toUpperCase();
+  const safePfp = safeImageUrl(participant.pfp_url);
+  return (
+    <div
+      className="h-8 w-8 overflow-hidden rounded-full border border-white/10"
+      title={participant.display_name}
+    >
+      {safePfp ? (
+        <img
+          src={safePfp}
+          alt=""
+          referrerPolicy="no-referrer"
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-white/10 text-[10px] font-bold text-white/70">
+          {initial}
+        </div>
+      )}
     </div>
   );
 }
