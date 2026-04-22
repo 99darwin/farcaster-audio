@@ -15,6 +15,7 @@ from app.models.room import Room
 from app.routers.feed import _neynar_headers, _raise_upstream_error, _get_signer_uuid
 from app.schemas.room import RecordingListResponse, RecordingResponse
 from app.services.spam_service import SpamService
+from app.services.storage_service import StorageService
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -217,11 +218,28 @@ async def list_user_recordings(
         days=RECORDING_RETENTION_DAYS
     )
 
+    # Recordings are public-by-design — any caller can list recordings for any
+    # host fid within the retention window. A host opts into making a space
+    # recording the moment they toggle REC on; ACL checks here would be
+    # security theater. Non-public (private) recordings are out of scope.
+    #
+    # Filters applied:
+    #   - host_fid matches
+    #   - recording URL populated AND non-empty (skip webhook-in-flight rows
+    #     and rows where cleanup emptied the string without dropping the row)
+    #   - within retention window
+    #   - room status not "deleted" (soft-delete sentinel). Status column
+    #     currently carries {scheduled, active, ended, cancelled} so this is
+    #     a no-op today but keeps the endpoint safe if "deleted" is added.
+    #   - TODO: if Room ever grows an is_private / unlisted column, filter it
+    #     out here too.
     query = (
         select(Room)
         .where(
             Room.host_fid == fid,
             Room.recording_url.is_not(None),
+            Room.recording_url != "",
+            Room.status != "deleted",
             Room.started_at >= cutoff,
         )
         .order_by(Room.started_at.desc())
@@ -234,6 +252,21 @@ async def list_user_recordings(
     has_more = len(rows) > limit
     page = rows[:limit]
 
+    # For rows with a stored key, mint a short-lived (15 min) presigned GET
+    # so leaked URLs can't be replayed and the bucket can stay private. For
+    # legacy rows that only have ``recording_url`` we fall through to it —
+    # those URLs were already public-readable, so the short-lived presign
+    # would be a regression, not an improvement.
+    storage: StorageService | None = None
+
+    def _get_storage() -> StorageService:
+        nonlocal storage
+        if storage is None:
+            storage = StorageService()
+        return storage
+
+    PRESIGN_TTL_SECONDS = 15 * 60
+
     recordings: list[RecordingResponse] = []
     for room in page:
         duration_seconds: int | None = None
@@ -241,11 +274,32 @@ async def list_user_recordings(
             duration_seconds = max(
                 0, int((room.ended_at - room.started_at).total_seconds())
             )
+
+        # Prefer presigned URL from stored key. If presigning fails, log and
+        # return an empty string so clients see "no URL yet" rather than a
+        # broken link.
+        url = ""
+        if room.recording_key:
+            try:
+                url = _get_storage().generate_presigned_get_url(
+                    room.recording_key, expires_in=PRESIGN_TTL_SECONDS
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to presign recording for room=%s key=%s",
+                    room.id,
+                    room.recording_key,
+                )
+                url = ""
+        elif room.recording_url:
+            # Legacy row — no key stored. Fall back to the persisted URL.
+            url = room.recording_url
+
         recordings.append(
             RecordingResponse(
                 room_id=str(room.id),
                 title=room.title,
-                recording_url=room.recording_url or "",
+                recording_url=url,
                 started_at=room.started_at.isoformat()
                 if room.started_at
                 else "",

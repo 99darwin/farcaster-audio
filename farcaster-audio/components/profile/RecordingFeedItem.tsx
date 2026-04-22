@@ -31,6 +31,13 @@ export function RecordingFeedItem({ item }: RecordingFeedItemProps) {
   // Reuse the voice-note playback hook — it handles OGG, audio session,
   // background audio, and the "single active player" coordination store.
   // We use the room_id as the playback key so only one recording plays at a time.
+  //
+  // Note: `item.recording_url` is a short-lived presigned GET (~15 min TTL)
+  // minted per list request. The hook reads it when the user taps play, so
+  // as long as the list itself was fetched recently we're fine. If the app
+  // has been backgrounded for a long stretch the profile page should refetch
+  // before a play attempt — callers should re-hit the recordings endpoint
+  // when the profile screen regains focus.
   const durationMs = (item.duration_seconds ?? 0) * 1000;
   const { isPlaying, positionMs, togglePlay, progress, cycleSpeed, speed } =
     useVoiceNotePlayback(

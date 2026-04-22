@@ -29,6 +29,11 @@ class Room(Base):
     max_listeners: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
     recording: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     recording_url: Mapped[str | None] = mapped_column(Text)
+    # Stable S3 object key (e.g. "recordings/{room}/{ts}.ogg"). Populated by
+    # the egress webhook going forward; ``recording_url`` stays for legacy
+    # rows but client-facing responses always generate a short-lived
+    # presigned URL from the key when it's present.
+    recording_key: Mapped[str | None] = mapped_column(Text)
     cast_hash: Mapped[str | None] = mapped_column(String(66), index=True)
     neynar_webhook_id: Mapped[str | None] = mapped_column(String(64))
     neynar_webhook_secret: Mapped[str | None] = mapped_column(String(256))
