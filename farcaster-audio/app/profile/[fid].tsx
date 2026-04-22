@@ -11,6 +11,7 @@ import {
 } from "@/components/profile/ProfileHeader";
 import { CastCard } from "@/components/feed/CastCard";
 import { VoiceNoteFeedItem } from "@/components/voice-notes/VoiceNoteFeedItem";
+import { RecordingFeedItem } from "@/components/profile/RecordingFeedItem";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { ErrorView } from "@/components/common/ErrorView";
 import { colors } from "@/constants/theme";
@@ -23,6 +24,8 @@ import {
   publishCast,
 } from "@/services/neynar";
 import * as voiceNotesApi from "@/services/voiceNotes";
+import * as api from "@/services/api";
+import type { RecordingItem } from "@/services/api";
 import type { NeynarCast } from "@/types/neynar";
 import type { VoiceNoteDetail } from "@/types/voiceNote";
 
@@ -90,18 +93,51 @@ export default function ProfileScreen() {
     setVnLoading(false);
   }, [fid, vnCursor, vnLoading]);
 
-  const filteredCasts = useMemo(
-    () =>
-      activeTab === "casts"
-        ? casts.filter((c) => !c.parent_hash)
-        : casts.filter((c) => !!c.parent_hash),
-    [casts, activeTab],
-  );
+  // Recordings state
+  const [recordings, setRecordings] = useState<RecordingItem[]>([]);
+  const [recordingsCursor, setRecordingsCursor] = useState<string | null>(null);
+  const [recordingsLoading, setRecordingsLoading] = useState(false);
+
+  const fetchRecordings = useCallback(async () => {
+    setRecordingsLoading(true);
+    try {
+      const data = await api.getUserRecordings(fid);
+      setRecordings(data.recordings);
+      setRecordingsCursor(data.next_cursor);
+    } catch {}
+    setRecordingsLoading(false);
+  }, [fid]);
+
+  const fetchMoreRecordings = useCallback(async () => {
+    if (recordingsLoading || !recordingsCursor) return;
+    setRecordingsLoading(true);
+    try {
+      const data = await api.getUserRecordings(fid, recordingsCursor);
+      setRecordings((prev) => [...prev, ...data.recordings]);
+      setRecordingsCursor(data.next_cursor);
+    } catch {}
+    setRecordingsLoading(false);
+  }, [fid, recordingsCursor, recordingsLoading]);
+
+  const filteredCasts = useMemo(() => {
+    if (activeTab === "casts") return casts.filter((c) => !c.parent_hash);
+    if (activeTab === "replies") return casts.filter((c) => !!c.parent_hash);
+    // Voice notes / recordings render their own FlatList, so this value is
+    // only read when on casts or replies — return an empty array otherwise.
+    return [];
+  }, [casts, activeTab]);
 
   useEffect(() => {
     fetchProfile();
     fetchVoiceNotes();
   }, [fetchProfile, fetchVoiceNotes]);
+
+  // Lazy-fetch recordings the first time the user opens that tab.
+  useEffect(() => {
+    if (activeTab === "recordings" && recordings.length === 0) {
+      fetchRecordings();
+    }
+  }, [activeTab, recordings.length, fetchRecordings]);
 
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {
@@ -237,23 +273,56 @@ export default function ProfileScreen() {
     return <ErrorView message={error} onRetry={fetchProfile} fullScreen />;
   }
 
+  const profileHeader = user ? (
+    <ProfileHeader
+      user={user}
+      isOwnProfile={isOwnProfile}
+      onFollowToggle={toggleFollow}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+    />
+  ) : null;
+
   return (
     <View style={styles.container}>
-      {activeTab === "voice_notes" ? (
+      {activeTab === "recordings" ? (
+        <FlatList
+          data={recordings}
+          keyExtractor={(item) => `rec-${item.room_id}`}
+          ListHeaderComponent={profileHeader}
+          renderItem={({ item }) => <RecordingFeedItem item={item} />}
+          onEndReached={fetchMoreRecordings}
+          onEndReachedThreshold={0.5}
+          refreshControl={
+            <RefreshControl
+              refreshing={false}
+              onRefresh={() => {
+                fetchProfile();
+                fetchRecordings();
+              }}
+              tintColor={colors.accent}
+            />
+          }
+          ListFooterComponent={
+            recordingsLoading ? (
+              <View style={styles.footer}>
+                <LoadingSpinner size="small" />
+              </View>
+            ) : null
+          }
+          ListEmptyComponent={
+            !recordingsLoading ? (
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>No recordings yet</Text>
+              </View>
+            ) : null
+          }
+        />
+      ) : activeTab === "voice_notes" ? (
         <FlatList
           data={profileVoiceNotes}
           keyExtractor={(item) => `vn-${item.voice_note.id}`}
-          ListHeaderComponent={
-            user ? (
-              <ProfileHeader
-                user={user}
-                isOwnProfile={isOwnProfile}
-                onFollowToggle={toggleFollow}
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
-              />
-            ) : null
-          }
+          ListHeaderComponent={profileHeader}
           renderItem={({ item }) => (
             <VoiceNoteFeedItem
               item={item}
@@ -290,17 +359,7 @@ export default function ProfileScreen() {
         <FlatList
           data={filteredCasts}
           keyExtractor={(item) => item.hash}
-          ListHeaderComponent={
-            user ? (
-              <ProfileHeader
-                user={user}
-                isOwnProfile={isOwnProfile}
-                onFollowToggle={toggleFollow}
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
-              />
-            ) : null
-          }
+          ListHeaderComponent={profileHeader}
           renderItem={({ item }) => (
             <CastCard
               cast={item}

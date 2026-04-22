@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     QUICKAUTH_ISSUER: str = "https://auth.farcaster.xyz"
     QUICKAUTH_JWKS_URL: str = "https://auth.farcaster.xyz/.well-known/jwks.json"
 
+    # Shared secret for ops endpoints invoked by external schedulers
+    # (e.g. Railway cron jobs). Sent as the X-Admin-Secret header.
+    ADMIN_SECRET: str = ""
+
     # Spam filtering
     SPAM_FILTER_ENABLED: bool = True
 

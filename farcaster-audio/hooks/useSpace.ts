@@ -187,6 +187,54 @@ export function useSpace() {
             }
 
             if (
+              topic === "space_state" &&
+              data.type === "recording_state" &&
+              typeof data.recording === "boolean"
+            ) {
+              // Security: space_state messages can be sent by any participant
+              // with can_publish_data (hosts/co-hosts/speakers). Only trust
+              // the payload if it came from a server-side broadcast
+              // (undefined participant — LiveKit SDK reports room-level
+              // sends from our backend this way) or from a verified
+              // host/co-host. Otherwise, ignore and refetch authoritative
+              // state from our API so the REC badge can't be spoofed by a
+              // malicious speaker.
+              const senderFid = participant
+                ? parseInt(participant.identity, 10)
+                : null;
+              const isServerSend = !participant;
+              const senderRole = senderFid
+                ? useSpaceStore
+                    .getState()
+                    .participants.find((p) => p.fid === senderFid)?.role
+                : null;
+              const trusted =
+                isServerSend ||
+                senderRole === "host" ||
+                senderRole === "co_host";
+
+              if (trusted) {
+                store.setRecording(data.recording);
+              } else {
+                console.warn(
+                  "[useSpace] Ignoring space_state from untrusted sender",
+                  { senderFid, senderRole },
+                );
+                const roomId = useSpaceStore.getState().room?.id;
+                if (roomId) {
+                  api
+                    .getRoom(roomId)
+                    .then((detail) => {
+                      if (detail?.room?.recording !== undefined) {
+                        store.setRecording(!!detail.room.recording);
+                      }
+                    })
+                    .catch(() => {});
+                }
+              }
+            }
+
+            if (
               topic === "reactions" &&
               data.type === "reaction" &&
               data.key &&

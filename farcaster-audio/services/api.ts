@@ -195,6 +195,47 @@ export const refreshRoomToken = (roomId: string) =>
     .post<TokenRefreshResponse>(`/v1/rooms/${roomId}/token`)
     .then((r) => r.data);
 
+// --- Recording ---
+export interface StartRecordingResponse {
+  egress_id: string;
+  status: string;
+}
+
+export interface StopRecordingResponse {
+  status: string;
+}
+
+export const startRecording = (roomId: string) =>
+  apiClient
+    .post<StartRecordingResponse>(`/v1/rooms/${roomId}/recording/start`)
+    .then((r) => r.data);
+
+export const stopRecording = (roomId: string) =>
+  apiClient
+    .post<StopRecordingResponse>(`/v1/rooms/${roomId}/recording/stop`)
+    .then((r) => r.data);
+
+export interface RecordingItem {
+  room_id: string;
+  title: string;
+  recording_url: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface RecordingListResponse {
+  recordings: RecordingItem[];
+  next_cursor: string | null;
+}
+
+export const getUserRecordings = (fid: number, cursor?: string) =>
+  apiClient
+    .get<RecordingListResponse>(`/v1/users/${fid}/recordings`, {
+      params: { cursor, limit: 20 },
+    })
+    .then((r) => r.data);
+
 // --- Users ---
 export const searchUsers = (q: string, limit = 5) =>
   apiClient

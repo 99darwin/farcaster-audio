@@ -4,7 +4,11 @@ import { Avatar } from "@/components/common/Avatar";
 import { colors } from "@/constants/theme";
 import type { NeynarUser } from "@/types/neynar";
 
-export type ProfileTab = "casts" | "replies" | "voice_notes";
+export type ProfileTab =
+  | "casts"
+  | "replies"
+  | "voice_notes"
+  | "recordings";
 
 interface ProfileHeaderProps {
   user: NeynarUser;
@@ -117,6 +121,19 @@ export function ProfileHeader({
             ]}
           >
             Voice Notes
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, activeTab === "recordings" && styles.tabActive]}
+          onPress={() => onTabChange("recordings")}
+        >
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === "recordings" && styles.tabTextActive,
+            ]}
+          >
+            Recordings
           </Text>
         </Pressable>
       </View>

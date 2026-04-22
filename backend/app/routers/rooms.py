@@ -146,3 +146,36 @@ async def end_room(
     """End an active room. Only the host or a co-host may call this endpoint."""
     await room_service.end_room(room_id=room_id, fid=current_user_fid)
     return StatusResponse(status="ended")
+
+
+# ---------------------------------------------------------------------------
+# Recording
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{room_id}/recording/start")
+async def start_recording(
+    room_id: str,
+    current_user_fid: int = Depends(require_non_demo_user),
+    room_service: RoomService = Depends(get_room_service),
+) -> dict:
+    """Start recording the room. Host/co-host only.
+
+    Returns ``{egress_id, status: "recording"}``. The recording URL is
+    populated asynchronously when LiveKit emits the ``egress_ended`` webhook.
+    """
+    return await room_service.start_recording(
+        room_id=room_id, fid=current_user_fid
+    )
+
+
+@router.post("/{room_id}/recording/stop")
+async def stop_recording(
+    room_id: str,
+    current_user_fid: int = Depends(require_non_demo_user),
+    room_service: RoomService = Depends(get_room_service),
+) -> dict:
+    """Stop the active recording. Host/co-host only."""
+    return await room_service.stop_recording(
+        room_id=room_id, fid=current_user_fid
+    )

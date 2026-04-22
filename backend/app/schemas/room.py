@@ -71,3 +71,19 @@ class RoomDetailResponse(BaseModel):
     room: RoomResponse
     participants: list[ParticipantResponse]
     hand_queue: list[int] = []
+
+
+class RecordingResponse(BaseModel):
+    """A single recorded space on a user's profile."""
+
+    room_id: str
+    title: str
+    recording_url: str
+    started_at: str
+    ended_at: str | None = None
+    duration_seconds: int | None = None
+
+
+class RecordingListResponse(BaseModel):
+    recordings: list[RecordingResponse]
+    next_cursor: str | None = None

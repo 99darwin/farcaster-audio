@@ -19,6 +19,7 @@ from app.models.participant import Participant
 from app.models.room import Room
 from app.services.livekit_service import LiveKitService
 from app.services.redis_service import RedisService
+from app.services.storage_service import extract_recording_s3_key
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ async def livekit_webhook(
         case "track_published":
             pass  # No action needed for MVP
         case "egress_ended":
-            await _handle_egress_ended(event, db)
+            await _handle_egress_ended(event, db, redis_service)
 
     return {"status": "ok"}
 
@@ -149,14 +150,50 @@ async def _handle_room_finished(
     await redis_service.publish_room_event(room_name, {"type": "room_ended"})
 
 
-async def _handle_egress_ended(event, db: AsyncSession):
-    """Store recording URL when egress completes."""
+async def _handle_egress_ended(event, db: AsyncSession, redis_service: RedisService):
+    """Store recording URL when egress completes.
+
+    Security: LiveKit webhook auth proves the payload came from LiveKit but
+    does NOT prove which of our rooms owns a given egress. We therefore:
+      1. Require the reported ``egress_id`` to match the one we stashed in
+         Redis when we started the recording (``room:{room_id}:egress_id``).
+         A mismatch or missing Redis entry means we never started this
+         egress (or it was rotated) — refuse to record the URL.
+      2. Validate ``file_url`` host+scheme against our configured storage
+         (``extract_recording_s3_key``) so a spoofed webhook can't convince
+         us to save an attacker-controlled URL that we'd later serve as a
+         signed recording. A URL we can't trust is dropped with a warning.
+    """
     egress_info = getattr(event, "egress_info", None)
     if not egress_info:
         return
 
     room_name = getattr(egress_info, "room_name", None)
     if not room_name:
+        return
+
+    egress_id = getattr(egress_info, "egress_id", None)
+    if not egress_id:
+        logger.warning(
+            "egress_ended for room %s missing egress_id — refusing to write recording_url",
+            room_name,
+        )
+        return
+
+    expected_egress_id = await redis_service.redis.get(
+        f"room:{room_name}:egress_id"
+    )
+    if not expected_egress_id or expected_egress_id != egress_id:
+        # Security event — the egress_id in the webhook doesn't match the
+        # one we stashed when we kicked off the recording. Either a stale
+        # worker, a LiveKit bug, or a forged/replayed webhook body.
+        logger.warning(
+            "Rejecting egress_ended for room=%s: egress_id mismatch "
+            "(expected=%s, got=%s)",
+            room_name,
+            (expected_egress_id[:8] + "...") if expected_egress_id else None,
+            (egress_id[:8] + "...") if egress_id else None,
+        )
         return
 
     file_url = None
@@ -169,12 +206,59 @@ async def _handle_egress_ended(event, db: AsyncSession):
     if not file_url:
         return
 
+    # Validate the file URL belongs to our configured storage before
+    # persisting it. Dropping the URL is safer than trusting a webhook
+    # payload we couldn't verify.
+    recording_key = extract_recording_s3_key(file_url)
+    if not recording_key:
+        logger.warning(
+            "Rejecting egress_ended for room=%s: file_url failed storage "
+            "host/key validation",
+            room_name,
+        )
+        return
+
     await db.execute(
         update(Room)
         .where(Room.id == room_name)
-        .values(recording_url=file_url, recording=False)
+        .values(
+            recording_url=file_url,
+            recording_key=recording_key,
+            recording=False,
+        )
     )
     await db.commit()
+
+    # Clear the stashed egress_id now that we've recorded a successful
+    # finalization — prevents a replayed webhook from re-writing the URL.
+    try:
+        await redis_service.redis.delete(f"room:{room_name}:egress_id")
+    except Exception:
+        logger.warning(
+            "Failed to clear egress_id Redis key for room %s after egress_ended",
+            room_name,
+        )
+
+    # Notify any still-connected participants that the recording is fully
+    # finalized so their UI can clear the REC badge. Best-effort; room may
+    # already have been torn down by this point.
+    livekit = LiveKitService()
+    try:
+        payload = json.dumps(
+            {"type": "recording_state", "recording": False}
+        ).encode()
+        await livekit.send_data(room_name, payload, topic="space_state")
+    except Exception as exc:
+        logger.warning(
+            "Failed to broadcast recording_state=false after egress_ended for %s: %s",
+            room_name,
+            exc,
+        )
+    finally:
+        try:
+            await livekit.close()
+        except Exception:
+            pass
 
 
 def _verify_neynar_signature(body: bytes, secret: str, signature: str) -> bool:

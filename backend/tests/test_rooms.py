@@ -41,3 +41,45 @@ async def test_create_room_empty_title(client):
     headers = make_auth_header()
     response = await client.post("/v1/rooms", json={"title": ""}, headers=headers)
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_start_recording_requires_auth(client):
+    """POST /v1/rooms/{id}/recording/start should require auth."""
+    response = await client.post(
+        "/v1/rooms/00000000-0000-0000-0000-000000000000/recording/start"
+    )
+    assert response.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_stop_recording_requires_auth(client):
+    """POST /v1/rooms/{id}/recording/stop should require auth."""
+    response = await client.post(
+        "/v1/rooms/00000000-0000-0000-0000-000000000000/recording/stop"
+    )
+    assert response.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_user_recordings_requires_auth(client):
+    """GET /v1/users/{fid}/recordings should require auth."""
+    response = await client.get("/v1/users/1/recordings")
+    assert response.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_admin_recordings_cleanup_requires_secret(client):
+    """POST /v1/admin/recordings/cleanup should reject missing secret."""
+    response = await client.post("/v1/admin/recordings/cleanup")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_recordings_cleanup_rejects_bad_secret(client):
+    """POST /v1/admin/recordings/cleanup should reject wrong secret."""
+    response = await client.post(
+        "/v1/admin/recordings/cleanup",
+        headers={"X-Admin-Secret": "wrong-secret"},
+    )
+    assert response.status_code == 401
