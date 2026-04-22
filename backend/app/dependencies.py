@@ -1,3 +1,4 @@
+import uuid
 from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
@@ -12,6 +13,18 @@ from app.models.user import User
 from app.services.spam_service import SpamService
 
 DEMO_SIGNER_UUID = "demo-readonly"
+
+
+def _is_valid_neynar_signer(signer_uuid: str | None) -> bool:
+    """A real Neynar signer is a UUIDv4 string. Any sentinel/legacy value
+    (demo-readonly, dev-signer, etc.) won't parse as a UUID."""
+    if not signer_uuid:
+        return False
+    try:
+        uuid.UUID(signer_uuid)
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return True
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -60,7 +73,10 @@ async def require_non_demo_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found.",
         )
-    if signer_uuid == DEMO_SIGNER_UUID:
+    # Any non-UUID signer for fid=1 is a demo/legacy sentinel (demo-readonly,
+    # dev-signer, etc.) and cannot actually cast to Neynar anyway. If @farcaster
+    # themselves sign in via SIWN, they'll have a real Neynar UUIDv4 signer.
+    if not _is_valid_neynar_signer(signer_uuid):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sign in with Farcaster to post or host.",
@@ -79,4 +95,5 @@ __all__ = [
     "require_non_demo_user",
     "DEMO_SIGNER_UUID",
     "DEMO_USER_FID",
+    "_is_valid_neynar_signer",
 ]
