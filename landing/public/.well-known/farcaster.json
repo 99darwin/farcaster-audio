@@ -26,28 +26,5 @@
     "ogDescription": "Host spaces, browse your feed, and vibe with your community — all in one app.",
     "ogImageUrl": "https://juke.audio/miniapp-hero.png",
     "webhookUrl": "https://juke.audio/api/webhook"
-  },
-  "frame": {
-    "version": "1",
-    "name": "Juke Audio",
-    "subtitle": "Live audio on Farcaster",
-    "description": "Host spaces, browse your feed, and vibe with your community — all in one app.",
-    "primaryCategory": "social",
-    "tags": ["social", "audio", "spaces"],
-    "tagline": "Host, browse, and vibe",
-    "homeUrl": "https://juke.audio/miniapp",
-    "iconUrl": "https://juke.audio/app-icon.png",
-    "imageUrl": "https://juke.audio/app-icon.png",
-    "heroImageUrl": "https://juke.audio/miniapp-hero.png",
-    "splashImageUrl": "https://juke.audio/app-icon.png",
-    "splashBackgroundColor": "#6a3cff",
-    "screenshotUrls": [
-      "https://juke.audio/screenshot.PNG"
-    ],
-    "buttonTitle": "Listen Now",
-    "ogTitle": "Juke — Farcaster Audio Spaces",
-    "ogDescription": "Host spaces, browse your feed, and vibe with your community — all in one app.",
-    "ogImageUrl": "https://juke.audio/miniapp-hero.png",
-    "webhookUrl": "https://juke.audio/api/webhook"
   }
 }
