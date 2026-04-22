@@ -53,6 +53,10 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
 
   const roomRef = useRef<Room | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  // Set to true when the user taps Cancel during sign-in. Checked after
+  // each await in handleListen so a stuck SDK promise can't silently
+  // advance the flow after the user bailed out.
+  const cancelAuthRef = useRef(false);
 
   // Lookup table so we can map LiveKit identities ("fid-123") back to our
   // participant objects when active speakers change.
@@ -96,10 +100,12 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
     // to happen synchronously in the same task as the tap.
     unlockAudio();
 
+    cancelAuthRef.current = false;
     setPhase("authenticating");
     setErrorMessage(null);
 
     const auth = await getCachedMiniappAuth();
+    if (cancelAuthRef.current) return;
     if (!auth.ok) {
       if (auth.reason === "not_in_miniapp") {
         // Plain desktop browser: the miniapp SDK has no host to talk to.
@@ -122,6 +128,7 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
 
     setPhase("joining");
     const join = await joinSpaceAsListener(spaceId, auth.token);
+    if (cancelAuthRef.current) return;
     if (!join) {
       setPhase("error");
       setErrorMessage("Couldn't join this space");
@@ -220,6 +227,12 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
     }
     // Navigate back; Link fallback handled by user.
     window.history.back();
+  }, []);
+
+  const handleCancelAuth = useCallback(() => {
+    cancelAuthRef.current = true;
+    setPhase("idle");
+    setErrorMessage(null);
   }, []);
 
   const jukeDeeplink = jukeSpaceUrl(spaceId);
@@ -384,17 +397,27 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
         ) : phase === "authenticating" ||
           phase === "joining" ||
           phase === "connecting" ? (
-          <button
-            disabled
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-white/10 py-3 text-sm font-bold text-white/60"
-          >
-            <span className="h-2 w-2 animate-pulse rounded-full bg-white/60" />
-            {phase === "authenticating"
-              ? "Signing in…"
-              : phase === "joining"
-                ? "Joining…"
-                : "Connecting…"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              disabled
+              className="flex flex-1 items-center justify-center gap-2 rounded-full bg-white/10 py-3 text-sm font-bold text-white/60"
+            >
+              <span className="h-2 w-2 animate-pulse rounded-full bg-white/60" />
+              {phase === "authenticating"
+                ? "Signing in…"
+                : phase === "joining"
+                  ? "Joining…"
+                  : "Connecting…"}
+            </button>
+            {phase === "authenticating" && (
+              <button
+                onClick={handleCancelAuth}
+                className="flex items-center justify-center rounded-full bg-white/10 px-5 py-3 text-sm font-semibold text-white/70 transition-colors hover:bg-white/15"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         ) : phase === "listening" ? (
           <div className="flex gap-2">
             <button
