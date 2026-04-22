@@ -4,7 +4,7 @@
     "payload": "eyJkb21haW4iOiJqdWtlLmF1ZGlvIn0",
     "signature": "mF0KefYIuFSaXZ3IFj0VizB+91V0aVwfHoh5XsGLiSx76PE6Hp2PoD+gLTn1nJS3WturJV4PwB7RtDtay70IRBw="
   },
-  "frame": {
+  "miniapp": {
     "version": "1",
     "name": "Juke Audio",
     "subtitle": "Live audio on Farcaster",

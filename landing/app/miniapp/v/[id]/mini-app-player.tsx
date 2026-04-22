@@ -71,7 +71,10 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
       if (context?.client?.added) {
         setIsAdded(true);
       }
-      sdk.actions.ready();
+      sdk.actions.ready().catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn("[miniapp] sdk.actions.ready failed", err);
+      });
     }
     init();
   }, []);

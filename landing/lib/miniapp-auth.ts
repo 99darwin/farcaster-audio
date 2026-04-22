@@ -47,14 +47,23 @@ export type MiniappAuthResult =
 // short timeout as a defensive fallback in case the host check itself
 // stalls.
 const MINIAPP_CHECK_TIMEOUT_MS = 3000;
-const SIGNIN_TIMEOUT_MS = 60_000;
+// If signIn still hasn't resolved after this long, the bridge is wedged
+// (e.g., Warpcast web modal dismissed without reject, unverified domain
+// manifest, etc.) — treat as not_in_miniapp so the UI falls back to app
+// CTAs instead of leaving the user stuck.
+const SIGNIN_TIMEOUT_MS = 15_000;
 
 async function isInMiniappHost(): Promise<boolean> {
   try {
     const timeout = new Promise<boolean>((resolve) =>
       setTimeout(() => resolve(false), MINIAPP_CHECK_TIMEOUT_MS),
     );
-    return await Promise.race([sdk.isInMiniApp(), timeout]);
+    const result = await Promise.race([sdk.isInMiniApp(), timeout]);
+    // Diagnostic — temporary until we validate the desktop browser flow
+    // end-to-end. Remove once the UX is confirmed stable.
+    // eslint-disable-next-line no-console
+    console.info("[miniapp-auth] isInMiniApp ->", result);
+    return result;
   } catch {
     return false;
   }
