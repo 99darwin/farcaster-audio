@@ -6,12 +6,13 @@ Endpoints:
   DELETE /v1/admin/rooms/{room_id}                    Force-end any room
   DELETE /v1/admin/rooms/{room_id}/participants/{fid}  Force-kick participant
   POST   /v1/admin/setup-webhooks                     Register Neynar push webhooks
+  POST   /v1/admin/recordings/cleanup                 Run recording retention cleanup
 """
 
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -20,6 +21,7 @@ from app.middleware.auth import get_admin_user
 from app.schemas.common import StatusResponse
 from app.schemas.room import RoomListResponse
 from app.services.livekit_service import LiveKitService
+from app.services.recording_cleanup import cleanup_expired_recordings
 from app.services.redis_service import RedisService
 from app.services.room_service import RoomService
 
@@ -117,3 +119,36 @@ async def setup_push_webhooks(
             logger.info("Registered Neynar webhook %s (%s)", webhook.get("webhook_id"), name)
 
     return {"webhooks": results}
+
+
+# ---------------------------------------------------------------------------
+# Recording retention cleanup
+# ---------------------------------------------------------------------------
+
+
+def _verify_admin_secret(request: Request) -> None:
+    """Gate ops endpoints called by external schedulers via shared secret.
+
+    Sent as ``X-Admin-Secret: <ADMIN_SECRET>``. We require the secret to be
+    configured (not empty) so a missing env var can't silently grant access.
+    """
+    provided = request.headers.get("x-admin-secret", "")
+    if not settings.ADMIN_SECRET or provided != settings.ADMIN_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin secret",
+        )
+
+
+@router.post("/recordings/cleanup")
+async def admin_cleanup_recordings(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete recording files + clear URLs past the retention window.
+
+    Protected by the ``X-Admin-Secret`` header so Railway scheduled jobs
+    can trigger it daily without a user JWT. Returns counts for verification.
+    """
+    _verify_admin_secret(request)
+    return await cleanup_expired_recordings(db)
