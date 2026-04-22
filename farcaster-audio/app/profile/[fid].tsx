@@ -119,13 +119,13 @@ export default function ProfileScreen() {
     setRecordingsLoading(false);
   }, [fid, recordingsCursor, recordingsLoading]);
 
-  const filteredCasts = useMemo(
-    () =>
-      activeTab === "casts"
-        ? casts.filter((c) => !c.parent_hash)
-        : casts.filter((c) => !!c.parent_hash),
-    [casts, activeTab],
-  );
+  const filteredCasts = useMemo(() => {
+    if (activeTab === "casts") return casts.filter((c) => !c.parent_hash);
+    if (activeTab === "replies") return casts.filter((c) => !!c.parent_hash);
+    // Voice notes / recordings render their own FlatList, so this value is
+    // only read when on casts or replies — return an empty array otherwise.
+    return [];
+  }, [casts, activeTab]);
 
   useEffect(() => {
     fetchProfile();
