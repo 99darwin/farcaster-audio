@@ -624,10 +624,17 @@ def _allowed_quickauth_audiences() -> set[str]:
     }
 
 
+# Sentinel signer_uuid for users who authed via the miniapp Quick Auth
+# flow but have no Neynar signer registered with us. They can listen and
+# read but can't perform write actions that require a real signer.
+MINIAPP_QUICKAUTH_SIGNER_UUID = "miniapp-quickauth"
+
+
 @router.post("/miniapp-quickauth", response_model=MiniAppVerifyResponse)
 async def miniapp_quickauth(
     body: QuickAuthVerifyRequest,
     request: Request,
+    db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
     """Verify a Farcaster Quick Auth JWT and issue our own session JWT.
@@ -752,6 +759,49 @@ async def miniapp_quickauth(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing fid in Quick Auth token",
         )
+
+    # Ensure a User row exists for this fid so downstream endpoints
+    # (e.g. POST /v1/rooms/{id}/join, which calls _get_user) don't 404
+    # the first time a miniapp user shows up. Best-effort Neynar profile
+    # fetch — if it fails, fall back to a minimal placeholder so auth
+    # still succeeds; the user just gets a generic display name until
+    # the next request refreshes their profile.
+    try:
+        profile = await fetch_user_profile(fid)
+    except Exception as exc:
+        logger.warning("neynar profile fetch failed for fid=%s: %s", fid, exc)
+        profile = {}
+    try:
+        result = await db.execute(select(User).where(User.fid == fid))
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            db.add(
+                User(
+                    fid=fid,
+                    signer_uuid=MINIAPP_QUICKAUTH_SIGNER_UUID,
+                    username=profile.get("username"),
+                    display_name=profile.get("display_name"),
+                    pfp_url=profile.get("pfp_url"),
+                    custody_address=profile.get("custody_address"),
+                )
+            )
+        else:
+            # Refresh profile fields if Neynar gave us anything new, but do
+            # NOT touch signer_uuid — preserve any real Neynar signer the
+            # user registered via the native app.
+            if profile.get("username"):
+                existing.username = profile["username"]
+            if profile.get("display_name"):
+                existing.display_name = profile["display_name"]
+            if profile.get("pfp_url"):
+                existing.pfp_url = profile["pfp_url"]
+            if profile.get("custody_address"):
+                existing.custody_address = profile["custody_address"]
+        await db.commit()
+    except Exception as exc:
+        logger.warning("user upsert failed for fid=%s: %s", fid, exc)
+        # Don't fail auth — downstream endpoints will surface the missing
+        # user as a 404, but we still want the JWT issued.
 
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(hours=MINIAPP_JWT_EXPIRY_HOURS)
