@@ -756,12 +756,26 @@ class RoomService:
         if egress_id:
             try:
                 await self.livekit.stop_egress(egress_id)
-            except Exception:
-                logger.exception(
-                    "LiveKit stop egress failed for room %s (egress_id=%s...)",
-                    room_id,
-                    egress_id[:8] if egress_id else "?",
-                )
+            except Exception as exc:
+                # End Space immediately after Stop Recording races the
+                # `egress_ended` webhook: LiveKit reports the egress as
+                # already terminal (EGRESS_COMPLETE / EGRESS_ABORTED /
+                # EGRESS_FAILED) and returns 412 failed_precondition.
+                # That's benign — the egress is already done — so we log
+                # at info level and let the webhook clean up state.
+                msg = str(exc)
+                if "cannot be stopped" in msg or "failed_precondition" in msg:
+                    logger.info(
+                        "Egress %s... for room %s already in terminal state; skipping stop",
+                        egress_id[:8],
+                        room_id,
+                    )
+                else:
+                    logger.exception(
+                        "LiveKit stop egress failed for room %s (egress_id=%s...)",
+                        room_id,
+                        egress_id[:8] if egress_id else "?",
+                    )
         else:
             logger.warning(
                 "No egress_id found in Redis for room %s during stop_recording",
