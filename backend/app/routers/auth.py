@@ -42,7 +42,7 @@ from app.services.auth_address_service import (
     register_auth_address_with_neynar,
     upsert_auth_address_from_registration,
 )
-from app.dependencies import get_current_user
+from app.dependencies import DEMO_SIGNER_UUID, get_current_user, require_non_demo_user
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
@@ -68,14 +68,14 @@ async def dev_login(
                 username=profile.get("username", "farcaster"),
                 display_name=profile.get("display_name", "Farcaster"),
                 pfp_url=profile.get("pfp_url"),
-                signer_uuid="demo-readonly",
+                signer_uuid=DEMO_SIGNER_UUID,
             )
         except Exception:
             user = User(
                 fid=fid,
                 username="farcaster",
                 display_name="Farcaster",
-                signer_uuid="demo-readonly",
+                signer_uuid=DEMO_SIGNER_UUID,
             )
         db.add(user)
         await db.commit()
@@ -249,7 +249,7 @@ async def refresh(
 @router.post("/auth-address", response_model=RegisterAuthAddressResponse)
 async def register_auth_address(
     body: RegisterAuthAddressRequest,
-    fid: int = Depends(get_current_user),
+    fid: int = Depends(require_non_demo_user),
     redis: aioredis.Redis = Depends(get_redis),
     db: AsyncSession = Depends(get_db),
 ):

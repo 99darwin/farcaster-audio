@@ -1,12 +1,17 @@
 from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import async_session
 from app.middleware.auth import get_admin_user, get_agent_or_user, get_current_user, get_optional_current_user  # re-export
+from app.models.user import User
 from app.services.spam_service import SpamService
+
+DEMO_SIGNER_UUID = "demo-readonly"
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -28,6 +33,41 @@ async def get_spam_service(
     return SpamService(db, redis)
 
 
+DEMO_USER_FID = 1  # dev_login() issues JWTs scoped to this fid only
+
+
+async def require_non_demo_user(
+    fid: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> int:
+    """
+    Reject writes from the shared demo-readonly signer in non-development environments.
+    The demo login issues a JWT for a real FID (currently @farcaster) with a sentinel
+    signer_uuid so anyone can explore the app without signing in — but they shouldn't
+    be able to post content or create rooms that attribute to that FID.
+    """
+    if settings.ENVIRONMENT == "development":
+        return fid
+    # The demo login only ever issues JWTs for DEMO_USER_FID, so any other fid
+    # cannot be the demo signer. Skip the DB read on the hot path.
+    if fid != DEMO_USER_FID:
+        return fid
+    result = await db.execute(select(User.signer_uuid).where(User.fid == fid))
+    signer_uuid = result.scalar_one_or_none()
+    if signer_uuid is None:
+        # Valid JWT for a fid that no longer exists — fail closed.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found.",
+        )
+    if signer_uuid == DEMO_SIGNER_UUID:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sign in with Farcaster to post or host.",
+        )
+    return fid
+
+
 __all__ = [
     "get_db",
     "get_redis",
@@ -36,4 +76,7 @@ __all__ = [
     "get_agent_or_user",
     "get_optional_current_user",
     "get_spam_service",
+    "require_non_demo_user",
+    "DEMO_SIGNER_UUID",
+    "DEMO_USER_FID",
 ]

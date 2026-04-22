@@ -55,6 +55,12 @@ interface ComposeModalProps {
     imageUris?: string[],
     quote?: { fid: number; hash: string },
   ) => Promise<void>;
+  /**
+   * Called after a voice reply successfully posts. Lets the parent screen
+   * refresh its thread so the new voice reply appears under the parent cast.
+   * Separate from onPublish because no text cast is published for voice replies.
+   */
+  onVoiceReplyPosted?: (parentHash: string) => void | Promise<void>;
   replyTo?: NeynarCast | null;
   quoteCast?: NeynarCast | null;
   defaultText?: string;
@@ -65,6 +71,7 @@ export function ComposeModal({
   isVisible,
   onClose,
   onPublish,
+  onVoiceReplyPosted,
   replyTo,
   quoteCast,
   defaultText,
@@ -303,6 +310,7 @@ export function ComposeModal({
           audio_size: 0,
           post_to_farcaster: postToFarcaster,
           cast_text: text.trim(),
+          parent_cast_hash: replyTo?.hash,
         });
 
         prependVoiceNote({
@@ -317,6 +325,14 @@ export function ComposeModal({
           viewer_reactions: [],
           play_count: 0,
         });
+
+        if (replyTo?.hash && onVoiceReplyPosted) {
+          try {
+            await onVoiceReplyPosted(replyTo.hash);
+          } catch {
+            // Non-fatal: the voice note was already posted; refresh is best-effort.
+          }
+        }
       } else {
         // Normal cast publish flow
         let uploadedUrls: string[] | undefined;

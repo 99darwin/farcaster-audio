@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from app.config import settings
-from app.dependencies import get_current_user, get_db, get_spam_service
+from app.dependencies import get_current_user, get_db, get_spam_service, require_non_demo_user
 from app.routers.feed import _neynar_headers, _raise_upstream_error, _get_signer_uuid
 from app.services.spam_service import SpamService
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -137,7 +137,7 @@ async def get_user_casts(
 @router.post("/{fid}/follow")
 async def follow_user(
     fid: int = Path(..., ge=1),
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Follow a user via Neynar."""
@@ -163,7 +163,7 @@ async def follow_user(
 @router.delete("/{fid}/follow")
 async def unfollow_user(
     fid: int = Path(..., ge=1),
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Unfollow a user via Neynar."""

@@ -50,6 +50,7 @@ def _voice_note_to_response(vn: VoiceNote) -> VoiceNoteResponse:
         transcript_words=vn.transcript_words,
         cast_hash=vn.cast_hash,
         cast_url=vn.cast_url,
+        parent_cast_hash=vn.parent_cast_hash,
         caption=vn.caption,
         created_at=vn.created_at.isoformat(),
         deleted_at=vn.deleted_at.isoformat() if vn.deleted_at else None,
@@ -73,6 +74,7 @@ async def create_voice_note(
     audio_size: int,
     caption: str | None,
     object_key: str,
+    parent_cast_hash: str | None = None,
 ) -> VoiceNote:
     """Create a new voice note record."""
     vn = VoiceNote(
@@ -82,6 +84,7 @@ async def create_voice_note(
         audio_url=object_key,
         audio_size=audio_size,
         caption=caption if caption else None,
+        parent_cast_hash=parent_cast_hash,
     )
     db.add(vn)
     await db.commit()

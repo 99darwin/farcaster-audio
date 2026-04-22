@@ -20,7 +20,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_current_user, get_db, get_spam_service
+from app.dependencies import (
+    DEMO_SIGNER_UUID,
+    get_current_user,
+    get_db,
+    get_spam_service,
+    require_non_demo_user,
+)
 from app.models.user import User
 from app.services.spam_service import SpamService
 
@@ -52,6 +58,12 @@ async def _get_signer_uuid(db: AsyncSession, fid: int) -> str:
     logger.info("[feed] signer_uuid lookup for fid=%s: found=%s", fid, bool(signer_uuid))
     if not signer_uuid:
         raise HTTPException(status_code=400, detail="No signer found for user")
+    # Defense-in-depth: the demo-readonly signer should never forward to Neynar.
+    if signer_uuid == DEMO_SIGNER_UUID:
+        raise HTTPException(
+            status_code=403,
+            detail="Sign in with Farcaster to post or host.",
+        )
     return signer_uuid
 
 
@@ -109,7 +121,7 @@ async def feed_following(
 @router.post("/cast")
 async def create_cast(
     body: CastRequest,
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Post a new cast (or reply) to Farcaster via Neynar."""
@@ -179,7 +191,7 @@ async def get_cast_thread(
 @router.delete("/cast/{cast_hash}")
 async def delete_cast(
     cast_hash: str = Path(..., pattern=r"^0x[a-fA-F0-9]+$"),
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a cast from Farcaster via Neynar."""
@@ -206,7 +218,7 @@ async def delete_cast(
 @router.post("/reaction")
 async def create_reaction(
     body: ReactionRequest,
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Proxy Neynar reaction creation (like/recast). Injects signer server-side."""
@@ -233,7 +245,7 @@ async def create_reaction(
 @router.delete("/reaction")
 async def delete_reaction(
     body: ReactionRequest,
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Proxy Neynar reaction deletion (unlike/unrecast). Injects signer server-side."""
