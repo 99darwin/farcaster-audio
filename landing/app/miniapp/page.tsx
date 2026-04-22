@@ -20,7 +20,10 @@ export default function MiniAppHome() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    sdk.actions.ready();
+    sdk.actions.ready().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn("[miniapp] sdk.actions.ready failed", err);
+    });
     fetchInitial();
   }, []);
 

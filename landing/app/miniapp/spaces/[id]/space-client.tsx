@@ -19,7 +19,13 @@ interface SpaceClientProps {
  */
 export function SpaceClient({ spaceId, initialData }: SpaceClientProps) {
   useEffect(() => {
-    sdk.actions.ready();
+    // Await the promise so any error surfaces in devtools. The host keeps
+    // the splash screen up until this resolves and suppresses action
+    // prompts (signIn, openUrl, etc.) on desktop hosts, per the spec.
+    sdk.actions.ready().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn("[miniapp] sdk.actions.ready failed", err);
+    });
   }, []);
 
   return <SpaceListener spaceId={spaceId} initialData={initialData} />;
