@@ -703,17 +703,18 @@ async def miniapp_quickauth(
             detail="Quick Auth audience not configured",
         )
 
-    # python-jose's jwt.decode only accepts a single string for `audience`.
-    # Decode without audience validation, then match the claim against our
-    # allowlist manually so we can support multiple domains (prod + preview
-    # URLs) and log the actual `aud` when it doesn't match.
+    # python-jose enforces RFC 7519 strictly: `audience` only accepts a
+    # single string and `sub` must be a string. Quick Auth JWTs ship `sub`
+    # as an integer fid (per https://miniapps.farcaster.xyz/docs/sdk/quick-auth)
+    # and we want to match `aud` against an allowlist. Skip both checks
+    # here and validate them manually below.
     try:
         claims = jwt.decode(
             token,
             key,
             algorithms=[unverified_header.get("alg", "RS256")],
             issuer=settings.QUICKAUTH_ISSUER,
-            options={"verify_aud": False},
+            options={"verify_aud": False, "verify_sub": False},
         )
     except JWTError as exc:
         logger.warning("quick-auth jwt verification failed: %s", exc)
