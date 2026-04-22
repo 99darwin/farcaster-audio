@@ -195,6 +195,10 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
         setAuthError("Authentication failed");
       } else if (result.reason === "network") {
         setAuthError("Network error");
+      } else if (result.reason === "not_in_miniapp") {
+        // Plain desktop browser — reactions require the Juke app or
+        // Warpcast. Point the user at the install instead of spinning.
+        setAuthError("Open in the Juke app to react");
       }
       return null;
     }

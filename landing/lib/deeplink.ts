@@ -26,3 +26,6 @@ export function jukeVoiceNoteUrl(id: string): string | null {
   if (!isValidId(id)) return null;
   return `juke://voice-note/${encodeURIComponent(id)}`;
 }
+
+export const APP_STORE_URL =
+  "https://apps.apple.com/app/juke-audio/id6746423951";
