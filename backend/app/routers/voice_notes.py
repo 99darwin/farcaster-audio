@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dependencies import (
-    DEMO_SIGNER_UUID,
+    _is_valid_neynar_signer,
     get_current_user,
     get_db,
     get_optional_current_user,
@@ -71,10 +71,10 @@ async def _get_signer_uuid(db: AsyncSession, fid: int) -> str:
     signer_uuid = result.scalar_one_or_none()
     if not signer_uuid:
         raise HTTPException(status_code=400, detail="No signer found for user")
-    # Defense-in-depth: the demo-readonly signer should never forward to Neynar.
-    # Write endpoints are also gated by require_non_demo_user; this closes any gap
-    # if a future endpoint forgets that dependency.
-    if signer_uuid == DEMO_SIGNER_UUID:
+    # Defense-in-depth: any non-UUID signer (demo-readonly, dev-signer, legacy
+    # sentinels) cannot cast to Neynar. Write endpoints are also gated by
+    # require_non_demo_user; this closes the gap if a future endpoint misses it.
+    if not _is_valid_neynar_signer(signer_uuid):
         raise HTTPException(
             status_code=403,
             detail="Sign in with Farcaster to post or host.",

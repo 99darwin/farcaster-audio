@@ -120,13 +120,21 @@ def _mock_db_returning_signer(signer_uuid: str | None):
     return db
 
 
+@pytest.mark.parametrize(
+    "sentinel",
+    ["demo-readonly", "dev-signer", "admin", "readonly", "demo", "", "not-a-uuid"],
+)
 @pytest.mark.asyncio
-async def test_require_non_demo_user_blocks_demo_signer_in_prod(monkeypatch):
+async def test_require_non_demo_user_blocks_any_non_uuid_signer_in_prod(
+    monkeypatch, sentinel
+):
+    """Any non-UUID signer for fid=1 in prod must be blocked — not just the current
+    'demo-readonly' sentinel. Legacy rows (e.g. 'dev-signer') must also fail."""
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
-    db = _mock_db_returning_signer(DEMO_SIGNER_UUID)
+    db = _mock_db_returning_signer(sentinel)
     with pytest.raises(HTTPException) as exc_info:
         await require_non_demo_user(fid=1, db=db)
-    assert exc_info.value.status_code == 403
+    assert exc_info.value.status_code in (401, 403)
 
 
 @pytest.mark.asyncio
@@ -141,6 +149,7 @@ async def test_require_non_demo_user_allows_demo_signer_in_development(monkeypat
 
 @pytest.mark.asyncio
 async def test_require_non_demo_user_allows_real_signer_in_prod(monkeypatch):
+    """Non-demo fids short-circuit before the DB check. Any fid != 1 passes."""
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
     db = _mock_db_returning_signer("real-neynar-signer-uuid")
     result = await require_non_demo_user(fid=12345, db=db)
@@ -168,9 +177,11 @@ async def test_require_non_demo_user_fails_closed_when_fid_1_missing(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_require_non_demo_user_allows_real_signer_for_fid_1(monkeypatch):
-    """If @farcaster (fid=1) signs in via real SIWN, writes should succeed."""
+async def test_require_non_demo_user_allows_real_uuid_signer_for_fid_1(monkeypatch):
+    """If @farcaster (fid=1) signs in via real SIWN, the Neynar UUIDv4 signer
+    passes the UUID-shape check and writes succeed."""
+    import uuid as _uuid
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
-    db = _mock_db_returning_signer("real-neynar-signer-for-farcaster")
+    db = _mock_db_returning_signer(str(_uuid.uuid4()))
     result = await require_non_demo_user(fid=1, db=db)
     assert result == 1
