@@ -1,76 +1,29 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { use } from "react";
-import sdk from "@farcaster/miniapp-sdk";
-import { SpaceListener } from "@/components/space-listener";
-import { getSpaceDetail, type SpaceDetailResponse } from "@/lib/spaces";
+import { getSpaceDetail } from "@/lib/spaces";
+import { SpaceClient } from "./space-client";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function SpacePage({ params }: PageProps) {
-  const { id } = use(params);
-  const [data, setData] = useState<SpaceDetailResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * Server component entry for the miniapp space listener.
+ *
+ * Fetches the space detail at request time so the initial HTML already
+ * contains the room metadata and participant list. This avoids the
+ * blank-screen-then-skeleton flicker the old client-only version
+ * produced and also means search/link-previews get the correct markup.
+ */
+export default async function SpacePage({ params }: PageProps) {
+  const { id } = await params;
+  const detail = await getSpaceDetail(id);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const detail = await getSpaceDetail(id);
-        if (cancelled) return;
-        if (!detail) {
-          setError("Space not found");
-          return;
-        }
-        setData(detail);
-      } catch {
-        if (!cancelled) setError("Couldn't load space");
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-
-    load();
-    sdk.actions.ready();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
-
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen flex-col px-4 pt-6">
-        <BackLink />
-        <div className="mt-10 space-y-4">
-          <div className="h-4 w-32 animate-pulse rounded bg-white/10" />
-          <div className="h-6 w-3/4 animate-pulse rounded bg-white/10" />
-          <div className="flex gap-2">
-            <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" />
-            <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" />
-            <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !data) {
+  if (!detail) {
     return (
       <div className="flex min-h-screen flex-col px-4 pt-6">
         <BackLink />
         <div className="mt-20 flex flex-col items-center justify-center">
-          <p className="mb-4 text-sm text-white/50">
-            {error || "Space not found"}
-          </p>
+          <p className="mb-4 text-sm text-white/50">Space not found</p>
           <Link
             href="/miniapp"
             className="rounded-full bg-white/10 px-5 py-2 text-xs font-medium text-white/70 transition-colors hover:bg-white/15"
@@ -82,7 +35,7 @@ export default function SpacePage({ params }: PageProps) {
     );
   }
 
-  return <SpaceListener spaceId={id} initialData={data} />;
+  return <SpaceClient spaceId={id} initialData={detail} />;
 }
 
 function BackLink() {

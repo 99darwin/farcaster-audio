@@ -3,10 +3,43 @@ import sdk from "@farcaster/miniapp-sdk";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
 
-export interface MiniappAuthResult {
+if (
+  typeof process !== "undefined" &&
+  process.env.NODE_ENV !== "production" &&
+  !process.env.NEXT_PUBLIC_API_BASE_URL
+) {
+  // Preview deploys must not throw, but a missing API base URL in dev is
+  // almost always a mistake — surface it early so developers notice.
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[miniapp-auth] NEXT_PUBLIC_API_BASE_URL is unset; falling back to https://your-api-host.example.com",
+  );
+}
+
+// Conservative token cache: refresh 60 seconds before `exp` to avoid
+// race conditions near expiry. If exp can't be parsed, we default to
+// 10 minutes (MIN_LIFETIME_MS), which matches the recommendation in the
+// security review.
+const MIN_LIFETIME_MS = 10 * 60 * 1000;
+const EXPIRY_SAFETY_MS = 60 * 1000;
+
+interface CachedAuth {
   token: string;
   fid: number;
+  expiresAt: number;
 }
+
+let cached: CachedAuth | null = null;
+
+export type MiniappAuthError =
+  | "user_cancelled"
+  | "network"
+  | "verify_failed"
+  | "invalid_response";
+
+export type MiniappAuthResult =
+  | { ok: true; token: string; fid: number }
+  | { ok: false; reason: MiniappAuthError };
 
 /**
  * SIWF authentication flow for Farcaster miniapps.
@@ -16,28 +49,126 @@ export interface MiniappAuthResult {
  *   2. Prompt user via `sdk.actions.signIn` (Sign-In With Farcaster).
  *   3. POST signature + nonce to backend, receive JWT + FID.
  *
- * Returns null on any failure (user rejection, network error, verification failure).
+ * Returns a discriminated union so callers can react to specific failure
+ * modes (user dismissal vs network error vs server verify failure).
  */
-export async function authenticateMiniapp(): Promise<MiniappAuthResult | null> {
+export async function authenticateMiniapp(): Promise<MiniappAuthResult> {
+  let nonce: string;
   try {
     const nonceResp = await fetch(`${API_BASE_URL}/v1/auth/miniapp-nonce`);
-    if (!nonceResp.ok) return null;
-    const { nonce } = await nonceResp.json();
+    if (!nonceResp.ok) return { ok: false, reason: "network" };
+    const nonceBody = (await nonceResp.json()) as { nonce?: unknown };
+    if (typeof nonceBody.nonce !== "string" || nonceBody.nonce.length === 0) {
+      return { ok: false, reason: "invalid_response" };
+    }
+    nonce = nonceBody.nonce;
+  } catch {
+    return { ok: false, reason: "network" };
+  }
 
-    const result = await sdk.actions.signIn({ nonce });
+  let signResult: { message: string; signature: string };
+  try {
+    signResult = await sdk.actions.signIn({ nonce });
+  } catch (err) {
+    // The miniapp SDK throws `SignIn.RejectedByUser` for dismissal; we
+    // don't have a stable type here, so check the error name defensively.
+    const name = (err as { name?: string })?.name ?? "";
+    if (name.includes("Rejected")) {
+      return { ok: false, reason: "user_cancelled" };
+    }
+    return { ok: false, reason: "network" };
+  }
 
-    const resp = await fetch(`${API_BASE_URL}/v1/auth/miniapp-verify`, {
+  const verifyUrl = `${API_BASE_URL}/v1/auth/miniapp-verify`;
+  let resp: Response;
+  try {
+    resp = await fetch(verifyUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: result.message,
-        signature: result.signature,
+        message: signResult.message,
+        signature: signResult.signature,
         nonce,
       }),
     });
-    if (!resp.ok) return null;
-    const body = await resp.json();
-    return { token: body.token, fid: body.fid };
+  } catch {
+    return { ok: false, reason: "network" };
+  }
+
+  // Defense in depth: confirm the response actually came from the same
+  // origin we posted to. Rules out a transparent proxy rewriting `resp.url`.
+  try {
+    const respOrigin = new URL(resp.url).origin;
+    const expectedOrigin = new URL(verifyUrl).origin;
+    if (respOrigin !== expectedOrigin) {
+      return { ok: false, reason: "invalid_response" };
+    }
+  } catch {
+    return { ok: false, reason: "invalid_response" };
+  }
+
+  if (!resp.ok) {
+    // 4xx means the backend refused to verify the signature; surface as
+    // a distinct error so the UI can show a fatal message instead of
+    // retrying silently.
+    return { ok: false, reason: "verify_failed" };
+  }
+
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch {
+    return { ok: false, reason: "invalid_response" };
+  }
+
+  if (typeof body !== "object" || body === null) {
+    return { ok: false, reason: "invalid_response" };
+  }
+  const { token, fid } = body as { token?: unknown; fid?: unknown };
+  if (typeof token !== "string" || token.length === 0) {
+    return { ok: false, reason: "invalid_response" };
+  }
+  if (typeof fid !== "number" || !Number.isFinite(fid)) {
+    return { ok: false, reason: "invalid_response" };
+  }
+
+  const expiresAt = parseJwtExpiry(token) ?? Date.now() + MIN_LIFETIME_MS;
+  cached = { token, fid, expiresAt };
+
+  return { ok: true, token, fid };
+}
+
+/**
+ * Returns a cached auth result if the JWT is still comfortably valid,
+ * otherwise runs the full SIWF flow. Call sites should prefer this over
+ * `authenticateMiniapp()` unless they specifically want to force re-auth.
+ */
+export async function getCachedMiniappAuth(): Promise<MiniappAuthResult> {
+  if (cached && Date.now() + EXPIRY_SAFETY_MS < cached.expiresAt) {
+    return { ok: true, token: cached.token, fid: cached.fid };
+  }
+  return authenticateMiniapp();
+}
+
+/**
+ * Clear the cached token. Call after a 401 from the backend or on sign-out.
+ */
+export function clearCachedMiniappAuth(): void {
+  cached = null;
+}
+
+function parseJwtExpiry(token: string): number | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    // Base64url decode the payload segment.
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = payload + "===".slice(0, (4 - (payload.length % 4)) % 4);
+    const json = typeof atob === "function" ? atob(padded) : "";
+    if (!json) return null;
+    const claims = JSON.parse(json) as { exp?: unknown };
+    if (typeof claims.exp !== "number") return null;
+    return claims.exp * 1000;
   } catch {
     return null;
   }

@@ -1,6 +1,19 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
 
+if (
+  typeof process !== "undefined" &&
+  process.env.NODE_ENV !== "production" &&
+  !process.env.NEXT_PUBLIC_API_BASE_URL
+) {
+  // Not fatal — preview deploys may intentionally rely on the fallback —
+  // but it is almost always a misconfiguration in local dev.
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[spaces] NEXT_PUBLIC_API_BASE_URL is unset; falling back to https://your-api-host.example.com",
+  );
+}
+
 export interface SpaceUser {
   fid: number;
   username: string;
