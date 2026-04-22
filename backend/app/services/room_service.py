@@ -15,6 +15,7 @@ Error contract:
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -599,6 +600,10 @@ class RoomService:
             },
         )
 
+        # Broadcast to all connected participants via LiveKit data channel so
+        # every client can render the "REC" indicator in real time (consent UX).
+        await self._broadcast_recording_state(room_id, True)
+
         logger.info(
             "Recording started for room %s by fid=%s (egress_id=%s)",
             room_id,
@@ -669,6 +674,7 @@ class RoomService:
                     "by_fid": fid,
                 },
             )
+            await self._broadcast_recording_state(room_id, False)
 
         logger.info(
             "Recording stop requested for room %s by fid=%s (egress_id=%s)",
@@ -676,6 +682,30 @@ class RoomService:
             fid,
             egress_id,
         )
+
+    async def _broadcast_recording_state(
+        self, room_id: str, is_recording: bool
+    ) -> None:
+        """Best-effort broadcast of the recording flag via LiveKit data.
+
+        Clients subscribe on the ``space_state`` topic. If LiveKit rejects
+        the send (e.g. room already torn down) we swallow the error so the
+        caller isn't blocked.
+        """
+        try:
+            payload = json.dumps(
+                {
+                    "type": "recording_state",
+                    "recording": is_recording,
+                }
+            ).encode()
+            await self.livekit.send_data(room_id, payload, topic="space_state")
+        except Exception:
+            logger.warning(
+                "Failed to broadcast recording_state to room %s",
+                room_id,
+                exc_info=True,
+            )
 
     async def end_room(self, room_id: str, fid: int) -> None:
         """

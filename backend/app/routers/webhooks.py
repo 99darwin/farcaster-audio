@@ -176,6 +176,27 @@ async def _handle_egress_ended(event, db: AsyncSession):
     )
     await db.commit()
 
+    # Notify any still-connected participants that the recording is fully
+    # finalized so their UI can clear the REC badge. Best-effort; room may
+    # already have been torn down by this point.
+    livekit = LiveKitService()
+    try:
+        payload = json.dumps(
+            {"type": "recording_state", "recording": False}
+        ).encode()
+        await livekit.send_data(room_name, payload, topic="space_state")
+    except Exception as exc:
+        logger.warning(
+            "Failed to broadcast recording_state=false after egress_ended for %s: %s",
+            room_name,
+            exc,
+        )
+    finally:
+        try:
+            await livekit.close()
+        except Exception:
+            pass
+
 
 def _verify_neynar_signature(body: bytes, secret: str, signature: str) -> bool:
     """Verify Neynar webhook HMAC-SHA512 signature."""
