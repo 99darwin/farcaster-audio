@@ -12,52 +12,21 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models.room import Room
-from app.services.storage_service import StorageService
+from app.services.storage_service import StorageService, extract_recording_s3_key
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_RETENTION_DAYS = 30
 
 
-def _extract_s3_key(recording_url: str) -> str | None:
-    """Best-effort extraction of the S3 object key from a recording URL.
-
-    LiveKit's egress writes files with filepath like
-    ``recordings/{room_id}/{timestamp}.ogg`` and returns a URL of the form
-    ``{endpoint}/{bucket}/{key}`` or ``https://{bucket}.s3.{region}.amazonaws.com/{key}``.
-    We try to pull the trailing "recordings/..." path out since that's the
-    only part we actually need for ``delete_object``.
-    """
-    if not recording_url:
-        return None
-
-    # Already a bare key (defensive)
-    if recording_url.startswith("recordings/"):
-        return recording_url
-
-    try:
-        parsed = urlparse(recording_url)
-    except Exception:
-        return None
-
-    path = parsed.path.lstrip("/")
-    if not path:
-        return None
-
-    bucket = settings.AWS_S3_BUCKET_NAME
-    # Path-style URL: /{bucket}/{key}
-    if bucket and path.startswith(f"{bucket}/"):
-        return path[len(bucket) + 1 :]
-
-    # Virtual-hosted-style URL (bucket is already in the host) — return as-is
-    return path
+# Backwards-compat alias for tests that import the private helper from this
+# module. Points at the hardened shared implementation in ``storage_service``.
+_extract_s3_key = extract_recording_s3_key
 
 
 async def cleanup_expired_recordings(
@@ -69,6 +38,12 @@ async def cleanup_expired_recordings(
 
     Returns a summary ``{"scanned": n, "deleted": n, "errors": n}`` so admin
     callers / scheduled jobs can verify the run.
+
+    Security: if we can't derive a valid S3 key from a row's
+    ``recording_url`` we SKIP the row entirely (and log). Silently clearing
+    the column on a bad URL would let an attacker who slipped a malformed
+    URL through the egress webhook wipe legitimate recordings off users'
+    profiles.
     """
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=retention_days)
 
@@ -88,25 +63,29 @@ async def cleanup_expired_recordings(
 
     deleted = 0
     errors = 0
+    skipped = 0
     for room in expired:
-        key = _extract_s3_key(room.recording_url or "")
-        if key:
-            try:
-                storage.delete_object(key)
-            except Exception:
-                errors += 1
-                logger.exception(
-                    "Failed to delete recording object key=%s (room=%s)",
-                    key,
-                    room.id,
-                )
-                # Don't clear the URL on S3 failure — we'll retry on the next run.
-                continue
-        else:
+        key = extract_recording_s3_key(room.recording_url or "")
+        if not key:
+            skipped += 1
             logger.warning(
-                "Could not derive S3 key from recording_url for room %s; clearing DB anyway",
+                "Skipping room %s during cleanup: recording_url failed host/key "
+                "validation and will NOT be cleared",
                 room.id,
             )
+            continue
+
+        try:
+            storage.delete_object(key)
+        except Exception:
+            errors += 1
+            logger.exception(
+                "Failed to delete recording object key=%s (room=%s)",
+                key,
+                room.id,
+            )
+            # Don't clear the URL on S3 failure — we'll retry on the next run.
+            continue
 
         await db.execute(
             update(Room).where(Room.id == room.id).values(recording_url=None)
@@ -116,10 +95,16 @@ async def cleanup_expired_recordings(
     await db.commit()
 
     logger.info(
-        "Recording cleanup: scanned=%d deleted=%d errors=%d (retention=%dd)",
+        "Recording cleanup: scanned=%d deleted=%d errors=%d skipped=%d (retention=%dd)",
         len(expired),
         deleted,
         errors,
+        skipped,
         retention_days,
     )
-    return {"scanned": len(expired), "deleted": deleted, "errors": errors}
+    return {
+        "scanned": len(expired),
+        "deleted": deleted,
+        "errors": errors,
+        "skipped": skipped,
+    }

@@ -542,6 +542,53 @@ class RoomService:
     # Recording
     # -----------------------------------------------------------------------
 
+    # Recording rate-limit & duration-cap knobs. Tuned for hostile-host
+    # scenarios (spammy toggling, eating egress budget / S3 spend).
+    _RECORDING_RATE_LIMIT_PER_HOUR = 10
+    _RECORDING_RATE_LIMIT_WINDOW_SEC = 3600
+    _RECORDING_DAILY_CAP_SECONDS = 6 * 60 * 60  # 6 hours per room per UTC day
+
+    async def _enforce_recording_rate_limit(self, fid: int) -> None:
+        """Cap how many start/stop toggles a single fid can run in an hour.
+
+        Sliding hourly bucket via ``INCR`` + ``EXPIRE``. The bucket resets
+        on the hour (wall-clock, not last-write) which is imprecise but
+        deliberate — exact accuracy isn't the point; stopping a runaway
+        host from burning our egress budget is.
+        """
+        key = f"recording:ratelimit:fid:{fid}"
+        count = await self.redis.redis.incr(key)
+        if count == 1:
+            await self.redis.redis.expire(
+                key, self._RECORDING_RATE_LIMIT_WINDOW_SEC
+            )
+        if count > self._RECORDING_RATE_LIMIT_PER_HOUR:
+            raise HTTPException(
+                status_code=429,
+                detail="Recording rate limit exceeded (max "
+                f"{self._RECORDING_RATE_LIMIT_PER_HOUR} ops/hour)",
+            )
+
+    def _recording_duration_key(self, room_id: str) -> str:
+        day = _utcnow().strftime("%Y%m%d")
+        return f"recording:duration:room:{room_id}:{day}"
+
+    async def _assert_recording_duration_under_cap(self, room_id: str) -> None:
+        """Reject a new recording if today's accumulated duration is maxed.
+
+        Counter is updated on stop (see ``_stop_egress_for_room``) so this
+        is eventually-consistent — still enough to stop runaway spend from
+        compounding across many short sessions in a single day.
+        """
+        key = self._recording_duration_key(room_id)
+        current_raw = await self.redis.redis.get(key)
+        current = int(current_raw) if current_raw else 0
+        if current >= self._RECORDING_DAILY_CAP_SECONDS:
+            raise HTTPException(
+                status_code=429,
+                detail="Daily recording cap reached for this room",
+            )
+
     async def start_recording(self, room_id: str, fid: int) -> dict:
         """Start a room-composite egress to S3. Host/co-host only.
 
@@ -550,7 +597,16 @@ class RoomService:
         and publishes a ``recording_started`` event; the
         ``recording_url`` is only populated once the LiveKit ``egress_ended``
         webhook fires.
+
+        Guards:
+          * Per-fid hourly rate limit (prevents spammy toggling).
+          * Per-room daily duration cap (prevents runaway S3 spend).
+          * Redis ``SET NX`` on the egress_id key (prevents concurrent
+            starts from two host devices).
+          * DB row lock via ``SELECT ... FOR UPDATE`` before flipping
+            ``recording`` (prevents duplicate egress rows).
         """
+        # Cheap checks first so we don't hit LiveKit for a request we'll reject.
         room = await self._get_room_or_404(room_id)
 
         if room.status != "active":
@@ -563,6 +619,19 @@ class RoomService:
                 detail="Only hosts and co-hosts can start recording",
             )
 
+        await self._enforce_recording_rate_limit(fid)
+        await self._assert_recording_duration_under_cap(room_id)
+
+        # Lock the room row for the flip-and-publish block so two concurrent
+        # start_recording calls serialize through Postgres. The Redis SET NX
+        # below is still the primary race guard (it catches the case where
+        # a prior egress is mid-flight but rooms.recording hasn't been
+        # updated yet), but the row lock keeps DB state consistent too.
+        locked = await self.db.execute(
+            select(Room).where(Room.id == room.id).with_for_update()
+        )
+        room = locked.scalar_one()
+
         if room.recording:
             raise HTTPException(
                 status_code=409,
@@ -573,6 +642,7 @@ class RoomService:
             egress_id = await self.livekit.start_room_composite_egress(room_id)
         except Exception as exc:
             logger.exception("LiveKit start egress failed for room %s", room_id)
+            await self.db.rollback()
             raise HTTPException(
                 status_code=502,
                 detail="Failed to start recording via media server",
@@ -580,14 +650,46 @@ class RoomService:
 
         # Redis TTL: match the LiveKit token TTL ceiling (6h) — long enough to
         # outlast any reasonable room while preventing orphaned keys.
-        await self.redis.redis.set(
-            f"room:{room_id}:egress_id",
+        # SET NX so a second concurrent caller can't overwrite a live
+        # egress_id mid-race (e.g. two host devices hitting start together).
+        key = f"room:{room_id}:egress_id"
+        stored = await self.redis.redis.set(
+            key,
             egress_id,
             ex=6 * 60 * 60,
+            nx=True,
         )
+        if not stored:
+            # Someone else claimed the slot before we did. Stop the egress
+            # we just started (otherwise it'd run orphaned) and surface 409.
+            logger.warning(
+                "Concurrent start_recording race for room %s — aborting our "
+                "egress (id=%s...)",
+                room_id,
+                egress_id[:8] if egress_id else "?",
+            )
+            try:
+                await self.livekit.stop_egress(egress_id)
+            except Exception:
+                logger.exception(
+                    "Failed to stop racing egress %s for room %s",
+                    egress_id,
+                    room_id,
+                )
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Recording is already in progress",
+            )
 
         await self.db.execute(
             update(Room).where(Room.id == room.id).values(recording=True)
+        )
+        # Track the start time for duration accounting at stop.
+        await self.redis.redis.set(
+            f"room:{room_id}:egress_started_at",
+            int(_utcnow().timestamp()),
+            ex=6 * 60 * 60,
         )
         await self.db.commit()
 
@@ -605,10 +707,10 @@ class RoomService:
         await self._broadcast_recording_state(room_id, True)
 
         logger.info(
-            "Recording started for room %s by fid=%s (egress_id=%s)",
+            "Recording started for room %s by fid=%s (egress_id=%s...)",
             room_id,
             fid,
-            egress_id,
+            egress_id[:8] if egress_id else "?",
         )
         return {"egress_id": egress_id, "status": "recording"}
 
@@ -634,6 +736,8 @@ class RoomService:
                 detail="Recording is not active",
             )
 
+        await self._enforce_recording_rate_limit(fid)
+
         await self._stop_egress_for_room(room_id, fid, publish_event=True)
         return {"status": "stopping"}
 
@@ -647,15 +751,16 @@ class RoomService:
         clients clear their UI.
         """
         egress_id = await self.redis.redis.get(f"room:{room_id}:egress_id")
+        started_raw = await self.redis.redis.get(f"room:{room_id}:egress_started_at")
 
         if egress_id:
             try:
                 await self.livekit.stop_egress(egress_id)
             except Exception:
                 logger.exception(
-                    "LiveKit stop egress failed for room %s (egress_id=%s)",
+                    "LiveKit stop egress failed for room %s (egress_id=%s...)",
                     room_id,
-                    egress_id,
+                    egress_id[:8] if egress_id else "?",
                 )
         else:
             logger.warning(
@@ -663,7 +768,32 @@ class RoomService:
                 room_id,
             )
 
-        await self.redis.redis.delete(f"room:{room_id}:egress_id")
+        # Accumulate runtime toward today's duration cap. We keep the
+        # egress_id key around a little longer so the webhook can still
+        # match on it — only the egress_id TTL matters for idempotency.
+        if started_raw:
+            try:
+                started_at = int(started_raw)
+                elapsed = max(0, int(_utcnow().timestamp()) - started_at)
+                if elapsed > 0:
+                    dur_key = self._recording_duration_key(room_id)
+                    new_total = await self.redis.redis.incrby(dur_key, elapsed)
+                    # Expire at end of UTC day (approximate: 25h is plenty).
+                    await self.redis.redis.expire(dur_key, 25 * 60 * 60)
+                    logger.info(
+                        "Recording added %ds to room=%s daily total (now %ss)",
+                        elapsed,
+                        room_id,
+                        new_total,
+                    )
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Malformed egress_started_at for room %s: %r",
+                    room_id,
+                    started_raw,
+                )
+
+        await self.redis.redis.delete(f"room:{room_id}:egress_started_at")
 
         if publish_event:
             await self.redis.publish_room_event(
@@ -677,10 +807,10 @@ class RoomService:
             await self._broadcast_recording_state(room_id, False)
 
         logger.info(
-            "Recording stop requested for room %s by fid=%s (egress_id=%s)",
+            "Recording stop requested for room %s by fid=%s (egress_id=%s...)",
             room_id,
             fid,
-            egress_id,
+            egress_id[:8] if egress_id else "?",
         )
 
     async def _broadcast_recording_state(
