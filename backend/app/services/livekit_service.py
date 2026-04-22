@@ -6,6 +6,11 @@ from livekit import api
 from app.config import settings
 
 
+# 10 speakers (host + 9 guests) + 500 listener cap. Bumping this requires a
+# corresponding check on LiveKit plan limits.
+DEFAULT_MAX_PARTICIPANTS = 510
+
+
 class LiveKitService:
     def __init__(self):
         self._api: api.LiveKitAPI | None = None
@@ -27,7 +32,7 @@ class LiveKitService:
                 name=room_id,
                 metadata=json.dumps({"title": title}),
                 empty_timeout=empty_timeout,
-                max_participants=510,  # 10 speakers + 500 listeners
+                max_participants=DEFAULT_MAX_PARTICIPANTS,
             )
         )
 

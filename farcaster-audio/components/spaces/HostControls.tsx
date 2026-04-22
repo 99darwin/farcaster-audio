@@ -84,6 +84,12 @@ export function HostControls({
   };
 
   const handleToggleRecording = () => {
+    // TODO(consent): Two-party-consent jurisdictions (several US states, most
+    // of the EU) legally require each participant to explicitly opt in before
+    // their voice is recorded. Today we only confirm with the host. Before
+    // shipping public recordings broadly, add a per-participant consent modal
+    // triggered by the ``recording_state`` event so listeners/speakers can
+    // leave or be excluded from the egress before capture starts.
     if (isRecording) {
       Alert.alert("Stop Recording", "Stop recording this space?", [
         { text: "Cancel", style: "cancel" },
