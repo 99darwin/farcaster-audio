@@ -10,7 +10,7 @@ import {
   type RemoteTrack,
 } from "livekit-client";
 import { getCachedMiniappAuth } from "@/lib/miniapp-auth";
-import { jukeSpaceUrl } from "@/lib/deeplink";
+import { APP_STORE_URL, jukeSpaceUrl } from "@/lib/deeplink";
 import { safeImageUrl } from "@/lib/safe-url";
 import {
   joinSpaceAsListener,
@@ -30,6 +30,7 @@ type Phase =
   | "connecting" // connecting to LiveKit
   | "listening" // connected, streaming audio
   | "ended" // room ended / disconnected
+  | "not_in_miniapp" // opened in a plain browser — offer app fallbacks
   | "error";
 
 /**
@@ -100,6 +101,12 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
 
     const auth = await getCachedMiniappAuth();
     if (!auth.ok) {
+      if (auth.reason === "not_in_miniapp") {
+        // Plain desktop browser: the miniapp SDK has no host to talk to.
+        // Show app-store / deeplink fallbacks instead of an error.
+        setPhase("not_in_miniapp");
+        return;
+      }
       setPhase("error");
       setErrorMessage(
         auth.reason === "user_cancelled"
@@ -330,6 +337,33 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
         </div>
       )}
 
+      {phase === "not_in_miniapp" && (
+        <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-5 text-center">
+          <p className="mb-1 text-sm font-semibold text-white/80">
+            Open in the Juke app
+          </p>
+          <p className="mb-4 text-[11px] leading-relaxed text-white/50">
+            Live spaces need the Juke app or Warpcast to sign you in.
+          </p>
+          {jukeDeeplink && (
+            <a
+              href={jukeDeeplink}
+              className="mb-2 inline-flex w-full items-center justify-center rounded-full bg-[#D85A30] py-2.5 text-xs font-bold text-white transition-colors hover:bg-[#c24e28]"
+            >
+              Open Juke app
+            </a>
+          )}
+          <a
+            href={APP_STORE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex w-full items-center justify-center rounded-full bg-white/10 py-2.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/15"
+          >
+            Download on the App Store
+          </a>
+        </div>
+      )}
+
       {/* Bottom CTA bar */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#0f0f23]/95 px-4 py-3 backdrop-blur-sm">
         {phase === "idle" || phase === "error" ? (
@@ -376,7 +410,7 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
               Leave
             </button>
           </div>
-        ) : phase === "ended" ? (
+        ) : phase === "ended" || phase === "not_in_miniapp" ? (
           <Link
             href="/miniapp"
             className="flex w-full items-center justify-center rounded-full bg-white/10 py-3 text-sm font-bold text-white/70 transition-colors hover:bg-white/15"
