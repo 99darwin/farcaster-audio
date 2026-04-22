@@ -21,6 +21,10 @@ class VoiceNoteCreateRequest(BaseModel):
     audio_size: int = Field(default=0, ge=0)
     post_to_farcaster: bool = True
     cast_text: str = Field(default="", max_length=1024)
+    parent_cast_hash: str | None = Field(
+        default=None,
+        pattern=r"^0x[0-9a-fA-F]{40}$",
+    )
 
 
 class VoiceNoteAuthor(BaseModel):
@@ -42,6 +46,7 @@ class VoiceNoteResponse(BaseModel):
     transcript_words: list[dict] | None = None
     cast_hash: str | None = None
     cast_url: str | None = None
+    parent_cast_hash: str | None = None
     caption: str | None = None
     created_at: str
     deleted_at: str | None = None

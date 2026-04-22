@@ -25,6 +25,7 @@ from sqlalchemy import delete, func as sa_func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.dependencies import DEMO_SIGNER_UUID
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.ban import Ban
@@ -218,7 +219,7 @@ class RoomService:
 
         # Post announcement cast (fire-and-forget; must not block room creation)
         # In dev/demo mode, use a pre-configured cast hash for testing the chat UI
-        is_demo_user = host.signer_uuid == "demo-readonly"
+        is_demo_user = host.signer_uuid == DEMO_SIGNER_UUID
         if settings.DEMO_CAST_HASH and is_demo_user:
             await self.db.execute(
                 update(Room)

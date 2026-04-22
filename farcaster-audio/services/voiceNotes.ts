@@ -25,7 +25,9 @@ export function uploadAudioFile(
 ): Promise<void> {
   // React Native's fetch(localPath).blob() often produces empty/corrupt blobs.
   // Use XMLHttpRequest which handles file:// URIs reliably on iOS.
-  const fileUri = filePath.startsWith("file://") ? filePath : `file://${filePath}`;
+  const fileUri = filePath.startsWith("file://")
+    ? filePath
+    : `file://${filePath}`;
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl);
@@ -47,6 +49,7 @@ export async function createVoiceNote(params: {
   audio_size: number;
   post_to_farcaster: boolean;
   cast_text: string;
+  parent_cast_hash?: string;
 }): Promise<VoiceNote> {
   const { data } = await apiClient.post("/v1/voice-notes/", params);
   return data;

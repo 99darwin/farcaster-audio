@@ -235,6 +235,7 @@ export default function CastThreadScreen() {
           clearDraft();
         }}
         onPublish={handlePublish}
+        onVoiceReplyPosted={fetch}
         replyTo={replyTo}
         quoteCast={quoteCastTarget}
         defaultText={composeDraft?.text}

@@ -14,7 +14,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user, get_db, get_redis
+from app.dependencies import get_current_user, get_db, get_redis, require_non_demo_user
 from app.schemas.snap import (
     InvalidateSnapSignerRequest,
     RegisterSnapSignerRequest,
@@ -61,7 +61,7 @@ def _ownership_key(public_key_lower: str) -> str:
 @router.post("/register-signer", response_model=RegisterSnapSignerResponse)
 async def register_snap_signer(
     body: RegisterSnapSignerRequest,
-    fid: int = Depends(get_current_user),
+    fid: int = Depends(require_non_demo_user),
     redis: aioredis.Redis = Depends(get_redis),
     db: AsyncSession = Depends(get_db),
 ):

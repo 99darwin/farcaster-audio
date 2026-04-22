@@ -38,6 +38,7 @@ class VoiceNote(Base):
     transcript_words: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     cast_hash: Mapped[str | None] = mapped_column(String(66), nullable=True, index=True)
     cast_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_cast_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -59,6 +60,11 @@ class VoiceNote(Base):
             "idx_voice_notes_cast_hash",
             "cast_hash",
             postgresql_where="cast_hash IS NOT NULL",
+        ),
+        Index(
+            "idx_voice_notes_parent_cast_hash",
+            "parent_cast_hash",
+            postgresql_where="parent_cast_hash IS NOT NULL",
         ),
     )
 

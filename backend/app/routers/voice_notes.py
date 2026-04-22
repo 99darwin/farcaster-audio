@@ -15,7 +15,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_current_user, get_db, get_optional_current_user, get_redis
+from app.dependencies import (
+    DEMO_SIGNER_UUID,
+    get_current_user,
+    get_db,
+    get_optional_current_user,
+    get_redis,
+    require_non_demo_user,
+)
 from app.models.user import User
 from app.schemas.voice_note import (
     PlayRequest,
@@ -64,6 +71,14 @@ async def _get_signer_uuid(db: AsyncSession, fid: int) -> str:
     signer_uuid = result.scalar_one_or_none()
     if not signer_uuid:
         raise HTTPException(status_code=400, detail="No signer found for user")
+    # Defense-in-depth: the demo-readonly signer should never forward to Neynar.
+    # Write endpoints are also gated by require_non_demo_user; this closes any gap
+    # if a future endpoint forgets that dependency.
+    if signer_uuid == DEMO_SIGNER_UUID:
+        raise HTTPException(
+            status_code=403,
+            detail="Sign in with Farcaster to post or host.",
+        )
     return signer_uuid
 
 
@@ -114,7 +129,7 @@ async def _get_following_fids(redis: aioredis.Redis, fid: int) -> list[int]:
 @router.post("/upload-url", response_model=UploadUrlResponse)
 async def request_upload_url(
     body: UploadUrlRequest,
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     redis: aioredis.Redis = Depends(get_redis),
 ):
     """Generate a presigned PUT URL for uploading voice note audio."""
@@ -156,7 +171,7 @@ async def request_upload_url(
 @router.post("/", response_model=VoiceNoteResponse)
 async def create_voice_note(
     body: VoiceNoteCreateRequest,
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
@@ -198,6 +213,7 @@ async def create_voice_note(
         audio_size=body.audio_size,
         caption=body.cast_text if body.cast_text else None,
         object_key=object_key,
+        parent_cast_hash=body.parent_cast_hash,
     )
 
     # Clean up Redis upload token
@@ -220,6 +236,8 @@ async def create_voice_note(
                 "text": cast_text,
                 "embeds": [{"url": embed_url}],
             }
+            if body.parent_cast_hash:
+                payload["parent"] = body.parent_cast_hash
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     f"{NEYNAR_BASE}/farcaster/cast",
@@ -252,6 +270,7 @@ async def create_voice_note(
         transcript_words=vn.transcript_words,
         cast_hash=vn.cast_hash,
         cast_url=vn.cast_url,
+        parent_cast_hash=vn.parent_cast_hash,
         caption=vn.caption,
         created_at=vn.created_at.isoformat(),
         deleted_at=None,
@@ -384,7 +403,7 @@ async def record_play(
 async def add_reaction(
     body: ReactionRequest,
     voice_note_id: uuid.UUID = Path(...),
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Add a reaction to a voice note."""
@@ -421,7 +440,7 @@ async def add_reaction(
 async def remove_reaction(
     voice_note_id: uuid.UUID = Path(...),
     reaction_type: str = Path(..., pattern=r"^(like|recast)$"),
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a reaction from a voice note."""
@@ -458,7 +477,7 @@ async def remove_reaction(
 @router.delete("/{voice_note_id}")
 async def delete_voice_note(
     voice_note_id: uuid.UUID = Path(...),
-    current_user: int = Depends(get_current_user),
+    current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete a voice note. Author only."""

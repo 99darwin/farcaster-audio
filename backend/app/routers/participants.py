@@ -11,7 +11,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user, get_db, get_redis
+from app.dependencies import get_current_user, get_db, get_redis, require_non_demo_user
 from app.schemas.agent import AgentJoinRequest, AgentJoinResponse
 from app.schemas.common import StatusResponse
 from app.schemas.participant import (
@@ -49,7 +49,7 @@ async def get_room_service(
 @router.post("/{room_id}/join", response_model=JoinResponse)
 async def join_room(
     room_id: str,
-    fid: int = Depends(get_current_user),
+    fid: int = Depends(require_non_demo_user),
     service: RoomService = Depends(get_room_service),
 ) -> JoinResponse:
     """Join a room as a listener. Returns LiveKit token, WS URL, and current room state."""
@@ -203,7 +203,7 @@ async def leave_room(
 async def raise_hand(
     room_id: str,
     body: RaiseHandRequest,
-    fid: int = Depends(get_current_user),
+    fid: int = Depends(require_non_demo_user),
     service: RoomService = Depends(get_room_service),
 ) -> RaiseHandResponse:
     """Toggle hand-raise state for the authenticated listener."""

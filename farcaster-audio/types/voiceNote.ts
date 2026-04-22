@@ -21,6 +21,7 @@ export interface VoiceNote {
   }> | null;
   cast_hash: string | null;
   cast_url: string | null;
+  parent_cast_hash: string | null;
   caption: string | null;
   created_at: string;
   deleted_at: string | null;

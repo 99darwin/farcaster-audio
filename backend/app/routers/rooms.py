@@ -15,7 +15,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user, get_db, get_optional_current_user, get_redis
+from app.dependencies import (
+    get_current_user,
+    get_db,
+    get_optional_current_user,
+    get_redis,
+    require_non_demo_user,
+)
 from app.schemas.common import StatusResponse
 from app.schemas.room import (
     RoomCreate,
@@ -64,7 +70,7 @@ async def list_rooms(
 @router.post("", response_model=RoomCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_room(
     body: RoomCreate,
-    current_user_fid: int = Depends(get_current_user),
+    current_user_fid: int = Depends(require_non_demo_user),
     room_service: RoomService = Depends(get_room_service),
 ) -> RoomCreateResponse:
     """Create a new audio room. The authenticated user becomes the host."""
@@ -104,7 +110,7 @@ async def get_room(
 @router.post("/{room_id}/rsvp", response_model=RsvpResponse)
 async def rsvp_room(
     room_id: str,
-    current_user_fid: int = Depends(get_current_user),
+    current_user_fid: int = Depends(require_non_demo_user),
     room_service: RoomService = Depends(get_room_service),
 ) -> RsvpResponse:
     """RSVP to a scheduled room."""
@@ -114,7 +120,7 @@ async def rsvp_room(
 @router.delete("/{room_id}/rsvp", response_model=RsvpResponse)
 async def unrsvp_room(
     room_id: str,
-    current_user_fid: int = Depends(get_current_user),
+    current_user_fid: int = Depends(require_non_demo_user),
     room_service: RoomService = Depends(get_room_service),
 ) -> RsvpResponse:
     """Remove RSVP from a scheduled room."""
@@ -124,7 +130,7 @@ async def unrsvp_room(
 @router.post("/{room_id}/start", response_model=RoomGoLiveResponse)
 async def start_room(
     room_id: str,
-    current_user_fid: int = Depends(get_current_user),
+    current_user_fid: int = Depends(require_non_demo_user),
     room_service: RoomService = Depends(get_room_service),
 ) -> RoomGoLiveResponse:
     """Start a scheduled room. Only the host can go live."""
@@ -134,7 +140,7 @@ async def start_room(
 @router.delete("/{room_id}", response_model=StatusResponse)
 async def end_room(
     room_id: str,
-    current_user_fid: int = Depends(get_current_user),
+    current_user_fid: int = Depends(require_non_demo_user),
     room_service: RoomService = Depends(get_room_service),
 ) -> StatusResponse:
     """End an active room. Only the host or a co-host may call this endpoint."""
