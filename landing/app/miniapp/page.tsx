@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
+import { LiveSpacesStrip } from "@/components/live-spaces-strip";
 import { VoiceNoteFeedItem } from "@/components/voice-note-feed-item";
 import {
   getRecentVoiceNotes,
@@ -74,6 +75,9 @@ export default function MiniAppHome() {
           Get App
         </a>
       </header>
+
+      {/* Live spaces strip (renders nothing when no active spaces) */}
+      <LiveSpacesStrip />
 
       {/* Feed */}
       <div className="flex-1">

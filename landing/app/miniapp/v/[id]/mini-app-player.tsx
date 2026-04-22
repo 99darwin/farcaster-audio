@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { Waveform, BAR_COUNT } from "@/components/waveform";
+import { getCachedMiniappAuth } from "@/lib/miniapp-auth";
+import { jukeVoiceNoteUrl } from "@/lib/deeplink";
+import { safeImageUrl } from "@/lib/safe-url";
 import {
   formatDuration,
   formatTimestamp,
@@ -37,6 +40,7 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [showEndOverlay, setShowEndOverlay] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [viewerFid, setViewerFid] = useState<number | null>(null);
   const [localReactions, setLocalReactions] = useState<
     Record<string, number>
@@ -180,31 +184,24 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
     if (audio) audio.playbackRate = SPEED_OPTIONS[next];
   }, [speedIndex]);
 
-  // Auth via SIWF
+  // Auth via SIWF (shared helper; see lib/miniapp-auth.ts).
+  // Uses the cached variant so consecutive reactions don't re-prompt.
   const authenticate = useCallback(async () => {
-    try {
-      // Fetch server-generated nonce (one-time use, prevents replay)
-      const nonceResp = await fetch(`${API_BASE_URL}/v1/auth/miniapp-nonce`);
-      if (!nonceResp.ok) return null;
-      const { nonce } = await nonceResp.json();
-      const result = await sdk.actions.signIn({ nonce });
-      const resp = await fetch(`${API_BASE_URL}/v1/auth/miniapp-verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: result.message,
-          signature: result.signature,
-          nonce,
-        }),
-      });
-      if (!resp.ok) return null;
-      const body = await resp.json();
-      setToken(body.token);
-      setViewerFid(body.fid);
-      return body.token;
-    } catch {
+    const result = await getCachedMiniappAuth();
+    if (!result.ok) {
+      if (result.reason === "verify_failed") {
+        // Don't auto-retry — surface a user-visible error so they know
+        // something is wrong on the server side.
+        setAuthError("Authentication failed");
+      } else if (result.reason === "network") {
+        setAuthError("Network error");
+      }
       return null;
     }
+    setAuthError(null);
+    setToken(result.token);
+    if (result.fid) setViewerFid(result.fid);
+    return result.token;
   }, []);
 
   const handleReaction = useCallback(
@@ -334,12 +331,13 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
         onClick={handleViewProfile}
         className="mb-6 flex items-center gap-2.5 self-start"
       >
-        {author.pfp_url ? (
+        {safeImageUrl(author.pfp_url) ? (
           <img
-            src={author.pfp_url}
+            src={safeImageUrl(author.pfp_url) as string}
             alt=""
             width={36}
             height={36}
+            referrerPolicy="no-referrer"
             className="h-9 w-9 rounded-full object-cover"
           />
         ) : (
@@ -496,6 +494,10 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
           Share
         </button>
 
+        {authError && (
+          <span className="text-xs text-red-400">{authError}</span>
+        )}
+
         {play_count > 0 && (
           <span className="ml-auto text-xs text-white/30">
             {play_count.toLocaleString()} {play_count === 1 ? "play" : "plays"}
@@ -609,8 +611,19 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
       {/* Bottom CTA bar */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#0f0f23]/95 px-4 py-3 backdrop-blur-sm">
         <button
-          onClick={() => sdk.actions.openUrl(`juke://voice-note/${voice_note.id}`)}
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#D85A30] py-3 text-sm font-bold text-white transition-colors hover:bg-[#c24e28]"
+          onClick={() => {
+            const deeplink = jukeVoiceNoteUrl(voice_note.id);
+            if (!deeplink) {
+              console.warn(
+                "[mini-app-player] refusing to open invalid voice note id",
+                voice_note.id,
+              );
+              return;
+            }
+            sdk.actions.openUrl(deeplink);
+          }}
+          disabled={!jukeVoiceNoteUrl(voice_note.id)}
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#D85A30] py-3 text-sm font-bold text-white transition-colors hover:bg-[#c24e28] disabled:opacity-40"
         >
           Open in Juke
         </button>
