@@ -160,6 +160,18 @@ class LiveKitService:
         timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         filepath = f"recordings/{room_id}/{timestamp}.ogg"
 
+        # Tigris (and most non-AWS S3-compatible storage) require path-style
+        # addressing — virtual-hosted-style produces a malformed URL like
+        # `bucket.https://endpoint/key` because LiveKit naively prepends the
+        # bucket as a subdomain to whatever string is in `endpoint`. Strip the
+        # protocol prefix as defense-in-depth in case force_path_style ever
+        # silently falls back to the legacy mode.
+        endpoint = settings.AWS_ENDPOINT_URL
+        if endpoint.startswith("https://"):
+            endpoint = endpoint[len("https://"):]
+        elif endpoint.startswith("http://"):
+            endpoint = endpoint[len("http://"):]
+
         output = api.EncodedFileOutput(
             file_type=api.EncodedFileType.OGG,
             filepath=filepath,
@@ -168,7 +180,8 @@ class LiveKitService:
                 secret=settings.AWS_SECRET_ACCESS_KEY,
                 region=settings.AWS_DEFAULT_REGION,
                 bucket=settings.AWS_S3_BUCKET_NAME,
-                endpoint=settings.AWS_ENDPOINT_URL,
+                endpoint=endpoint,
+                force_path_style=True,
             ),
         )
 
