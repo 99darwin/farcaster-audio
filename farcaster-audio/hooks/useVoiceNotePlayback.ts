@@ -57,20 +57,28 @@ export function useVoiceNotePlayback(
     }
   }, [isActive, isLoaded, player]);
 
+  // Recordings (space playback) reuse this hook with a `recording:<uuid>`
+  // id prefix so they share the single-active-player state with voice
+  // notes. The voice-notes analytics endpoint only accepts bare UUIDs,
+  // and we don't track recording plays yet, so skip the beacon.
+  const isRecording = voiceNoteId.startsWith("recording:");
+
   // Track play after 3 seconds of listening
   useEffect(() => {
     if (isActive && positionMs >= 3000 && !playTrackedRef.current) {
       playTrackedRef.current = true;
-      recordPlay(voiceNoteId, positionMs, false).catch(() => {});
+      if (!isRecording) {
+        recordPlay(voiceNoteId, positionMs, false).catch(() => {});
+      }
     }
-  }, [isActive, positionMs, voiceNoteId]);
+  }, [isActive, positionMs, voiceNoteId, isRecording]);
 
   // Track completion
   useEffect(() => {
-    if (isFinished && playTrackedRef.current) {
+    if (isFinished && playTrackedRef.current && !isRecording) {
       recordPlay(voiceNoteId, durationMs, true).catch(() => {});
     }
-  }, [isFinished, voiceNoteId, durationMs]);
+  }, [isFinished, voiceNoteId, durationMs, isRecording]);
 
   const togglePlay = useCallback(() => {
     if (!isActive) {
