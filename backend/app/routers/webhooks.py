@@ -79,8 +79,16 @@ async def _handle_participant_left(
 ):
     """Clean up participant state when LiveKit reports they left."""
     room_name = event.room.name  # UUID string used as room_id
-    identity = event.participant.identity  # FID as string
-    fid = int(identity)
+    identity = event.participant.identity  # FID as string for humans
+
+    # Egress workers and other LiveKit virtual participants join with
+    # non-numeric identities (e.g. "EG_iKSbVaXFu383"). Skip those — they
+    # have no Participant row, no fid-keyed Redis state, and trigger no
+    # client-facing event. We only care about real users here.
+    try:
+        fid = int(identity)
+    except (TypeError, ValueError):
+        return
 
     # Remove participant from Redis
     await redis_service.remove_participant(room_name, fid)
