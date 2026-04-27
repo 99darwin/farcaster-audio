@@ -10,7 +10,7 @@ interface PrefsState {
 }
 
 export const usePrefsStore = create<PrefsState>((set, get) => ({
-  winampMode: true,
+  winampMode: false,
 
   setWinampMode: async (enabled: boolean) => {
     set({ winampMode: enabled });
@@ -23,7 +23,7 @@ export const usePrefsStore = create<PrefsState>((set, get) => ({
       const data = await SecureStore.getItemAsync(PREFS_KEY);
       if (data) {
         const prefs = JSON.parse(data);
-        set({ winampMode: prefs.winampMode ?? true });
+        set({ winampMode: prefs.winampMode ?? false });
       }
     } catch {
       // Ignore — use defaults
