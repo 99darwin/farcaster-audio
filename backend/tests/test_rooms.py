@@ -101,3 +101,13 @@ async def test_recent_recordings_invalid_cursor(client):
     """GET /v1/recordings/recent should reject malformed cursor."""
     response = await client.get("/v1/recordings/recent?cursor=not-a-date")
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_recording_detail_malformed_id(client):
+    """GET /v1/recordings/{id} should 404 (not 500) on malformed UUID."""
+    # Malformed UUID short-circuits before any DB call so this stays a
+    # pure-smoke test, matching the rest of this file. The retention/404
+    # paths against a real DB are exercised by integration tests.
+    response = await client.get("/v1/recordings/not-a-uuid")
+    assert response.status_code == 404

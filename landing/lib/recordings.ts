@@ -8,6 +8,7 @@ export interface Recording {
   started_at: string;
   ended_at: string | null;
   duration_seconds: number | null;
+  cast_hash?: string | null;
 }
 
 export interface RecordingHost {
@@ -36,6 +37,20 @@ export async function getRecentRecordings(
   const res = await fetch(`${API_BASE_URL}/v1/recordings/recent?${params}`);
   if (!res.ok) throw new Error("Failed to fetch recent recordings");
   return res.json();
+}
+
+export async function getRecording(
+  id: string,
+): Promise<RecordingFeedItem | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/v1/recordings/${id}`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
 }
 
 export function formatRecordingDuration(seconds: number | null): string {

@@ -82,6 +82,7 @@ class RecordingResponse(BaseModel):
     started_at: str
     ended_at: str | None = None
     duration_seconds: int | None = None
+    cast_hash: str | None = None
 
 
 class RecordingListResponse(BaseModel):

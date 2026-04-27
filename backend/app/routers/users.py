@@ -305,6 +305,7 @@ async def list_user_recordings(
                 else "",
                 ended_at=room.ended_at.isoformat() if room.ended_at else None,
                 duration_seconds=duration_seconds,
+                cast_hash=room.cast_hash,
             )
         )
 
