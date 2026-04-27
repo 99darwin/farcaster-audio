@@ -11,7 +11,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.config import settings
-from app.routers import admin, auth, feed, media, notifications, participants, push, rooms, snaps, users, voice_notes, webhooks
+from app.routers import admin, auth, feed, media, notifications, participants, push, recordings, rooms, snaps, users, voice_notes, webhooks
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -200,6 +200,7 @@ app.include_router(participants.router)
 app.include_router(media.router)
 app.include_router(notifications.router)
 app.include_router(push.router)
+app.include_router(recordings.router)
 app.include_router(snaps.router)
 app.include_router(voice_notes.router)
 app.include_router(webhooks.router)

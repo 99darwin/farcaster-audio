@@ -83,3 +83,21 @@ async def test_admin_recordings_cleanup_rejects_bad_secret(client):
         headers={"X-Admin-Secret": "wrong-secret"},
     )
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_recent_recordings_public(client):
+    """GET /v1/recordings/recent should be public and return a feed envelope."""
+    response = await client.get("/v1/recordings/recent")
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    assert "next_cursor" in data
+    assert isinstance(data["items"], list)
+
+
+@pytest.mark.asyncio
+async def test_recent_recordings_invalid_cursor(client):
+    """GET /v1/recordings/recent should reject malformed cursor."""
+    response = await client.get("/v1/recordings/recent?cursor=not-a-date")
+    assert response.status_code == 400

@@ -28,7 +28,14 @@ async def client():
     mock_redis.delete = AsyncMock()
     mock_redis.publish = AsyncMock()
     mock_redis.close = AsyncMock()
-    mock_redis.pipeline = MagicMock(return_value=AsyncMock())
+    # Redis pipeline used for rate limiting (incr + expire then execute).
+    # incr/expire are sync on a real pipeline; execute() returns the list of
+    # results — give back (1, True) so rate limit checks see count=1.
+    mock_pipeline = MagicMock()
+    mock_pipeline.incr = MagicMock()
+    mock_pipeline.expire = MagicMock()
+    mock_pipeline.execute = AsyncMock(return_value=[1, True])
+    mock_redis.pipeline = MagicMock(return_value=mock_pipeline)
     app.state.redis = mock_redis
 
     transport = ASGITransport(app=app)
