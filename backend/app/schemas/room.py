@@ -82,8 +82,26 @@ class RecordingResponse(BaseModel):
     started_at: str
     ended_at: str | None = None
     duration_seconds: int | None = None
+    cast_hash: str | None = None
 
 
 class RecordingListResponse(BaseModel):
     recordings: list[RecordingResponse]
+    next_cursor: str | None = None
+
+
+class RecordingFeedHost(BaseModel):
+    fid: int
+    username: str
+    display_name: str
+    pfp_url: str | None = None
+
+
+class RecordingFeedItem(BaseModel):
+    recording: RecordingResponse
+    host: RecordingFeedHost
+
+
+class RecordingFeedResponse(BaseModel):
+    items: list[RecordingFeedItem]
     next_cursor: str | None = None

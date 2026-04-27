@@ -53,6 +53,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pytest pytest-asyncio httpx
 
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test_db
+          JWT_SECRET: test-secret
+          NEYNAR_API_KEY: test
+          NEYNAR_CLIENT_ID: test
+          LIVEKIT_API_KEY: test
+          LIVEKIT_API_SECRET: test
+          LIVEKIT_WS_URL: wss://test.livekit.cloud
+          ENVIRONMENT: test
+        run: alembic upgrade head
+
       - name: Run tests
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test_db
