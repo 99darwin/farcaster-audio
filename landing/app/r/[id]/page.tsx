@@ -120,7 +120,12 @@ export default async function RecordingPage({ params }: PageProps) {
           </h1>
 
           {/* Player */}
-          <WebRecordingPlayer audioUrl={recording.recording_url} />
+          <WebRecordingPlayer
+            audioUrl={recording.recording_url}
+            title={recording.title}
+            hostName={host.display_name}
+            artworkUrl={host.pfp_url}
+          />
 
           {/* Stats row */}
           <div className="mt-5 flex items-center gap-4 text-xs text-juke-text-on-dark-tertiary">

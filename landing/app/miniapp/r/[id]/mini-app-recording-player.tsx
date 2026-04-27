@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
+import { RecordingAudioPlayer } from "@/components/recording-audio-player";
 import { jukeRecordingUrl } from "@/lib/deeplink";
 import { safeImageUrl } from "@/lib/safe-url";
 import {
@@ -117,14 +118,16 @@ export function MiniAppRecordingPlayer({ data }: MiniAppRecordingPlayerProps) {
         {recording.title}
       </h1>
 
-      {/* Native audio player — recordings can be hours long; the system
-          control gives users seek + speed + scrub for free. */}
-      <audio
-        controls
-        preload="metadata"
-        src={recording.recording_url}
+      {/* Native audio player with Media Session metadata — recordings can be
+          hours long; the system control gives seek + speed + scrub for free,
+          and Media Session keeps the audio session alive on iOS Safari +
+          surfaces lock-screen / control-center transport controls. */}
+      <RecordingAudioPlayer
+        audioUrl={recording.recording_url}
+        title={recording.title}
+        hostName={host.display_name}
+        artworkUrl={safeImageUrl(host.pfp_url)}
         className="mb-5 w-full"
-        controlsList="nodownload"
       />
 
       {/* Action row */}
