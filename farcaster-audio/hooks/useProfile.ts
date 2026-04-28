@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import * as api from "@/services/api";
+import { haptic } from "@/utils/haptics";
 import type { NeynarUser, NeynarCast } from "@/types/neynar";
 
 interface ProfileState {
@@ -69,11 +70,52 @@ export function useProfile(fid: number) {
     }
   }, [fid, state.isCastsLoading, state.hasMoreCasts, state.castsCursor]);
 
+  const updateCastReaction = useCallback(
+    (hash: string, type: "like" | "recast", added: boolean, myFid: number) => {
+      setState((s) => ({
+        ...s,
+        casts: s.casts.map((cast) => {
+          if (cast.hash !== hash) return cast;
+          const reactions = { ...cast.reactions };
+          const viewerContext = {
+            liked: false,
+            recasted: false,
+            ...cast.viewer_context,
+          };
+          if (type === "like") {
+            reactions.likes_count = added
+              ? reactions.likes_count + 1
+              : Math.max(0, reactions.likes_count - 1);
+            reactions.likes = added
+              ? [...reactions.likes, { fid: myFid }]
+              : reactions.likes.filter((l) => l.fid !== myFid);
+            viewerContext.liked = added;
+          } else {
+            reactions.recasts_count = added
+              ? reactions.recasts_count + 1
+              : Math.max(0, reactions.recasts_count - 1);
+            reactions.recasts = added
+              ? [...reactions.recasts, { fid: myFid }]
+              : reactions.recasts.filter((r) => r.fid !== myFid);
+            viewerContext.recasted = added;
+          }
+          return { ...cast, reactions, viewer_context: viewerContext };
+        }),
+      }));
+    },
+    [],
+  );
+
   const toggleFollow = useCallback(async () => {
     if (!state.user) return;
     const wasFollowing = state.user.viewer_context?.following ?? false;
 
-    // Optimistic update
+    // Optimistic update + haptic
+    if (wasFollowing) {
+      haptic.selection();
+    } else {
+      haptic.success();
+    }
     setState((s) => ({
       ...s,
       user: s.user
@@ -117,5 +159,6 @@ export function useProfile(fid: number) {
     fetchProfile,
     fetchMoreCasts,
     toggleFollow,
+    updateCastReaction,
   };
 }

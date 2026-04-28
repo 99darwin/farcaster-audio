@@ -2,6 +2,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, touchTarget, typography } from "@/constants/theme";
 import { formatCount } from "@/utils/format";
+import { haptic } from "@/utils/haptics";
 
 interface ReactionBarProps {
   likeCount: number;
@@ -32,7 +33,10 @@ export function ReactionBar({
 
       <View style={styles.actions}>
         <Pressable
-          onPress={onLike}
+          onPress={() => {
+            haptic.light();
+            onLike();
+          }}
           style={styles.action}
           accessibilityLabel={`Like, ${likeCount}`}
           accessibilityRole="button"
@@ -48,7 +52,10 @@ export function ReactionBar({
         </Pressable>
 
         <Pressable
-          onPress={onRecast}
+          onPress={() => {
+            haptic.light();
+            onRecast();
+          }}
           style={styles.action}
           accessibilityLabel={`Recast, ${recastCount}`}
           accessibilityRole="button"
@@ -64,7 +71,10 @@ export function ReactionBar({
         </Pressable>
 
         <Pressable
-          onPress={onShare}
+          onPress={() => {
+            haptic.selection();
+            onShare();
+          }}
           style={styles.action}
           accessibilityLabel="Share"
           accessibilityRole="button"

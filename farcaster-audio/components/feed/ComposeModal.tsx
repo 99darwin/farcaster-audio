@@ -30,6 +30,7 @@ import { MentionSuggestions } from "@/components/common/MentionSuggestions";
 import { Waveform } from "@/components/voice-notes/Waveform";
 import { useOgPreview, extractUrls } from "@/hooks/useOgPreview";
 import { colors } from "@/constants/theme";
+import { haptic } from "@/utils/haptics";
 import type { NeynarCast } from "@/types/neynar";
 
 const CAST_LENGTH_DEFAULT = 320;
@@ -229,6 +230,7 @@ export function ComposeModal({
       });
       return;
     }
+    haptic.medium();
     Keyboard.dismiss();
     // Clear media attachments — voice note replaces images/video
     setAttachments([]);
@@ -237,6 +239,7 @@ export function ComposeModal({
   }, [recorder]);
 
   const handleStopRecording = useCallback(async () => {
+    haptic.light();
     await recorder.stopRecording();
     setRecordingState("recorded");
   }, [recorder]);
@@ -293,6 +296,7 @@ export function ComposeModal({
 
   const handlePublish = async () => {
     if (!canPublish) return;
+    haptic.light();
     setIsPublishing(true);
     try {
       if (hasVoiceNote && recorder.result && user) {
@@ -358,12 +362,14 @@ export function ComposeModal({
         );
       }
 
+      haptic.success();
       resetState();
       onClose();
     } catch (err: any) {
       const detail =
         err?.response?.data?.detail || err?.message || "Unknown error";
       console.error("[Compose] Failed to publish:", detail, err);
+      haptic.error();
       Toast.show({
         type: "error",
         text1: "Error",

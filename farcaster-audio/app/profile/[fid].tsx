@@ -65,10 +65,13 @@ export default function ProfileScreen() {
     fetchProfile,
     fetchMoreCasts,
     toggleFollow,
+    updateCastReaction,
   } = useProfile(fid);
 
   // Voice notes state
-  const [profileVoiceNotes, setProfileVoiceNotes] = useState<VoiceNoteDetail[]>([]);
+  const [profileVoiceNotes, setProfileVoiceNotes] = useState<VoiceNoteDetail[]>(
+    [],
+  );
   const [vnCursor, setVnCursor] = useState<string | null>(null);
   const [vnLoading, setVnLoading] = useState(false);
 
@@ -141,24 +144,30 @@ export default function ProfileScreen() {
 
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {
+      if (!myFid) return;
+      updateCastReaction(castHash, "like", !isLiked, myFid);
       try {
         if (isLiked) await removeLike(castHash);
         else await likeCast(castHash);
-        await fetchProfile();
-      } catch {}
+      } catch {
+        updateCastReaction(castHash, "like", isLiked, myFid);
+      }
     },
-    [fetchProfile],
+    [myFid, updateCastReaction],
   );
 
   const handleRecast = useCallback(
     async (castHash: string, isRecasted: boolean) => {
+      if (!myFid) return;
+      updateCastReaction(castHash, "recast", !isRecasted, myFid);
       try {
         if (isRecasted) await removeRecast(castHash);
         else await recastCast(castHash);
-        await fetchProfile();
-      } catch {}
+      } catch {
+        updateCastReaction(castHash, "recast", isRecasted, myFid);
+      }
     },
-    [fetchProfile],
+    [myFid, updateCastReaction],
   );
 
   const handleReply = useCallback(
@@ -255,15 +264,14 @@ export default function ProfileScreen() {
     [fetchVoiceNotes],
   );
 
-  const handleVoiceNoteDelete = useCallback(
-    async (id: string) => {
-      try {
-        await voiceNotesApi.deleteVoiceNote(id);
-        setProfileVoiceNotes((prev) => prev.filter((vn) => vn.voice_note.id !== id));
-      } catch {}
-    },
-    [],
-  );
+  const handleVoiceNoteDelete = useCallback(async (id: string) => {
+    try {
+      await voiceNotesApi.deleteVoiceNote(id);
+      setProfileVoiceNotes((prev) =>
+        prev.filter((vn) => vn.voice_note.id !== id),
+      );
+    } catch {}
+  }, []);
 
   if (isLoading && !user) {
     return <LoadingSpinner fullScreen />;
@@ -336,7 +344,10 @@ export default function ProfileScreen() {
           refreshControl={
             <RefreshControl
               refreshing={false}
-              onRefresh={() => { fetchProfile(); fetchVoiceNotes(); }}
+              onRefresh={() => {
+                fetchProfile();
+                fetchVoiceNotes();
+              }}
               tintColor={colors.accent}
             />
           }
