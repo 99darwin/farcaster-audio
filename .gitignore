@@ -15,7 +15,6 @@ node_modules/
 dist/
 
 # Expo / React Native
-farcaster-audio/ios/
 farcaster-audio/android/
 farcaster-audio/.expo/
 *.jsbundle
@@ -26,6 +25,9 @@ farcaster-audio/.expo/
 *.swp
 *.swo
 .DS_Store
+
+# Claude Code
+.claude/
 
 # Testing
 coverage/

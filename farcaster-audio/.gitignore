@@ -8,8 +8,6 @@ dist/
 *.mobileprovision
 *.orig.*
 web-build/
-ios/
-!modules/*/ios/
 android/
 .env
 .env.*
