@@ -1,0 +1,23 @@
+# Files excluded from @expo/fingerprint runtime version computation.
+# Mirrors ios/.gitignore + android/.gitignore at the project root so
+# Expo Fingerprint produces identical hashes on local and EAS builds.
+
+# iOS
+ios/Pods/
+ios/build/
+ios/.xcode.env.local
+ios/Juke.xcworkspace/xcuserdata/
+ios/Juke.xcodeproj/xcuserdata/
+ios/Juke.xcodeproj/project.xcworkspace/xcuserdata/
+ios/**/*.xcuserstate
+ios/**/DerivedData/
+ios/**/*.hmap
+ios/**/*.ipa
+
+# Android
+android/build/
+android/app/build/
+android/.gradle/
+android/.idea/
+android/local.properties
+android/**/.cxx/
