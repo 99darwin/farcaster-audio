@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     JWT_REFRESH_EXPIRY_DAYS: int = 30
     NEYNAR_API_KEY: str = ""
     NEYNAR_CLIENT_ID: str = ""
+    GIPHY_API_KEY: str = ""
     API_BASE_URL: str = "http://localhost:8000"
     LIVEKIT_API_KEY: str = ""
     LIVEKIT_API_SECRET: str = ""

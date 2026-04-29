@@ -11,7 +11,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.config import settings
-from app.routers import admin, auth, feed, media, notifications, participants, push, recordings, rooms, snaps, users, voice_notes, webhooks
+from app.routers import admin, auth, feed, gifs, media, notifications, participants, push, recordings, rooms, snaps, users, voice_notes, webhooks
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -29,6 +29,12 @@ if settings.ENVIRONMENT != "development":
             SqlalchemyIntegration(),
         ],
         traces_sample_rate=0.1,
+        # Defense in depth: Sentry's default frame-locals capture would
+        # otherwise serialize secrets (e.g. an upstream provider api_key
+        # held in a request-scoped dict) into every captured event. Belt-
+        # and-suspenders alongside scoping secrets out of raise frames.
+        include_local_variables=False,
+        send_default_pii=False,
     )
 
 # Load SKILL.md once at startup
@@ -194,6 +200,7 @@ async def get_agent_skill():
 app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(feed.router)
+app.include_router(gifs.router)
 app.include_router(rooms.router)
 app.include_router(users.router)
 app.include_router(participants.router)

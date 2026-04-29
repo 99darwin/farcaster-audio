@@ -434,17 +434,34 @@ async def neynar_notification_webhook(
     if not signature:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature")
 
-    payload = json.loads(body)
-    event_type = payload.get("type", "")
-
-    # Select the correct secret based on event type
+    # Verify the HMAC over raw bytes BEFORE parsing JSON. We don't yet know
+    # which event type this is (that lives inside the body), so try each
+    # configured secret. The body is authentic iff at least one matches —
+    # this avoids doing JSON parse work for unauthenticated requests.
     secret_map = {
         "cast.created": settings.NEYNAR_WEBHOOK_SECRET_CAST,
         "reaction.created": settings.NEYNAR_WEBHOOK_SECRET_REACTION,
         "follow.created": settings.NEYNAR_WEBHOOK_SECRET_FOLLOW,
     }
-    webhook_secret = secret_map.get(event_type, "")
-    if not webhook_secret or not _verify_neynar_signature(body, webhook_secret, signature):
+    matched_event_type: str | None = None
+    for candidate_event, candidate_secret in secret_map.items():
+        if not candidate_secret:
+            continue
+        if _verify_neynar_signature(body, candidate_secret, signature):
+            matched_event_type = candidate_event
+            break
+    if matched_event_type is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
+
+    # Body is authenticated — safe to parse. Reject if the declared event
+    # type doesn't match the secret that signed the body (cross-event
+    # replay defense).
+    try:
+        payload = json.loads(body)
+    except (ValueError, json.JSONDecodeError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body")
+    event_type = payload.get("type", "")
+    if event_type != matched_event_type:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
 
     from app.services.push_service import PushService

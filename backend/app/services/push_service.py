@@ -6,6 +6,7 @@ and Expo push delivery.
 import json
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import httpx
 import redis.asyncio as aioredis
@@ -34,6 +35,43 @@ def _preview(text: str, max_len: int = 140) -> str:
     if len(clean) <= max_len:
         return clean
     return clean[: max_len - 1].rstrip() + "…"
+
+
+def _is_safe_image_url(url: str | None) -> bool:
+    """Validate that ``url`` is safe to hand to Expo's richContent.image.
+
+    pfp_urls flow from Neynar webhook payloads (HMAC-verified) but ultimately
+    come from user-controlled Farcaster profiles. Without scheme validation,
+    a malicious profile could:
+      - point at ``data:`` or ``http://`` URLs that waste NSE bandwidth on
+        every recipient device
+      - point at an attacker-owned tracking pixel and learn which FIDs
+        received pushes (correlation/surveillance vector)
+      - point at internal/private hosts (SSRF-adjacent — NSE tries to fetch)
+    """
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme != "https":
+        return False
+    if not parsed.netloc:
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    # Reject obvious private/internal hosts.
+    if host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
+        return False
+    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("169.254."):
+        return False
+    if host.startswith("172."):
+        parts = host.split(".")
+        if len(parts) >= 2 and parts[1].isdigit() and 16 <= int(parts[1]) <= 31:
+            return False
+    return True
 
 
 class PushService:
@@ -242,6 +280,7 @@ class PushService:
         title: str,
         body: str,
         data: dict | None = None,
+        image_url: str | None = None,
     ) -> None:
         """Send a push notification to all active devices for a user."""
         result = await self.db.execute(
@@ -253,16 +292,23 @@ class PushService:
         if not tokens:
             return
 
-        messages = [
-            {
+        # Only attach richContent when the URL passes scheme/host validation.
+        # An invalid pfp_url (http://, data:, internal host, etc.) silently
+        # degrades to a text-only push rather than blocking delivery.
+        attach_image = bool(image_url) and _is_safe_image_url(image_url)
+        messages: list[dict] = []
+        for token in tokens:
+            message: dict = {
                 "to": token,
                 "title": title,
                 "body": body,
                 "sound": "default",
                 "data": data or {},
             }
-            for token in tokens
-        ]
+            if attach_image:
+                message["richContent"] = {"image": image_url}
+                message["mutableContent"] = True
+            messages.append(message)
 
         try:
             async with httpx.AsyncClient() as client:
@@ -307,12 +353,14 @@ class PushService:
         body = ""
         data: dict = {}
         notification_type = ""
+        actor_pfp_url: str | None = None
 
         if event_type == "cast.created":
             cast_data = payload.get("data", {})
             parent_author_fid = cast_data.get("parent_author", {}).get("fid")
             author = cast_data.get("author", {})
             author_name = author.get("display_name") or author.get("username", "Someone")
+            actor_pfp_url = author.get("pfp_url")
             cast_hash = cast_data.get("hash", "")
 
             # Build a thread-aware URL so the client opens the full conversation
@@ -357,6 +405,7 @@ class PushService:
                         title="You were mentioned",
                         body=mention_body,
                         data={"type": "mention", "url": cast_url},
+                        image_url=actor_pfp_url,
                     )
 
         elif event_type == "reaction.created":
@@ -368,6 +417,7 @@ class PushService:
             target_fid = cast_author.get("fid") if isinstance(cast_author, dict) else cast_author
             reactor = reaction_data.get("user", {})
             reactor_name = reactor.get("display_name") or reactor.get("username", "Someone")
+            actor_pfp_url = reactor.get("pfp_url")
             cast_hash = cast.get("hash", "")
 
             cast_preview = _preview(cast.get("text", ""))
@@ -388,6 +438,7 @@ class PushService:
             follower = follow_data.get("follower", {})
             follower_name = follower.get("display_name") or follower.get("username", "Someone")
             follower_fid = follower.get("fid")
+            actor_pfp_url = follower.get("pfp_url")
 
             notification_type = "follows"
             title = "New Follower"
@@ -418,14 +469,24 @@ class PushService:
             return
 
         logger.info("Sending %s push to fid=%s from fid=%s", notification_type, target_fid, actor_fid)
-        await self.send_push(fid=target_fid, title=title, body=body, data=data)
+        await self.send_push(
+            fid=target_fid,
+            title=title,
+            body=body,
+            data=data,
+            image_url=actor_pfp_url,
+        )
 
     # ------------------------------------------------------------------
     # Space event push notifications (called from room_service)
     # ------------------------------------------------------------------
 
     async def notify_hand_raised(
-        self, host_fid: int, raiser_name: str, room_id: str
+        self,
+        host_fid: int,
+        raiser_name: str,
+        room_id: str,
+        raiser_pfp_url: str | None = None,
     ) -> None:
         """Notify the space host that someone raised their hand."""
         is_active = await self.redis.sismember(REDIS_ACTIVE_FIDS_KEY, str(host_fid))
@@ -438,10 +499,16 @@ class PushService:
             title="Hand Raised",
             body=f"{raiser_name} wants to speak",
             data={"type": "hand_raised", "url": f"/space/{room_id}"},
+            image_url=raiser_pfp_url,
         )
 
     async def notify_invited_to_speak(
-        self, target_fid: int, inviter_name: str, room_id: str, room_title: str
+        self,
+        target_fid: int,
+        inviter_name: str,
+        room_id: str,
+        room_title: str,
+        inviter_pfp_url: str | None = None,
     ) -> None:
         """Notify a user they've been invited to speak in a space."""
         is_active = await self.redis.sismember(REDIS_ACTIVE_FIDS_KEY, str(target_fid))
@@ -454,6 +521,7 @@ class PushService:
             title="Invited to Speak",
             body=f"{inviter_name} invited you to speak in \"{room_title}\"",
             data={"type": "space_invite", "url": f"/space/{room_id}"},
+            image_url=inviter_pfp_url,
         )
 
     # ------------------------------------------------------------------

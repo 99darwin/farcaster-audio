@@ -202,14 +202,15 @@ export function useFeed() {
       parentHash?: string,
       imageUris?: string[],
       quote?: { fid: number; hash: string },
-    ) => {
-      await publishCast(
+    ): Promise<{ hash: string } | void> => {
+      const result = await publishCast(
         text,
         parentHash,
         imageUris && imageUris.length > 0 ? imageUris : undefined,
         quote,
       );
       await refresh();
+      return result;
     },
     [refresh],
   );

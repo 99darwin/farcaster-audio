@@ -24,14 +24,19 @@ import { useOTAUpdate } from "@/hooks/useOTAUpdate";
 import { useNotificationBadge } from "@/hooks/useNotificationBadge";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { colors } from "@/constants/theme";
-import Toast from "react-native-toast-message";
+import Toast, { type ToastConfig } from "react-native-toast-message";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
+import { ViewCastToast } from "@/components/common/ViewCastToast";
 import * as livekitService from "@/services/livekit";
 import * as api from "@/services/api";
 import { Config } from "@/constants/config";
 
 // Must be called before any LiveKit Room usage
 registerGlobals();
+
+const toastConfig: ToastConfig = {
+  viewCast: ({ props }) => <ViewCastToast props={props} />,
+};
 
 Sentry.init({
   dsn: Config.SENTRY_DSN,
@@ -265,7 +270,7 @@ export default function RootLayout() {
           }
         />
         <MiniAppModal />
-        <Toast />
+        <Toast config={toastConfig} position="bottom" bottomOffset={100} />
       </GestureHandlerRootView>
     </SafeAreaProvider>
   );

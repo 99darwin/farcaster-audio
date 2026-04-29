@@ -1323,10 +1323,12 @@ class RoomService:
                 host_fid = room_state.get("host_fid") if room_state else None
                 if host_fid and int(host_fid) != fid:
                     raiser_name = participant.get("display_name") or participant.get("username") or "Someone"
+                    raiser_pfp_url = participant.get("pfp_url")
                     await self.push.notify_hand_raised(
                         host_fid=int(host_fid),
                         raiser_name=raiser_name,
                         room_id=room_id,
+                        raiser_pfp_url=raiser_pfp_url,
                     )
             except Exception as e:
                 logger.warning("Failed to send hand-raised push: %s", e)
@@ -1416,13 +1418,16 @@ class RoomService:
             room_title = room_state.get("title", "a space") if room_state else "a space"
             actor_participant = await self.redis.get_participant(room_id, actor_fid)
             inviter_name = "The host"
+            inviter_pfp_url: str | None = None
             if actor_participant:
                 inviter_name = actor_participant.get("display_name") or actor_participant.get("username") or "The host"
+                inviter_pfp_url = actor_participant.get("pfp_url")
             await self.push.notify_invited_to_speak(
                 target_fid=target_fid,
                 inviter_name=inviter_name,
                 room_id=room_id,
                 room_title=room_title,
+                inviter_pfp_url=inviter_pfp_url,
             )
         except Exception as e:
             logger.warning("Failed to send invite-to-speak push: %s", e)
