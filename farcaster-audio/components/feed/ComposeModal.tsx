@@ -27,10 +27,12 @@ import { useVoiceNoteRecorder } from "@/hooks/useVoiceNoteRecorder";
 import * as voiceNotesApi from "@/services/voiceNotes";
 import { Avatar } from "@/components/common/Avatar";
 import { MentionSuggestions } from "@/components/common/MentionSuggestions";
+import { GifPicker } from "@/components/feed/GifPicker";
 import { Waveform } from "@/components/voice-notes/Waveform";
 import { useOgPreview, extractUrls } from "@/hooks/useOgPreview";
 import { colors } from "@/constants/theme";
 import { haptic } from "@/utils/haptics";
+import type { GiphyGif } from "@/services/giphy";
 import type { NeynarCast } from "@/types/neynar";
 
 const CAST_LENGTH_DEFAULT = 320;
@@ -55,7 +57,7 @@ interface ComposeModalProps {
     parentHash?: string,
     imageUris?: string[],
     quote?: { fid: number; hash: string },
-  ) => Promise<void>;
+  ) => Promise<{ hash: string } | void>;
   /**
    * Called after a voice reply successfully posts. Lets the parent screen
    * refresh its thread so the new voice reply appears under the parent cast.
@@ -85,10 +87,15 @@ export function ComposeModal({
   const [text, setText] = useState("");
   const [cursorPosition, setCursorPosition] = useState(0);
   const [attachments, setAttachments] = useState<
-    Array<{ uri: string; type: "image" | "video" }>
+    Array<{
+      uri: string;
+      type: "image" | "video";
+      source?: "giphy" | "local";
+    }>
   >([]);
   const [isPublishing, setIsPublishing] = useState(false);
   const [postToFarcaster, setPostToFarcaster] = useState(true);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const keyboardPadding = useRef(new Animated.Value(0)).current;
 
   // Voice recording state
@@ -275,6 +282,7 @@ export function ComposeModal({
       const newAttachments = result.assets.map((a) => ({
         uri: a.uri,
         type: (a.type === "video" ? "video" : "image") as "image" | "video",
+        source: "local" as const,
       }));
 
       const hasNewVideo = newAttachments.some((a) => a.type === "video");
@@ -291,6 +299,22 @@ export function ComposeModal({
   const handleRemoveAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
+
+  const handleSelectGif = useCallback(
+    (gif: GiphyGif) => {
+      setAttachments((prev) =>
+        [
+          ...prev,
+          {
+            uri: gif.gifUrl,
+            type: "image" as const,
+            source: "giphy" as const,
+          },
+        ].slice(0, maxImages),
+      );
+    },
+    [maxImages],
+  );
 
   // --- Publish ---
 
@@ -342,9 +366,12 @@ export function ComposeModal({
         let uploadedUrls: string[] | undefined;
         if (attachments.length > 0) {
           uploadedUrls = await Promise.all(
-            attachments.map((a) =>
-              a.type === "video" ? uploadVideo(a.uri) : uploadImage(a.uri),
-            ),
+            attachments.map((a) => {
+              if (a.source === "giphy") return Promise.resolve(a.uri);
+              return a.type === "video"
+                ? uploadVideo(a.uri)
+                : uploadImage(a.uri);
+            }),
           );
         }
 
@@ -354,12 +381,20 @@ export function ComposeModal({
         const quote = quoteCast
           ? { fid: quoteCast.author.fid, hash: quoteCast.hash }
           : undefined;
-        await onPublish(
+        const result = await onPublish(
           text.trim(),
           replyTo?.hash,
           allEmbeds.length > 0 ? allEmbeds : undefined,
           quote,
         );
+        if (result?.hash) {
+          Toast.show({
+            type: "viewCast",
+            props: { hash: result.hash, parentHash: replyTo?.hash },
+            visibilityTime: 5000,
+            position: "bottom",
+          });
+        }
       }
 
       haptic.success();
@@ -759,6 +794,36 @@ export function ComposeModal({
                   </Text>
                 )}
 
+                {/* GIF button */}
+                <Pressable
+                  onPress={() => {
+                    haptic.selection();
+                    setGifPickerOpen(true);
+                  }}
+                  disabled={
+                    isPublishing ||
+                    hasVideo ||
+                    hasVoiceNote ||
+                    attachments.length >= maxImages
+                  }
+                  hitSlop={8}
+                  style={[
+                    styles.gifButton,
+                    {
+                      opacity:
+                        hasVideo ||
+                        hasVoiceNote ||
+                        attachments.length >= maxImages
+                          ? 0.4
+                          : 1,
+                    },
+                  ]}
+                  accessibilityLabel="Add GIF"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.gifButtonText}>GIF</Text>
+                </Pressable>
+
                 {/* Mic button */}
                 <Pressable
                   onPress={handleStartRecording}
@@ -784,6 +849,11 @@ export function ComposeModal({
           </>
         )}
       </Animated.View>
+      <GifPicker
+        isVisible={gifPickerOpen}
+        onClose={() => setGifPickerOpen(false)}
+        onSelect={handleSelectGif}
+      />
     </Modal>
   );
 }
@@ -1030,6 +1100,19 @@ const styles = StyleSheet.create({
   imageHint: {
     color: colors.text.secondary,
     fontSize: 13,
+  },
+  gifButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.purple,
+  },
+  gifButtonText: {
+    color: colors.purple,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
   charCount: {
     color: colors.text.secondary,
