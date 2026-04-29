@@ -9,8 +9,7 @@
     "test": "jest",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "postinstall": "patch-package",
-    "eas-build-pre-install": "sed -i.bak 's/objectVersion = 70;/objectVersion = 56;/' ios/Juke.xcodeproj/project.pbxproj && rm -f ios/Juke.xcodeproj/project.pbxproj.bak"
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@farcaster/miniapp-host-react-native": "^0.1.19",
