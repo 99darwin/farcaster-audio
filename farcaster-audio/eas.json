@@ -9,6 +9,7 @@
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "ios": {
+        "image": "latest",
         "simulator": true
       }
     },
@@ -19,6 +20,7 @@
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "ios": {
+        "image": "latest",
         "buildConfiguration": "Release"
       }
     },
@@ -28,6 +30,7 @@
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "ios": {
+        "image": "latest",
         "buildConfiguration": "Release",
         "autoIncrement": true
       }
