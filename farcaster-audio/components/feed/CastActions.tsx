@@ -9,6 +9,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { colors, touchTarget } from "@/constants/theme";
 import { formatCount } from "@/utils/format";
+import { haptic } from "@/utils/haptics";
 
 interface CastActionsProps {
   likesCount: number;
@@ -42,6 +43,7 @@ export function CastActions({
   castHash,
 }: CastActionsProps) {
   const handleRecastPress = () => {
+    haptic.selection();
     ActionSheetIOS.showActionSheetWithOptions(
       {
         options: [
@@ -52,14 +54,31 @@ export function CastActions({
         cancelButtonIndex: 0,
       },
       (buttonIndex) => {
-        if (buttonIndex === 1) onRecast();
-        if (buttonIndex === 2) onQuoteCast();
+        if (buttonIndex === 1) {
+          haptic.light();
+          onRecast();
+        }
+        if (buttonIndex === 2) {
+          haptic.selection();
+          onQuoteCast();
+        }
       },
     );
   };
 
+  const handleLikePress = () => {
+    haptic.light();
+    onLike();
+  };
+
+  const handleReplyPress = () => {
+    haptic.selection();
+    onReply();
+  };
+
   const handleSharePress = () => {
     if (!authorUsername || !castHash) return;
+    haptic.selection();
     const url = buildWarpcastUrl(authorUsername, castHash);
     Share.share({ url });
   };
@@ -67,7 +86,7 @@ export function CastActions({
   return (
     <View style={styles.container}>
       <Pressable
-        onPress={onReply}
+        onPress={handleReplyPress}
         style={styles.action}
         accessibilityLabel={`Reply, ${formatCount(repliesCount)}`}
         accessibilityRole="button"
@@ -97,7 +116,7 @@ export function CastActions({
       </Pressable>
 
       <Pressable
-        onPress={onLike}
+        onPress={handleLikePress}
         style={styles.action}
         accessibilityLabel={`Like, ${formatCount(likesCount)}`}
         accessibilityRole="button"

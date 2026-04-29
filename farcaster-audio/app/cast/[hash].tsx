@@ -30,10 +30,8 @@ export default function CastThreadScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const myFid = user?.fid ?? 0;
-  const { rootCast, replies, isLoading, error, fetch } = useCastThread(
-    hash!,
-    myFid,
-  );
+  const { rootCast, replies, isLoading, error, fetch, updateCastReaction } =
+    useCastThread(hash!, myFid);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [composeVisible, setComposeVisible] = useState(false);
   const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
@@ -110,24 +108,30 @@ export default function CastThreadScreen() {
 
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {
+      if (!myFid) return;
+      updateCastReaction(castHash, "like", !isLiked, myFid);
       try {
         if (isLiked) await removeLike(castHash);
         else await likeCast(castHash);
-        await fetch();
-      } catch {}
+      } catch {
+        updateCastReaction(castHash, "like", isLiked, myFid);
+      }
     },
-    [fetch],
+    [myFid, updateCastReaction],
   );
 
   const handleRecast = useCallback(
     async (castHash: string, isRecasted: boolean) => {
+      if (!myFid) return;
+      updateCastReaction(castHash, "recast", !isRecasted, myFid);
       try {
         if (isRecasted) await removeRecast(castHash);
         else await recastCast(castHash);
-        await fetch();
-      } catch {}
+      } catch {
+        updateCastReaction(castHash, "recast", isRecasted, myFid);
+      }
     },
-    [fetch],
+    [myFid, updateCastReaction],
   );
 
   const handleReply = useCallback((cast: NeynarCast) => {

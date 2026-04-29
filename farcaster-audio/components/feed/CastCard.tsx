@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, memo } from "react";
 import {
   View,
   Text,
@@ -268,7 +268,7 @@ function CastBody({
   );
 }
 
-export function CastCard({
+function CastCardImpl({
   cast,
   myFid,
   onLike,
@@ -423,6 +423,8 @@ export function CastCard({
 
   return card;
 }
+
+export const CastCard = memo(CastCardImpl);
 
 const styles = StyleSheet.create({
   container: {
