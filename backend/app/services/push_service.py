@@ -296,6 +296,11 @@ class PushService:
         # An invalid pfp_url (http://, data:, internal host, etc.) silently
         # degrades to a text-only push rather than blocking delivery.
         attach_image = bool(image_url) and _is_safe_image_url(image_url)
+        if not attach_image:
+            logger.info(
+                "Push image skipped fid=%s image_url=%r safe=%s",
+                fid, image_url, _is_safe_image_url(image_url) if image_url else None,
+            )
         messages: list[dict] = []
         for token in tokens:
             message: dict = {
