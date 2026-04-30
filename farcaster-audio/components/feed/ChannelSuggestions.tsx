@@ -8,7 +8,9 @@ import {
   View,
 } from "react-native";
 import { Image } from "expo-image";
-import { colors, radii, spacing, typography } from "@/constants/theme";
+import { radii, spacing, typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { searchChannels } from "@/services/api";
 import type { ChannelSearchItem } from "@/types/api";
 
@@ -59,6 +61,8 @@ export function ChannelSuggestions({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastQueryRef = useRef("");
   const channel = enabled ? extractChannelQuery(text, cursorPosition) : null;
+  const { colors } = useTheme();
+  const styles = useStyles();
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -147,54 +151,55 @@ export function ChannelSuggestions({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    maxHeight: 220,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-    backgroundColor: colors.background.surface,
-  },
-  loadingRow: {
-    paddingVertical: spacing.md,
-    alignItems: "center",
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    gap: spacing.md,
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.sm,
-  },
-  avatarFallback: {
-    backgroundColor: colors.background.subtle,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarInitial: {
-    color: colors.text.primary,
-    fontSize: typography.size.sm,
-    fontWeight: typography.weight.semibold,
-  },
-  channelInfo: {
-    flex: 1,
-  },
-  channelName: {
-    color: colors.text.primary,
-    fontSize: typography.size.body,
-    fontWeight: typography.weight.semibold,
-  },
-  channelMeta: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-  },
-  followers: {
-    maxWidth: 100,
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      maxHeight: 220,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+      backgroundColor: colors.background.surface,
+    },
+    loadingRow: {
+      paddingVertical: spacing.md,
+      alignItems: "center",
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      gap: spacing.md,
+    },
+    avatar: {
+      width: 32,
+      height: 32,
+      borderRadius: radii.sm,
+    },
+    avatarFallback: {
+      backgroundColor: colors.background.subtle,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    avatarInitial: {
+      color: colors.text.primary,
+      fontSize: typography.size.sm,
+      fontWeight: typography.weight.semibold,
+    },
+    channelInfo: {
+      flex: 1,
+    },
+    channelName: {
+      color: colors.text.primary,
+      fontSize: typography.size.body,
+      fontWeight: typography.weight.semibold,
+    },
+    channelMeta: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+    },
+    followers: {
+      maxWidth: 100,
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+    },
+  }));

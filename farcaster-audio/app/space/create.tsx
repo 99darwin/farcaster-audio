@@ -18,7 +18,8 @@ import { useSpaceStore } from "@/stores/spaceStore";
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveSpaces } from "@/hooks/useLiveSpaces";
 import Toast from "react-native-toast-message";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { formatScheduledTime } from "@/utils/formatDate";
 import * as api from "@/services/api";
 import * as livekitService from "@/services/livekit";
@@ -29,6 +30,8 @@ const MIN_SCHEDULE_AHEAD_MS = 5 * 60 * 1000;
 
 export default function CreateSpaceScreen() {
   const router = useRouter();
+  const { scheme, colors } = useTheme();
+  const styles = useStyles();
   const user = useAuthStore((s) => s.user);
   const { refresh: refreshSpaces } = useLiveSpaces();
   const [title, setTitle] = useState("");
@@ -216,7 +219,7 @@ export default function CreateSpaceScreen() {
                 if (date) setScheduledDate(date);
               }}
               textColor={colors.text.primary}
-              themeVariant="dark"
+              themeVariant={scheme}
               style={styles.datePicker}
             />
             <Text style={styles.scheduledLabel}>
@@ -239,75 +242,76 @@ export default function CreateSpaceScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  content: {
-    flex: 1,
-    padding: 24,
-  },
-  label: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: colors.background.surface,
-    borderRadius: 12,
-    padding: 16,
-    color: colors.text.primary,
-    fontSize: 17,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  charCount: {
-    color: colors.text.placeholder,
-    fontSize: 12,
-    textAlign: "right",
-    marginTop: 4,
-  },
-  optionRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 16,
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-  },
-  optionText: {
-    flex: 1,
-    marginRight: 16,
-  },
-  optionLabel: {
-    color: colors.text.primary,
-    fontSize: 16,
-  },
-  optionDescription: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  datePickerContainer: {
-    marginTop: 8,
-    alignItems: "center",
-  },
-  datePicker: {
-    width: "100%",
-    height: 180,
-  },
-  scheduledLabel: {
-    color: colors.accent,
-    fontSize: 15,
-    fontWeight: "600",
-    marginTop: 4,
-  },
-  buttonContainer: {
-    marginTop: "auto",
-    paddingBottom: 24,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    content: {
+      flex: 1,
+      padding: 24,
+    },
+    label: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      fontWeight: "600" as const,
+      textTransform: "uppercase" as const,
+      marginBottom: 8,
+    },
+    input: {
+      backgroundColor: colors.background.surface,
+      borderRadius: 12,
+      padding: 16,
+      color: colors.text.primary,
+      fontSize: 17,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    charCount: {
+      color: colors.text.placeholder,
+      fontSize: 12,
+      textAlign: "right" as const,
+      marginTop: 4,
+    },
+    optionRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: 16,
+      paddingVertical: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+    },
+    optionText: {
+      flex: 1,
+      marginRight: 16,
+    },
+    optionLabel: {
+      color: colors.text.primary,
+      fontSize: 16,
+    },
+    optionDescription: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      marginTop: 2,
+    },
+    datePickerContainer: {
+      marginTop: 8,
+      alignItems: "center",
+    },
+    datePicker: {
+      width: "100%",
+      height: 180,
+    },
+    scheduledLabel: {
+      color: colors.accent,
+      fontSize: 15,
+      fontWeight: "600" as const,
+      marginTop: 4,
+    },
+    buttonContainer: {
+      marginTop: "auto" as const,
+      paddingBottom: 24,
+    },
+  }));

@@ -1,5 +1,4 @@
 import type { PaletteColor, SnapAccent } from "@/types/snap";
-import { colors } from "@/constants/theme";
 
 /** Dark-mode accent palette for Farcaster Snaps. */
 export const SNAP_ACCENTS: Record<SnapAccent, string> = {
@@ -9,7 +8,8 @@ export const SNAP_ACCENTS: Record<SnapAccent, string> = {
   amber: "#f59e0b",
   green: "#10b981",
   teal: "#14b8a6",
-  purple: colors.purple, // #855DCD — aligned with app theme
+  // purple is brand-constant across light/dark
+  purple: "#855DCD",
   pink: "#ec4899",
 };
 

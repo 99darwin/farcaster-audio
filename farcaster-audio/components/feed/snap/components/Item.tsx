@@ -1,7 +1,7 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import type { ItemProps } from "@/types/snap";
 import { useSnapContext } from "../context";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface Props {
   props: ItemProps;
@@ -11,6 +11,7 @@ interface Props {
 
 export function SnapItem({ props, childIds, depth }: Props) {
   const { renderChildren } = useSnapContext();
+  const styles = useStyles();
   return (
     <View style={styles.item}>
       <Text style={styles.title} numberOfLines={2}>
@@ -30,24 +31,25 @@ export function SnapItem({ props, childIds, depth }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  item: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 2,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  description: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    lineHeight: 17,
-  },
-  childrenWrap: {
-    marginTop: 6,
-    gap: 4,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    item: {
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      gap: 2,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: 14,
+      fontWeight: "600" as const,
+    },
+    description: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      lineHeight: 17,
+    },
+    childrenWrap: {
+      marginTop: 6,
+      gap: 4,
+    },
+  }));

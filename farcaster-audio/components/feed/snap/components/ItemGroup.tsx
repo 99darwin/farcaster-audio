@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { View, StyleSheet } from "react-native";
 import type { ItemGroupProps } from "@/types/snap";
 import { useSnapContext, GAP_VALUES } from "../context";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface Props {
   props: ItemGroupProps;
@@ -12,6 +12,7 @@ interface Props {
 
 export function SnapItemGroup({ props, childIds, depth }: Props) {
   const { elements, renderChildren } = useSnapContext();
+  const styles = useStyles();
   const gap = GAP_VALUES[props.gap ?? "none"];
 
   const ids = childIds ?? [];
@@ -36,17 +37,18 @@ export function SnapItemGroup({ props, childIds, depth }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  group: {
-    borderRadius: 10,
-    overflow: "hidden",
-  },
-  bordered: {
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  sep: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.background.border,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    group: {
+      borderRadius: 10,
+      overflow: "hidden" as const,
+    },
+    bordered: {
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    sep: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.background.border,
+    },
+  }));

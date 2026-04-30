@@ -12,7 +12,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
-import { colors, spacing, radii, typography } from "@/constants/theme";
+import { spacing, radii, typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { Avatar } from "@/components/common/Avatar";
 import * as api from "@/services/api";
 import type { Room } from "@/types/space";
@@ -21,6 +23,8 @@ import Toast from "react-native-toast-message";
 export default function AdminScreen() {
   const isAdmin = useAuthStore((s) => s.user?.is_admin);
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
 
   useEffect(() => {
     if (!isAdmin) {
@@ -254,106 +258,107 @@ export default function AdminScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: colors.background.main,
-  },
-  list: {
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  roomCard: {
-    backgroundColor: colors.background.surface,
-    borderRadius: radii.md,
-    padding: spacing.lg,
-    gap: spacing.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.background.border,
-  },
-  roomHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  roomInfo: {
-    flex: 1,
-  },
-  roomTitle: {
-    color: colors.text.primary,
-    fontSize: typography.size.md,
-    fontWeight: typography.weight.semibold,
-  },
-  roomMeta: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-    marginTop: 2,
-  },
-  endButton: {
-    width: 44,
-    height: 44,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  endButtonDisabled: {
-    opacity: 0.5,
-  },
-  roomStats: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.lg,
-    paddingLeft: 44,
-  },
-  stat: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  statText: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-  },
-  roomId: {
-    color: colors.text.placeholder,
-    fontSize: typography.size.xs,
-    fontFamily: "monospace",
-    marginLeft: "auto",
-  },
-  empty: {
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  emptyText: {
-    color: colors.text.secondary,
-    fontSize: typography.size.body,
-  },
-  adminActions: {
-    padding: spacing.lg,
-    paddingTop: spacing["2xl"],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-    marginTop: spacing.lg,
-  },
-  webhookButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.background.surface,
-    borderRadius: radii.md,
-    paddingVertical: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.background.border,
-  },
-  webhookButtonText: {
-    color: colors.purple,
-    fontSize: typography.size.body,
-    fontWeight: typography.weight.semibold,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    centered: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: colors.background.main,
+    },
+    list: {
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    roomCard: {
+      backgroundColor: colors.background.surface,
+      borderRadius: radii.md,
+      padding: spacing.lg,
+      gap: spacing.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.background.border,
+    },
+    roomHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+    },
+    roomInfo: {
+      flex: 1,
+    },
+    roomTitle: {
+      color: colors.text.primary,
+      fontSize: typography.size.md,
+      fontWeight: typography.weight.semibold,
+    },
+    roomMeta: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+      marginTop: 2,
+    },
+    endButton: {
+      width: 44,
+      height: 44,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    endButtonDisabled: {
+      opacity: 0.5,
+    },
+    roomStats: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.lg,
+      paddingLeft: 44,
+    },
+    stat: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    statText: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+    },
+    roomId: {
+      color: colors.text.placeholder,
+      fontSize: typography.size.xs,
+      fontFamily: "monospace",
+      marginLeft: "auto",
+    },
+    empty: {
+      alignItems: "center",
+      gap: spacing.md,
+    },
+    emptyText: {
+      color: colors.text.secondary,
+      fontSize: typography.size.body,
+    },
+    adminActions: {
+      padding: spacing.lg,
+      paddingTop: spacing["2xl"],
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+      marginTop: spacing.lg,
+    },
+    webhookButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.background.surface,
+      borderRadius: radii.md,
+      paddingVertical: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.background.border,
+    },
+    webhookButtonText: {
+      color: colors.purple,
+      fontSize: typography.size.body,
+      fontWeight: typography.weight.semibold,
+    },
+  }));

@@ -5,7 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useComposeStore } from "@/stores/composeStore";
 import { Avatar } from "@/components/common/Avatar";
 import { GlassTabBar } from "@/components/navigation/GlassTabBar";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 function HeaderAvatar() {
   const router = useRouter();
@@ -27,6 +27,7 @@ function HeaderAvatar() {
 }
 
 export default function TabLayout() {
+  const { colors } = useTheme();
   const requestCompose = useComposeStore((s) => s.requestCompose);
   const handleCompose = useCallback(() => requestCompose(), [requestCompose]);
 

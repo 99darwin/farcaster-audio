@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { View, FlatList, StyleSheet } from "react-native";
+import { View, FlatList } from "react-native";
 import { useRouter } from "expo-router";
 import { useScrollToTop } from "@react-navigation/native";
 import { useAuthStore } from "@/stores/authStore";
@@ -9,12 +9,13 @@ import { useLiveSpaces } from "@/hooks/useLiveSpaces";
 import { SpacesRail } from "@/components/spaces/SpacesRail";
 import { FeedList } from "@/components/feed/FeedList";
 import { ComposeModal } from "@/components/feed/ComposeModal";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast } from "@/types/neynar";
 
 export default function HomeScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const styles = useStyles();
 
   const {
     feedItems,
@@ -120,9 +121,10 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+  }));

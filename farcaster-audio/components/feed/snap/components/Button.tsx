@@ -2,7 +2,6 @@ import {
   Pressable,
   Text,
   View,
-  StyleSheet,
   ActivityIndicator,
   Linking,
 } from "react-native";
@@ -11,7 +10,7 @@ import type { ButtonProps, SnapEvents } from "@/types/snap";
 import { useSnapContext } from "../context";
 import { useComposeStore } from "@/stores/composeStore";
 import { resolvePaletteColor } from "@/constants/snapPalette";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface Props {
   id: string;
@@ -22,6 +21,7 @@ interface Props {
 export function SnapButton({ id, props, on }: Props) {
   const { accent, submitButton, signerStatus, submitting } = useSnapContext();
   const router = useRouter();
+  const styles = useStyles();
   const accentColor = resolvePaletteColor("accent", accent);
   const primary = props.variant !== "secondary";
 
@@ -127,26 +127,27 @@ export function SnapButton({ id, props, on }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  button: {
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  hint: {
-    marginTop: 2,
-    fontSize: 10,
-    color: colors.text.secondary,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    button: {
+      borderRadius: 10,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+    },
+    row: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 6,
+    },
+    label: {
+      fontSize: 14,
+      fontWeight: "600" as const,
+    },
+    hint: {
+      marginTop: 2,
+      fontSize: 10,
+      color: colors.text.secondary,
+    },
+  }));

@@ -1,6 +1,8 @@
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, touchTarget, typography } from "@/constants/theme";
+import { touchTarget, typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { formatCount } from "@/utils/format";
 import { haptic } from "@/utils/haptics";
 
@@ -25,6 +27,9 @@ export function ReactionBar({
   onRecast,
   onShare,
 }: ReactionBarProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+
   return (
     <View style={styles.container}>
       <View style={styles.playCount}>
@@ -90,41 +95,42 @@ export function ReactionBar({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 8,
-  },
-  playCount: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  playCountText: {
-    fontSize: typography.size.sm,
-    color: colors.text.placeholder,
-  },
-  actions: {
-    flexDirection: "row",
-    gap: 20,
-  },
-  action: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    minWidth: touchTarget.min,
-    minHeight: touchTarget.min,
-    justifyContent: "center",
-  },
-  count: {
-    fontSize: 13,
-    color: colors.text.secondary,
-  },
-  likeActive: {
-    color: colors.error,
-  },
-  recastActive: {
-    color: colors.success,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingTop: 8,
+    },
+    playCount: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    playCountText: {
+      fontSize: typography.size.sm,
+      color: colors.text.placeholder,
+    },
+    actions: {
+      flexDirection: "row",
+      gap: 20,
+    },
+    action: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      minWidth: touchTarget.min,
+      minHeight: touchTarget.min,
+      justifyContent: "center",
+    },
+    count: {
+      fontSize: 13,
+      color: colors.text.secondary,
+    },
+    likeActive: {
+      color: colors.error,
+    },
+    recastActive: {
+      color: colors.success,
+    },
+  }));

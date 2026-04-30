@@ -1,8 +1,10 @@
-import { Text as RNText, StyleSheet } from "react-native";
+import { Text as RNText } from "react-native";
 import type { TextProps } from "@/types/snap";
-import { colors, typography } from "@/constants/theme";
+import { typography } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 export function SnapText({ props }: { props: TextProps }) {
+  const styles = useStyles();
   const fontSize =
     props.size === "sm" ? typography.size.sm : typography.size.body;
   const fontWeight =
@@ -17,8 +19,9 @@ export function SnapText({ props }: { props: TextProps }) {
   );
 }
 
-const styles = StyleSheet.create({
-  text: {
-    color: colors.text.body,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    text: {
+      color: colors.text.body,
+    },
+  }));

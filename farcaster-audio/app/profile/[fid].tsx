@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useMemo, useState } from "react";
-import { FlatList, View, Text, StyleSheet, RefreshControl } from "react-native";
+import { FlatList, View, Text, RefreshControl } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRef } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -14,7 +14,8 @@ import { VoiceNoteFeedItem } from "@/components/voice-notes/VoiceNoteFeedItem";
 import { RecordingFeedItem } from "@/components/profile/RecordingFeedItem";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { ErrorView } from "@/components/common/ErrorView";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { ComposeModal } from "@/components/feed/ComposeModal";
 import {
   likeCast,
@@ -41,6 +42,8 @@ export default function ProfileScreen() {
   const { fid: fidParam } = useLocalSearchParams<{ fid: string }>();
   const fid = Number(fidParam);
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const myFid = useAuthStore((s) => s.user?.fid) ?? 0;
   const isOwnProfile = fid === myFid;
 
@@ -437,21 +440,22 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  footer: {
-    padding: 20,
-    alignItems: "center",
-  },
-  empty: {
-    alignItems: "center",
-    paddingTop: 40,
-  },
-  emptyText: {
-    color: colors.text.secondary,
-    fontSize: 15,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    footer: {
+      padding: 20,
+      alignItems: "center",
+    },
+    empty: {
+      alignItems: "center",
+      paddingTop: 40,
+    },
+    emptyText: {
+      color: colors.text.secondary,
+      fontSize: 15,
+    },
+  }));

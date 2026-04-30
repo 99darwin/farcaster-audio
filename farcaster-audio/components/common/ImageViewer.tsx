@@ -19,7 +19,6 @@ import Animated, {
   withTiming,
   runOnJS,
 } from "react-native-reanimated";
-import { colors } from "@/constants/theme";
 
 interface MediaViewerProps {
   images: string[];

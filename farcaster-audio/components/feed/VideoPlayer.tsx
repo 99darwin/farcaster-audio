@@ -11,7 +11,7 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { Ionicons } from "@expo/vector-icons";
 import { useEvent } from "expo";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 const MAX_INLINE_ASPECT = 4 / 3; // widest
 const MIN_INLINE_ASPECT = 3 / 4; // tallest in feed
@@ -27,6 +27,7 @@ export function VideoPlayer({
   thumbnailUrl,
   aspectRatio = 16 / 9,
 }: VideoPlayerProps) {
+  const styles = useStyles();
   const [isStarted, setIsStarted] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isBuffering, setIsBuffering] = useState(false);
@@ -207,6 +208,7 @@ function FullscreenModal({
   onToggleMute: () => void;
   isBuffering: boolean;
 }) {
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
 
   if (!visible) return null;
@@ -255,61 +257,62 @@ function FullscreenModal({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    width: "100%",
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: colors.background.surface,
-    marginTop: 8,
-  },
-  placeholder: {
-    backgroundColor: colors.background.surface,
-  },
-  playOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  playButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingLeft: 4,
-  },
-  retryButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  bufferOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  controls: {
-    position: "absolute",
-    bottom: 8,
-    right: 8,
-    flexDirection: "row",
-    gap: 8,
-  },
-  controlButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      width: "100%" as const,
+      borderRadius: 12,
+      overflow: "hidden" as const,
+      backgroundColor: colors.background.surface,
+      marginTop: 8,
+    },
+    placeholder: {
+      backgroundColor: colors.background.surface,
+    },
+    playOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+    },
+    playButton: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: "rgba(0,0,0,0.6)",
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      paddingLeft: 4,
+    },
+    retryButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: "rgba(0,0,0,0.6)",
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+    },
+    bufferOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+      backgroundColor: "rgba(0,0,0,0.3)",
+    },
+    controls: {
+      position: "absolute" as const,
+      bottom: 8,
+      right: 8,
+      flexDirection: "row" as const,
+      gap: 8,
+    },
+    controlButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+    },
+  }));
 
 const fsStyles = StyleSheet.create({
   backdrop: {

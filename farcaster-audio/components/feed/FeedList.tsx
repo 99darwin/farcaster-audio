@@ -12,11 +12,13 @@ import { CastCard } from "@/components/feed/CastCard";
 import { VoiceNoteFeedItem } from "@/components/voice-notes/VoiceNoteFeedItem";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { ErrorView } from "@/components/common/ErrorView";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast } from "@/types/neynar";
 import type { FeedItem } from "@/types/voiceNote";
 
 function SkeletonCard() {
+  const skeletonStyles = useSkeletonStyles();
   const opacity = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
@@ -50,43 +52,44 @@ function SkeletonCard() {
   );
 }
 
-const skeletonStyles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-    gap: 12,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.background.subtle,
-  },
-  content: {
-    flex: 1,
-    gap: 8,
-  },
-  nameLine: {
-    width: 120,
-    height: 14,
-    borderRadius: 4,
-    backgroundColor: colors.background.subtle,
-  },
-  textLine: {
-    width: "100%",
-    height: 12,
-    borderRadius: 4,
-    backgroundColor: colors.background.subtle,
-  },
-  textLineShort: {
-    width: "60%",
-    height: 12,
-    borderRadius: 4,
-    backgroundColor: colors.background.subtle,
-  },
-});
+const useSkeletonStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flexDirection: "row" as const,
+      padding: 16,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+      gap: 12,
+    },
+    avatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.background.subtle,
+    },
+    content: {
+      flex: 1,
+      gap: 8,
+    },
+    nameLine: {
+      width: 120,
+      height: 14,
+      borderRadius: 4,
+      backgroundColor: colors.background.subtle,
+    },
+    textLine: {
+      width: "100%" as const,
+      height: 12,
+      borderRadius: 4,
+      backgroundColor: colors.background.subtle,
+    },
+    textLineShort: {
+      width: "60%" as const,
+      height: 12,
+      borderRadius: 4,
+      backgroundColor: colors.background.subtle,
+    },
+  }));
 
 interface FeedListProps {
   items: FeedItem[];
@@ -130,6 +133,8 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
   },
   ref,
 ) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const router = useRouter();
   const endReachedLockedRef = useRef(false);
   const handleCastPress = useCallback(
@@ -256,27 +261,28 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
   );
 });
 
-const styles = StyleSheet.create({
-  footer: {
-    padding: 20,
-    alignItems: "center",
-  },
-  empty: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingTop: 60,
-  },
-  emptyText: {
-    color: colors.text.primary,
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    color: colors.text.secondary,
-    fontSize: 14,
-  },
-  emptyContainer: {
-    flexGrow: 1,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    footer: {
+      padding: 20,
+      alignItems: "center" as const,
+    },
+    empty: {
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      paddingTop: 60,
+    },
+    emptyText: {
+      color: colors.text.primary,
+      fontSize: 18,
+      fontWeight: "600" as const,
+      marginBottom: 8,
+    },
+    emptySubtext: {
+      color: colors.text.secondary,
+      fontSize: 14,
+    },
+    emptyContainer: {
+      flexGrow: 1,
+    },
+  }));

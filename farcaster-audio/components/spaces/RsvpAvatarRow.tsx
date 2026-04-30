@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import { Avatar } from "@/components/common/Avatar";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { RsvpUser } from "@/types/space";
 
 interface RsvpAvatarRowProps {
@@ -9,6 +9,7 @@ interface RsvpAvatarRowProps {
 }
 
 export function RsvpAvatarRow({ users, count }: RsvpAvatarRowProps) {
+  const styles = useStyles();
   if (count === 0) return null;
 
   return (
@@ -38,24 +39,25 @@ export function RsvpAvatarRow({ users, count }: RsvpAvatarRowProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  avatars: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  avatarWrap: {
-    borderWidth: 2,
-    borderColor: colors.background.main,
-    borderRadius: 18,
-  },
-  countText: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    fontWeight: "500",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    avatars: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    avatarWrap: {
+      borderWidth: 2,
+      borderColor: colors.background.main,
+      borderRadius: 18,
+    },
+    countText: {
+      color: colors.text.secondary,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+  }));

@@ -4,10 +4,12 @@ import { Avatar } from "@/components/common/Avatar";
 import { CastActions } from "@/components/feed/CastActions";
 import {
   NotificationTypeBadge,
-  TYPE_META,
+  getTypeMeta,
 } from "@/components/notifications/NotificationTypeBadge";
 import { QuotedCastInline } from "@/components/notifications/QuotedCastInline";
-import { colors, typography } from "@/constants/theme";
+import { typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type {
   NeynarCast,
   NeynarCastAuthor,
@@ -35,7 +37,8 @@ function getLongRelativeTime(timestamp: string): string {
   if (diffMin < 1) return "just now";
   if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
   const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  if (diffHours < 24)
+    return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
   const diffDays = Math.floor(diffHours / 24);
   return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
 }
@@ -87,13 +90,15 @@ export function NotificationItem({
   onQuoteCast,
 }: NotificationItemProps) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { type, cast, most_recent_timestamp } = notification;
   const actor = getActor(notification);
   const extraCount = Math.max(0, (notification.count ?? 0) - 1);
 
   if (!actor) return null;
 
-  const meta = TYPE_META[type];
+  const meta = getTypeMeta(type, colors);
   const rowBackground = isUnread
     ? colors.background.surface
     : colors.background.main;
@@ -143,9 +148,7 @@ export function NotificationItem({
       <View style={styles.content}>
         <Text style={styles.actionLine} numberOfLines={2}>
           <Text style={styles.username}>{displayName}</Text>
-          {othersText ? (
-            <Text style={styles.action}>{othersText}</Text>
-          ) : null}
+          {othersText ? <Text style={styles.action}>{othersText}</Text> : null}
           <Text style={styles.action}> {actionText}</Text>
           <Text style={styles.time}>
             {"  ·  "}
@@ -182,53 +185,54 @@ export function NotificationItem({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-    gap: 12,
-  },
-  unreadBar: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3,
-  },
-  avatarWrap: {
-    position: "relative",
-  },
-  badgeAnchor: {
-    position: "absolute",
-    right: -2,
-    bottom: -2,
-  },
-  content: {
-    flex: 1,
-    gap: 2,
-  },
-  actionLine: {
-    fontSize: typography.size.body,
-    color: colors.text.body,
-  },
-  username: {
-    fontWeight: "600",
-    color: colors.text.primary,
-  },
-  action: {
-    color: colors.text.secondary,
-  },
-  time: {
-    color: colors.text.placeholder,
-    fontSize: typography.size.sm,
-  },
-  preview: {
-    color: colors.text.secondary,
-    fontSize: typography.size.body2,
-    lineHeight: 18,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+      gap: 12,
+    },
+    unreadBar: {
+      position: "absolute",
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 3,
+    },
+    avatarWrap: {
+      position: "relative",
+    },
+    badgeAnchor: {
+      position: "absolute",
+      right: -2,
+      bottom: -2,
+    },
+    content: {
+      flex: 1,
+      gap: 2,
+    },
+    actionLine: {
+      fontSize: typography.size.body,
+      color: colors.text.body,
+    },
+    username: {
+      fontWeight: "600",
+      color: colors.text.primary,
+    },
+    action: {
+      color: colors.text.secondary,
+    },
+    time: {
+      color: colors.text.placeholder,
+      fontSize: typography.size.sm,
+    },
+    preview: {
+      color: colors.text.secondary,
+      fontSize: typography.size.body2,
+      lineHeight: 18,
+    },
+  }));

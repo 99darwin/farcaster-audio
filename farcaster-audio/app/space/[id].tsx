@@ -35,7 +35,8 @@ import { GlassView } from "@/components/common/GlassView";
 import { Button } from "@/components/common/Button";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { AvatarPositionProvider } from "@/contexts/AvatarPositionContext";
-import { colors, glass } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { buildSpaceUrl } from "@/utils/shareLinks";
 import { formatScheduledTime } from "@/utils/formatDate";
 import * as api from "@/services/api";
@@ -52,6 +53,8 @@ import type { Participant, Room } from "@/types/space";
 
 function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const user = useAuthStore((s) => s.user);
   const insets = useSafeAreaInsets();
   const [isStarting, setIsStarting] = useState(false);
@@ -396,6 +399,8 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
 export default function SpaceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const user = useAuthStore((s) => s.user);
   const {
     room,
@@ -980,7 +985,8 @@ export default function SpaceScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = () =>
+  useThemedStyles(({ colors, glass }) => ({
   container: { flex: 1, backgroundColor: colors.background.main },
   // Standard mode header
   header: {
@@ -1207,4 +1213,4 @@ const styles = StyleSheet.create({
   rsvpBtnTextActive: {
     color: "#fff",
   },
-});
+  }));

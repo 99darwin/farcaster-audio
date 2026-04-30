@@ -3,7 +3,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import type { LayoutChangeEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 interface WaveformProps {
   peaks: number[];
@@ -19,9 +19,13 @@ export const Waveform = React.memo(function Waveform({
   progress,
   onSeek,
   height = 48,
-  filledColor = colors.accent,
-  unfilledColor = colors.background.subtle,
+  filledColor,
+  unfilledColor,
 }: WaveformProps) {
+  const { colors } = useTheme();
+  const resolvedFilled = filledColor ?? colors.accent;
+  const resolvedUnfilled = unfilledColor ?? colors.background.subtle;
+
   const [width, setWidth] = useState(0);
 
   const handleLayout = useCallback((e: LayoutChangeEvent) => {
@@ -85,7 +89,8 @@ export const Waveform = React.memo(function Waveform({
               styles.bar,
               {
                 height: barHeight,
-                backgroundColor: i <= filledIndex ? filledColor : unfilledColor,
+                backgroundColor:
+                  i <= filledIndex ? resolvedFilled : resolvedUnfilled,
               },
             ]}
           />

@@ -7,7 +7,9 @@ import {
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, touchTarget } from "@/constants/theme";
+import { touchTarget } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { formatCount } from "@/utils/format";
 import { haptic } from "@/utils/haptics";
 
@@ -42,6 +44,9 @@ export function CastActions({
   authorUsername,
   castHash,
 }: CastActionsProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+
   const handleRecastPress = () => {
     haptic.selection();
     ActionSheetIOS.showActionSheetWithOptions(
@@ -149,28 +154,29 @@ export function CastActions({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    gap: 24,
-    paddingTop: 8,
-  },
-  action: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    minWidth: touchTarget.min,
-    minHeight: touchTarget.min,
-  },
-  count: {
-    fontSize: 13,
-    color: colors.text.secondary,
-  },
-  activeCount: {
-    color: colors.error,
-  },
-  recastActive: {
-    color: colors.success,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flexDirection: "row" as const,
+      gap: 24,
+      paddingTop: 8,
+    },
+    action: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 4,
+      minWidth: touchTarget.min,
+      minHeight: touchTarget.min,
+    },
+    count: {
+      fontSize: 13,
+      color: colors.text.secondary,
+    },
+    activeCount: {
+      color: colors.error,
+    },
+    recastActive: {
+      color: colors.success,
+    },
+  }));

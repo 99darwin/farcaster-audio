@@ -31,7 +31,9 @@ import {
   DEFAULT_SNAP_ACCENT,
   resolvePaletteColor,
 } from "@/constants/snapPalette";
-import { colors } from "@/constants/theme";
+import { withAlpha } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { useAuthStore } from "@/stores/authStore";
 import {
   registerSnapSigner,
@@ -149,6 +151,8 @@ interface SnapCardProps {
 
 export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
   const fid = useAuthStore((s) => s.user?.fid ?? 0);
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [state, dispatch] = useReducer(reducer, {
     inputs: {},
     response: initialResponse,
@@ -424,8 +428,16 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       ) : null}
 
       {state.error ? (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorText} numberOfLines={2}>
+        <View
+          style={[
+            styles.errorBanner,
+            { backgroundColor: withAlpha(colors.error, 0.13) },
+          ]}
+        >
+          <Text
+            style={[styles.errorText, { color: colors.error }]}
+            numberOfLines={2}
+          >
             {state.error}
           </Text>
         </View>
@@ -456,63 +468,62 @@ function safeDomain(url: string): string {
   }
 }
 
-const styles = StyleSheet.create({
-  card: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: colors.background.main,
-  },
-  content: {
-    padding: 12,
-    gap: 8,
-  },
-  banner: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  bannerText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  bannerAction: {
-    marginTop: 4,
-    alignSelf: "flex-start",
-  },
-  bannerActionText: {
-    fontSize: 11,
-    fontWeight: "700",
-    textDecorationLine: "underline",
-  },
-  errorBanner: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: "#ef444422",
-  },
-  errorText: {
-    fontSize: 11,
-    color: "#ef4444",
-  },
-  footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-    gap: 8,
-  },
-  footerLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  footerDomain: {
-    color: colors.text.secondary,
-    fontSize: 11,
-    flex: 1,
-    textAlign: "right",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    card: {
+      marginTop: 8,
+      borderWidth: 1,
+      borderRadius: 12,
+      overflow: "hidden" as const,
+      backgroundColor: colors.background.main,
+    },
+    content: {
+      padding: 12,
+      gap: 8,
+    },
+    banner: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    bannerText: {
+      fontSize: 11,
+      fontWeight: "600" as const,
+    },
+    bannerAction: {
+      marginTop: 4,
+      alignSelf: "flex-start" as const,
+    },
+    bannerActionText: {
+      fontSize: 11,
+      fontWeight: "700" as const,
+      textDecorationLine: "underline" as const,
+    },
+    errorBanner: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    errorText: {
+      fontSize: 11,
+    },
+    footer: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+      gap: 8,
+    },
+    footerLabel: {
+      fontSize: 11,
+      fontWeight: "700" as const,
+      letterSpacing: 0.5,
+    },
+    footerDomain: {
+      color: colors.text.secondary,
+      fontSize: 11,
+      flex: 1,
+      textAlign: "right" as const,
+    },
+  }));

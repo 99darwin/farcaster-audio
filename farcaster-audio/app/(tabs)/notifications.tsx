@@ -1,21 +1,19 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import {
-  View,
-  FlatList,
-  Text,
-  ActivityIndicator,
-  StyleSheet,
-} from "react-native";
+import { View, FlatList, Text, ActivityIndicator } from "react-native";
 import { useNavigation } from "expo-router";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { NotificationItem } from "@/components/notifications/NotificationItem";
 import { ComposeModal } from "@/components/feed/ComposeModal";
 import { getLastSeenNotificationTimestamp } from "@/services/storage";
-import { colors, typography } from "@/constants/theme";
+import { typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast, NeynarNotification } from "@/types/neynar";
 
 export default function NotificationsScreen() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const {
     notifications,
     isLoading,
@@ -165,24 +163,25 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyContainer: {
-    flex: 1,
-  },
-  footer: {
-    paddingVertical: 16,
-  },
-  emptyText: {
-    color: colors.text.secondary,
-    fontSize: typography.size.md,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    centered: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emptyContainer: {
+      flex: 1,
+    },
+    footer: {
+      paddingVertical: 16,
+    },
+    emptyText: {
+      color: colors.text.secondary,
+      fontSize: typography.size.md,
+    },
+  }));

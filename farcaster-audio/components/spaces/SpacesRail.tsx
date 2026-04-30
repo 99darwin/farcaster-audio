@@ -2,10 +2,11 @@ import { View, ScrollView, Pressable, Text, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { SpaceAvatar } from "@/components/spaces/SpaceAvatar";
 import { useSpaceStore } from "@/stores/spaceStore";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 export function SpacesRail() {
   const router = useRouter();
+  const styles = useStyles();
   const activeLiveSpaces = useSpaceStore((s) => s.activeLiveSpaces);
   const scheduledSpaces = useSpaceStore((s) => s.scheduledSpaces);
 
@@ -52,45 +53,46 @@ export function SpacesRail() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    alignItems: "flex-start",
-  },
-  divider: {
-    width: 1,
-    height: 48,
-    backgroundColor: colors.background.border,
-    marginHorizontal: 8,
-    alignSelf: "center",
-  },
-  createButton: {
-    alignItems: "center",
-    width: 72,
-  },
-  createCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 2,
-    borderColor: colors.background.subtle,
-    borderStyle: "dashed",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  createPlus: {
-    color: colors.text.secondary,
-    fontSize: 28,
-    lineHeight: 30,
-  },
-  createLabel: {
-    color: colors.text.secondary,
-    fontSize: 11,
-    marginTop: 4,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    scrollContent: {
+      paddingHorizontal: 16,
+      alignItems: "flex-start",
+    },
+    divider: {
+      width: 1,
+      height: 48,
+      backgroundColor: colors.background.border,
+      marginHorizontal: 8,
+      alignSelf: "center",
+    },
+    createButton: {
+      alignItems: "center",
+      width: 72,
+    },
+    createCircle: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      borderWidth: 2,
+      borderColor: colors.background.subtle,
+      borderStyle: "dashed",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    createPlus: {
+      color: colors.text.secondary,
+      fontSize: 28,
+      lineHeight: 30,
+    },
+    createLabel: {
+      color: colors.text.secondary,
+      fontSize: 11,
+      marginTop: 4,
+    },
+  }));

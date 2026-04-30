@@ -12,7 +12,8 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { haptic } from "@/utils/haptics";
 import { searchGifs, type GiphyGif } from "@/services/giphy";
 
@@ -26,6 +27,8 @@ interface GifPickerProps {
 }
 
 export function GifPicker({ isVisible, onClose, onSelect }: GifPickerProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [query, setQuery] = useState("");
   const [gifs, setGifs] = useState<GiphyGif[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(0);
@@ -127,7 +130,7 @@ export function GifPicker({ isVisible, onClose, onSelect }: GifPickerProps) {
         </Pressable>
       );
     },
-    [handleSelect],
+    [handleSelect, styles],
   );
 
   const keyExtractor = useCallback((item: GiphyGif) => item.id, []);
@@ -222,88 +225,89 @@ export function GifPicker({ isVisible, onClose, onSelect }: GifPickerProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  cancelText: {
-    color: colors.text.secondary,
-    fontSize: 16,
-  },
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: colors.background.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  searchIcon: {
-    opacity: 0.8,
-  },
-  searchInput: {
-    flex: 1,
-    color: colors.text.body,
-    fontSize: 15,
-    padding: 0,
-  },
-  list: {
-    padding: 8,
-    paddingBottom: 24,
-  },
-  row: {
-    gap: 8,
-  },
-  tile: {
-    flex: 1,
-    marginBottom: 8,
-    backgroundColor: colors.background.surface,
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  tileImage: {
-    width: "100%",
-  },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-  },
-  emptyText: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    textAlign: "center",
-  },
-  footerLoader: {
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  attribution: {
-    color: colors.text.placeholder,
-    fontSize: 11,
-    textAlign: "center",
-    paddingVertical: 6,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    header: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: 17,
+      fontWeight: "600" as const,
+    },
+    cancelText: {
+      color: colors.text.secondary,
+      fontSize: 16,
+    },
+    searchBar: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 8,
+      marginHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: colors.background.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    searchIcon: {
+      opacity: 0.8,
+    },
+    searchInput: {
+      flex: 1,
+      color: colors.text.body,
+      fontSize: 15,
+      padding: 0,
+    },
+    list: {
+      padding: 8,
+      paddingBottom: 24,
+    },
+    row: {
+      gap: 8,
+    },
+    tile: {
+      flex: 1,
+      marginBottom: 8,
+      backgroundColor: colors.background.surface,
+      borderRadius: 8,
+      overflow: "hidden" as const,
+    },
+    tileImage: {
+      width: "100%" as const,
+    },
+    centered: {
+      flex: 1,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      paddingHorizontal: 32,
+    },
+    emptyText: {
+      color: colors.text.secondary,
+      fontSize: 14,
+      textAlign: "center" as const,
+    },
+    footerLoader: {
+      paddingVertical: 16,
+      alignItems: "center" as const,
+    },
+    attribution: {
+      color: colors.text.placeholder,
+      fontSize: 11,
+      textAlign: "center" as const,
+      paddingVertical: 6,
+    },
+  }));

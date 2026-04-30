@@ -31,7 +31,8 @@ import { ChannelSuggestions } from "@/components/feed/ChannelSuggestions";
 import { GifPicker } from "@/components/feed/GifPicker";
 import { Waveform } from "@/components/voice-notes/Waveform";
 import { useOgPreview, extractUrls } from "@/hooks/useOgPreview";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { haptic } from "@/utils/haptics";
 import type { GiphyGif } from "@/services/giphy";
 import type { NeynarCast } from "@/types/neynar";
@@ -91,6 +92,8 @@ export function ComposeModal({
   defaultEmbeds,
   initialChannelId,
 }: ComposeModalProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const user = useAuthStore((s) => s.user);
   const isPro = user?.is_pro ?? false;
   const maxCastLength = isPro ? CAST_LENGTH_PRO : CAST_LENGTH_DEFAULT;
@@ -1028,7 +1031,8 @@ export function ComposeModal({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
   container: {
     flex: 1,
     backgroundColor: colors.background.main,
@@ -1372,4 +1376,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-});
+  }));

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Animated, Pressable } from "react-native";
+import { View, Text, Animated, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/common/Avatar";
 import { useAvatarPosition } from "@/contexts/AvatarPositionContext";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { Participant } from "@/types/space";
 
 interface SpeakerGridProps {
@@ -13,6 +14,7 @@ interface SpeakerGridProps {
 }
 
 function SpeakingPulse({ isSpeaking }: { isSpeaking: boolean }) {
+  const styles = useStyles();
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -69,6 +71,8 @@ export function SpeakerGrid({
   hostFid,
   onParticipantPress,
 }: SpeakerGridProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { register } = useAvatarPosition();
 
   const handleRef = useCallback(
@@ -132,46 +136,47 @@ export function SpeakerGrid({
 
 const AVATAR_SIZE = 64;
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  title: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    marginBottom: 12,
-  },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
-  speakerItem: { alignItems: "center", width: 80, position: "relative" },
-  avatarWrapper: { justifyContent: "center", alignItems: "center" },
-  pulseRing: {
-    position: "absolute",
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    borderWidth: 3,
-    borderColor: colors.success,
-  },
-  name: {
-    color: colors.text.primary,
-    fontSize: 13,
-    marginTop: 6,
-    textAlign: "center",
-  },
-  hostBadge: {
-    backgroundColor: colors.accent,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    marginTop: 4,
-  },
-  hostText: { color: colors.text.primary, fontSize: 10, fontWeight: "700" },
-  mutedIndicator: {
-    position: "absolute",
-    bottom: 20,
-    right: 8,
-    backgroundColor: colors.background.surface,
-    borderRadius: 10,
-    padding: 2,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: { padding: 16 },
+    title: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      fontWeight: "600",
+      textTransform: "uppercase",
+      marginBottom: 12,
+    },
+    grid: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
+    speakerItem: { alignItems: "center", width: 80, position: "relative" },
+    avatarWrapper: { justifyContent: "center", alignItems: "center" },
+    pulseRing: {
+      position: "absolute",
+      width: AVATAR_SIZE,
+      height: AVATAR_SIZE,
+      borderRadius: AVATAR_SIZE / 2,
+      borderWidth: 3,
+      borderColor: colors.success,
+    },
+    name: {
+      color: colors.text.primary,
+      fontSize: 13,
+      marginTop: 6,
+      textAlign: "center",
+    },
+    hostBadge: {
+      backgroundColor: colors.accent,
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      marginTop: 4,
+    },
+    hostText: { color: colors.text.primary, fontSize: 10, fontWeight: "700" },
+    mutedIndicator: {
+      position: "absolute",
+      bottom: 20,
+      right: 8,
+      backgroundColor: colors.background.surface,
+      borderRadius: 10,
+      padding: 2,
+    },
+  }));

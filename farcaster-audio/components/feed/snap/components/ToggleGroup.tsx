@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import type { ToggleGroupProps } from "@/types/snap";
 import { useSnapContext } from "../context";
 import { resolvePaletteColor } from "@/constants/snapPalette";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 function initialValue(props: ToggleGroupProps): string[] {
   if (Array.isArray(props.defaultValue)) return props.defaultValue;
@@ -13,6 +14,8 @@ function initialValue(props: ToggleGroupProps): string[] {
 
 export function SnapToggleGroup({ props }: { props: ToggleGroupProps }) {
   const { accent, setInput } = useSnapContext();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const color = resolvePaletteColor("accent", accent);
   const [selected, setSelected] = useState<string[]>(initialValue(props));
 
@@ -83,20 +86,21 @@ export function SnapToggleGroup({ props }: { props: ToggleGroupProps }) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: { gap: 6 },
-  label: { color: colors.text.secondary, fontSize: 12 },
-  group: {
-    gap: 6,
-    flexWrap: "wrap",
-  },
-  option: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  optionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    wrapper: { gap: 6 },
+    label: { color: colors.text.secondary, fontSize: 12 },
+    group: {
+      gap: 6,
+      flexWrap: "wrap" as const,
+    },
+    option: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+    },
+    optionLabel: {
+      fontSize: 13,
+      fontWeight: "600" as const,
+    },
+  }));

@@ -16,7 +16,9 @@ import {
   registerAuthAddress,
   getAuthAddressStatus,
 } from "@/services/authAddress";
-import { colors, typography } from "@/constants/theme";
+import { typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 type Step = "intro" | "registering" | "approval" | "polling" | "done" | "error";
 
@@ -24,6 +26,8 @@ type Step = "intro" | "registering" | "approval" | "polling" | "done" | "error";
 const APPROVAL_WATCH_MAX_MS = 10 * 60 * 1000;
 
 export function AuthAddressSetup() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const showAuthSetup = useMiniAppStore((s) => s.showAuthSetup);
   const dismissAuthSetup = useMiniAppStore((s) => s.dismissAuthSetup);
   const user = useAuthStore((s) => s.user);
@@ -265,72 +269,73 @@ export function AuthAddressSetup() {
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 200,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  card: {
-    backgroundColor: colors.background.surface,
-    borderRadius: 20,
-    padding: 28,
-    width: "100%",
-    maxWidth: 340,
-    alignItems: "center",
-    gap: 12,
-  },
-  iconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "rgba(138, 99, 210, 0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: typography.size.lg,
-    fontWeight: typography.weight.semibold,
-    textAlign: "center",
-  },
-  subtitle: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-    textAlign: "center",
-  },
-  description: {
-    color: colors.text.body,
-    fontSize: typography.size.md,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  primaryBtn: {
-    backgroundColor: colors.purple,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 12,
-    width: "100%",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  primaryBtnText: {
-    color: colors.text.primary,
-    fontSize: typography.size.md,
-    fontWeight: typography.weight.semibold,
-  },
-  secondaryBtn: {
-    paddingHorizontal: 32,
-    paddingVertical: 10,
-    width: "100%",
-    alignItems: "center",
-  },
-  secondaryBtnText: {
-    color: colors.text.secondary,
-    fontSize: typography.size.md,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    overlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 200,
+      backgroundColor: "rgba(0, 0, 0, 0.7)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 24,
+    },
+    card: {
+      backgroundColor: colors.background.surface,
+      borderRadius: 20,
+      padding: 28,
+      width: "100%",
+      maxWidth: 340,
+      alignItems: "center",
+      gap: 12,
+    },
+    iconContainer: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: "rgba(138, 99, 210, 0.15)",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 4,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: typography.size.lg,
+      fontWeight: typography.weight.semibold,
+      textAlign: "center",
+    },
+    subtitle: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+      textAlign: "center",
+    },
+    description: {
+      color: colors.text.body,
+      fontSize: typography.size.md,
+      textAlign: "center",
+      lineHeight: 22,
+    },
+    primaryBtn: {
+      backgroundColor: colors.purple,
+      paddingHorizontal: 32,
+      paddingVertical: 14,
+      borderRadius: 12,
+      width: "100%",
+      alignItems: "center",
+      marginTop: 8,
+    },
+    primaryBtnText: {
+      color: colors.text.primary,
+      fontSize: typography.size.md,
+      fontWeight: typography.weight.semibold,
+    },
+    secondaryBtn: {
+      paddingHorizontal: 32,
+      paddingVertical: 10,
+      width: "100%",
+      alignItems: "center",
+    },
+    secondaryBtnText: {
+      color: colors.text.secondary,
+      fontSize: typography.size.md,
+    },
+  }));

@@ -1,6 +1,7 @@
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { Text, Pressable } from "react-native";
 import { useState } from "react";
-import { colors, typography } from "@/constants/theme";
+import { typography } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface TranscriptWord {
   word: string;
@@ -24,6 +25,7 @@ export function Transcript({
   isExpanded: initialExpanded = false,
 }: TranscriptProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
+  const styles = useStyles();
 
   if (!text) return null;
 
@@ -93,30 +95,31 @@ export function Transcript({
   );
 }
 
-const styles = StyleSheet.create({
-  previewText: {
-    color: colors.text.secondary,
-    fontSize: typography.size.body2,
-    lineHeight: 18,
-  },
-  transcriptText: {
-    color: colors.text.body,
-    fontSize: typography.size.body2,
-    lineHeight: 20,
-  },
-  word: {
-    color: colors.text.secondary,
-  },
-  activeWord: {
-    color: colors.text.primary,
-    fontWeight: "600",
-  },
-  pastWord: {
-    color: colors.text.body,
-  },
-  showMore: {
-    color: colors.accent,
-    fontSize: typography.size.sm,
-    marginTop: 4,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    previewText: {
+      color: colors.text.secondary,
+      fontSize: typography.size.body2,
+      lineHeight: 18,
+    },
+    transcriptText: {
+      color: colors.text.body,
+      fontSize: typography.size.body2,
+      lineHeight: 20,
+    },
+    word: {
+      color: colors.text.secondary,
+    },
+    activeWord: {
+      color: colors.text.primary,
+      fontWeight: "600",
+    },
+    pastWord: {
+      color: colors.text.body,
+    },
+    showMore: {
+      color: colors.accent,
+      fontSize: typography.size.sm,
+      marginTop: 4,
+    },
+  }));

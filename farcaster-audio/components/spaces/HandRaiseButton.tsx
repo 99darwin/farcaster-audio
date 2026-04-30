@@ -1,7 +1,8 @@
-import { Pressable, Text, StyleSheet } from "react-native";
+import { Pressable, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface HandRaiseButtonProps {
   isRaised: boolean;
@@ -14,6 +15,9 @@ export function HandRaiseButton({
   onPress,
   disabled = false,
 }: HandRaiseButtonProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onPress();
@@ -39,19 +43,20 @@ export function HandRaiseButton({
   );
 }
 
-const styles = StyleSheet.create({
-  button: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.background.border,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 24,
-  },
-  raisedButton: {
-    backgroundColor: colors.accent,
-  },
-  text: { color: colors.text.primary, fontSize: 15, fontWeight: "600" },
-  raisedText: { color: colors.text.primary },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    button: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      backgroundColor: colors.background.border,
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+      borderRadius: 24,
+    },
+    raisedButton: {
+      backgroundColor: colors.accent,
+    },
+    text: { color: colors.text.primary, fontSize: 15, fontWeight: "600" },
+    raisedText: { color: colors.text.primary },
+  }));

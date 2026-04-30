@@ -1,7 +1,7 @@
-import { View, Pressable, ScrollView, StyleSheet } from "react-native";
+import { View, Pressable, ScrollView } from "react-native";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
-import { glass } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import {
   REACTION_EMOJI,
   emojiImageUrl,
@@ -13,6 +13,8 @@ interface EmojiReactionPanelProps {
 }
 
 export function EmojiReactionPanel({ onReaction }: EmojiReactionPanelProps) {
+  const styles = useStyles();
+
   const handlePress = (key: ReactionKey) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onReaction(key);
@@ -51,41 +53,42 @@ export function EmojiReactionPanel({ onReaction }: EmojiReactionPanelProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  scroll: {
-    maxWidth: "92%",
-    alignSelf: "center",
-    borderRadius: glass.pillRadius,
-  },
-  container: {
-    flexGrow: 0,
-  },
-  inner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: glass.pillRadius,
-    backgroundColor: glass.overlayColor,
-    borderWidth: 1,
-    borderColor: glass.borderColor,
-  },
-  emojiButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-  },
-  emojiButtonPressed: {
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    transform: [{ scale: 1.15 }],
-  },
-  emojiImage: {
-    width: 26,
-    height: 26,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ glass }) => ({
+    scroll: {
+      maxWidth: "92%" as const,
+      alignSelf: "center" as const,
+      borderRadius: glass.pillRadius,
+    },
+    container: {
+      flexGrow: 0,
+    },
+    inner: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: glass.pillRadius,
+      backgroundColor: glass.overlayColor,
+      borderWidth: 1,
+      borderColor: glass.borderColor,
+    },
+    emojiButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: glass.overlayColor,
+    },
+    emojiButtonPressed: {
+      backgroundColor: glass.accentOverlay,
+      transform: [{ scale: 1.15 }],
+    },
+    emojiImage: {
+      width: 26,
+      height: 26,
+    },
+  }));

@@ -1,5 +1,6 @@
-import { View, ActivityIndicator, StyleSheet } from "react-native";
-import { colors } from "@/constants/theme";
+import { View, ActivityIndicator } from "react-native";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface LoadingSpinnerProps {
   size?: "small" | "large";
@@ -9,9 +10,13 @@ interface LoadingSpinnerProps {
 
 export function LoadingSpinner({
   size = "large",
-  color = colors.accent,
+  color,
   fullScreen = false,
 }: LoadingSpinnerProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const resolvedColor = color ?? colors.accent;
+
   if (fullScreen) {
     return (
       <View
@@ -19,23 +24,24 @@ export function LoadingSpinner({
         accessibilityLabel="Loading"
         accessibilityRole="progressbar"
       >
-        <ActivityIndicator size={size} color={color} />
+        <ActivityIndicator size={size} color={resolvedColor} />
       </View>
     );
   }
 
   return (
     <View accessibilityLabel="Loading" accessibilityRole="progressbar">
-      <ActivityIndicator size={size} color={color} />
+      <ActivityIndicator size={size} color={resolvedColor} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  fullScreen: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: colors.background.main,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    fullScreen: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: colors.background.main,
+    },
+  }));

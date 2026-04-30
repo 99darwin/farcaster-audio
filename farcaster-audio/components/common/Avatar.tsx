@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import { Image } from "expo-image";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface AvatarProps {
   pfpUrl: string | null;
@@ -21,14 +22,15 @@ const FONT_SIZES = {
   lg: 22,
 };
 
-const LIVE_RING_COLOR = colors.accent;
-
 export function Avatar({
   pfpUrl,
   displayName,
   size = "md",
   isLive = false,
 }: AvatarProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const liveRingColor = colors.accent;
   const dimension = SIZES[size];
   const fontSize = FONT_SIZES[size];
   const initials = (displayName ?? "?")
@@ -50,7 +52,7 @@ export function Avatar({
           height: dimension + (isLive ? 6 : 0),
           borderRadius: (dimension + (isLive ? 6 : 0)) / 2,
           borderWidth: isLive ? 3 : 0,
-          borderColor: isLive ? LIVE_RING_COLOR : "transparent",
+          borderColor: isLive ? liveRingColor : "transparent",
         },
       ]}
     >
@@ -83,18 +85,19 @@ export function Avatar({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  fallback: {
-    backgroundColor: colors.background.border,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  initials: {
-    color: colors.text.primary,
-    fontWeight: "600",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    fallback: {
+      backgroundColor: colors.background.border,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    initials: {
+      color: colors.text.primary,
+      fontWeight: "600",
+    },
+  }));

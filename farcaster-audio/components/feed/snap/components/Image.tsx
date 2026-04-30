@@ -1,7 +1,7 @@
-import { View, StyleSheet } from "react-native";
+import { View } from "react-native";
 import { Image } from "expo-image";
 import type { ImageProps as SnapImageProps } from "@/types/snap";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 const ASPECT_RATIOS: Record<string, number> = {
   "1:1": 1,
@@ -11,6 +11,7 @@ const ASPECT_RATIOS: Record<string, number> = {
 };
 
 export function SnapImage({ props }: { props: SnapImageProps }) {
+  const styles = useStyles();
   // Guard: only allow https URLs
   if (typeof props.url !== "string" || !props.url.startsWith("https://")) {
     return (
@@ -34,15 +35,16 @@ export function SnapImage({ props }: { props: SnapImageProps }) {
   );
 }
 
-const styles = StyleSheet.create({
-  image: {
-    width: "100%",
-    borderRadius: 8,
-    backgroundColor: colors.background.surface,
-  },
-  placeholder: {
-    width: "100%",
-    borderRadius: 8,
-    backgroundColor: colors.background.surface,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    image: {
+      width: "100%",
+      borderRadius: 8,
+      backgroundColor: colors.background.surface,
+    },
+    placeholder: {
+      width: "100%",
+      borderRadius: 8,
+      backgroundColor: colors.background.surface,
+    },
+  }));

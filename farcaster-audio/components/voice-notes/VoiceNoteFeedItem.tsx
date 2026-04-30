@@ -6,7 +6,9 @@ import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
 import { VoiceNotePlayer } from "./VoiceNotePlayer";
 import { ReactionBar } from "./ReactionBar";
-import { colors, typography } from "@/constants/theme";
+import { typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { VoiceNoteDetail } from "@/types/voiceNote";
 
 function timeAgo(dateStr: string): string {
@@ -34,6 +36,8 @@ export const VoiceNoteFeedItem = React.memo(function VoiceNoteFeedItem({
   onDelete,
 }: VoiceNoteFeedItemProps) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const myFid = useAuthStore((s) => s.user?.fid);
   const { voice_note, author, reaction_counts, viewer_reactions, play_count } =
     item;
@@ -76,24 +80,24 @@ export const VoiceNoteFeedItem = React.memo(function VoiceNoteFeedItem({
           {isOwner && onDelete && (
             <Pressable
               onPress={() => {
-                Alert.alert(
-                  "Delete Voice Note",
-                  "This can't be undone.",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Delete",
-                      style: "destructive",
-                      onPress: () => onDelete(voice_note.id),
-                    },
-                  ],
-                );
+                Alert.alert("Delete Voice Note", "This can't be undone.", [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () => onDelete(voice_note.id),
+                  },
+                ]);
               }}
               hitSlop={8}
               accessibilityLabel="Delete voice note"
               accessibilityRole="button"
             >
-              <Ionicons name="trash-outline" size={16} color={colors.text.secondary} />
+              <Ionicons
+                name="trash-outline"
+                size={16}
+                color={colors.text.secondary}
+              />
             </Pressable>
           )}
         </View>
@@ -115,47 +119,48 @@ export const VoiceNoteFeedItem = React.memo(function VoiceNoteFeedItem({
   );
 });
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-    gap: 12,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  authorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  avatarPlaceholder: {
-    backgroundColor: colors.background.subtle,
-  },
-  displayName: {
-    color: colors.text.primary,
-    fontSize: typography.size.body,
-    fontWeight: "600",
-  },
-  username: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  timestamp: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      padding: 16,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+      gap: 12,
+    },
+    header: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    authorRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    avatar: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+    },
+    avatarPlaceholder: {
+      backgroundColor: colors.background.subtle,
+    },
+    displayName: {
+      color: colors.text.primary,
+      fontSize: typography.size.body,
+      fontWeight: "600",
+    },
+    username: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+    },
+    headerRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    timestamp: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+    },
+  }));

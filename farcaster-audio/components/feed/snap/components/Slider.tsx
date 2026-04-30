@@ -3,20 +3,20 @@ import {
   View,
   Text,
   Pressable,
-  StyleSheet,
   type LayoutChangeEvent,
   type GestureResponderEvent,
 } from "react-native";
 import type { SliderProps } from "@/types/snap";
 import { useSnapContext } from "../context";
 import { resolvePaletteColor } from "@/constants/snapPalette";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 /**
  * Minimal slider — no external deps. Tap/drag on the track sets the value.
  */
 export function SnapSlider({ props }: { props: SliderProps }) {
   const { accent, setInput } = useSnapContext();
+  const styles = useStyles();
   const color = resolvePaletteColor("accent", accent);
 
   const clampedDefault = Math.max(
@@ -88,31 +88,35 @@ export function SnapSlider({ props }: { props: SliderProps }) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: { gap: 6 },
-  labelRow: { flexDirection: "row", justifyContent: "space-between" },
-  label: { color: colors.text.secondary, fontSize: 12 },
-  value: {
-    color: colors.text.body,
-    fontSize: 12,
-    fontVariant: ["tabular-nums"],
-  },
-  track: {
-    height: 24,
-    justifyContent: "center",
-  },
-  fill: {
-    position: "absolute",
-    left: 0,
-    height: 4,
-    borderRadius: 999,
-  },
-  thumb: {
-    position: "absolute",
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    marginLeft: -8,
-    borderWidth: 2,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    wrapper: { gap: 6 },
+    labelRow: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+    },
+    label: { color: colors.text.secondary, fontSize: 12 },
+    value: {
+      color: colors.text.body,
+      fontSize: 12,
+      fontVariant: ["tabular-nums" as const],
+    },
+    track: {
+      height: 24,
+      justifyContent: "center" as const,
+    },
+    fill: {
+      position: "absolute" as const,
+      left: 0,
+      height: 4,
+      borderRadius: 999,
+    },
+    thumb: {
+      position: "absolute" as const,
+      width: 16,
+      height: 16,
+      borderRadius: 8,
+      marginLeft: -8,
+      borderWidth: 2,
+    },
+  }));

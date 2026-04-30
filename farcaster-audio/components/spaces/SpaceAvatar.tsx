@@ -1,6 +1,6 @@
-import { Pressable, Text, StyleSheet, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { Avatar } from "@/components/common/Avatar";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { Room } from "@/types/space";
 
 interface SpaceAvatarProps {
@@ -14,6 +14,7 @@ export function SpaceAvatar({
   onPress,
   isScheduled = false,
 }: SpaceAvatarProps) {
+  const styles = useStyles();
   return (
     <Pressable
       onPress={onPress}
@@ -44,45 +45,46 @@ export function SpaceAvatar({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    alignItems: "center",
-    width: 72,
-    marginRight: 12,
-    position: "relative",
-  },
-  name: {
-    color: colors.text.light,
-    fontSize: 11,
-    marginTop: 4,
-    textAlign: "center",
-  },
-  listenerBadge: {
-    position: "absolute",
-    top: -2,
-    right: 2,
-    backgroundColor: colors.accent,
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    minWidth: 16,
-    alignItems: "center",
-  },
-  listenerCount: {
-    color: colors.text.primary,
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  scheduledBadge: {
-    position: "absolute",
-    top: -2,
-    right: 2,
-    backgroundColor: "rgba(133, 93, 205, 0.2)",
-    borderRadius: 8,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    minWidth: 16,
-    alignItems: "center",
-  },
-  scheduledIcon: { fontSize: 10 },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      alignItems: "center",
+      width: 72,
+      marginRight: 12,
+      position: "relative",
+    },
+    name: {
+      color: colors.text.light,
+      fontSize: 11,
+      marginTop: 4,
+      textAlign: "center",
+    },
+    listenerBadge: {
+      position: "absolute",
+      top: -2,
+      right: 2,
+      backgroundColor: colors.accent,
+      borderRadius: 8,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+      minWidth: 16,
+      alignItems: "center",
+    },
+    listenerCount: {
+      color: colors.text.primary,
+      fontSize: 10,
+      fontWeight: "700",
+    },
+    scheduledBadge: {
+      position: "absolute",
+      top: -2,
+      right: 2,
+      backgroundColor: "rgba(133, 93, 205, 0.2)",
+      borderRadius: 8,
+      paddingHorizontal: 3,
+      paddingVertical: 1,
+      minWidth: 16,
+      alignItems: "center",
+    },
+    scheduledIcon: { fontSize: 10 },
+  }));

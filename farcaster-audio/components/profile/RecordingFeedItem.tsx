@@ -1,7 +1,8 @@
 import { View, Text, Pressable, StyleSheet, Share } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useVoiceNotePlayback } from "@/hooks/useVoiceNotePlayback";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { RecordingItem } from "@/services/api";
 
 interface RecordingFeedItemProps {
@@ -38,6 +39,8 @@ export function RecordingFeedItem({ item }: RecordingFeedItemProps) {
   // has been backgrounded for a long stretch the profile page should refetch
   // before a play attempt — callers should re-hit the recordings endpoint
   // when the profile screen regains focus.
+  const { colors } = useTheme();
+  const styles = useStyles();
   const durationMs = (item.duration_seconds ?? 0) * 1000;
   const { isPlaying, positionMs, togglePlay, progress, cycleSpeed, speed } =
     useVoiceNotePlayback(
@@ -46,9 +49,10 @@ export function RecordingFeedItem({ item }: RecordingFeedItemProps) {
       durationMs,
     );
 
-  const displayTime = durationMs > 0
-    ? `${formatTime(positionMs)} / ${formatTime(durationMs)}`
-    : formatTime(positionMs);
+  const displayTime =
+    durationMs > 0
+      ? `${formatTime(positionMs)} / ${formatTime(durationMs)}`
+      : formatTime(positionMs);
 
   return (
     <View style={styles.container}>
@@ -108,71 +112,72 @@ export function RecordingFeedItem({ item }: RecordingFeedItemProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  playButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.background.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  info: { flex: 1 },
-  title: {
-    color: colors.text.primary,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 2,
-  },
-  meta: {
-    color: colors.text.secondary,
-    fontSize: 13,
-  },
-  metaDot: { color: colors.text.secondary, fontSize: 13 },
-  speedButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: colors.background.surface,
-    minWidth: 36,
-    alignItems: "center",
-  },
-  speedText: {
-    color: colors.text.secondary,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  shareButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  progressTrack: {
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: colors.background.border,
-    marginTop: 10,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: colors.purple,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    playButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.background.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    info: { flex: 1 },
+    title: {
+      color: colors.text.primary,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    metaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 2,
+    },
+    meta: {
+      color: colors.text.secondary,
+      fontSize: 13,
+    },
+    metaDot: { color: colors.text.secondary, fontSize: 13 },
+    speedButton: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+      backgroundColor: colors.background.surface,
+      minWidth: 36,
+      alignItems: "center",
+    },
+    speedText: {
+      color: colors.text.secondary,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    shareButton: {
+      width: 36,
+      height: 36,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    progressTrack: {
+      height: 3,
+      borderRadius: 2,
+      backgroundColor: colors.background.border,
+      marginTop: 10,
+      overflow: "hidden",
+    },
+    progressFill: {
+      height: "100%",
+      backgroundColor: colors.purple,
+    },
+  }));

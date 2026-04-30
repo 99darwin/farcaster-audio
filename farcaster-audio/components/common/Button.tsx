@@ -1,13 +1,7 @@
-import {
-  Pressable,
-  Text,
-  ActivityIndicator,
-  StyleSheet,
-  ViewStyle,
-  TextStyle,
-} from "react-native";
+import { Pressable, Text, ActivityIndicator, StyleSheet } from "react-native";
 import * as Haptics from "expo-haptics";
-import { colors, touchTarget } from "@/constants/theme";
+import { touchTarget, type ThemeColors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 
@@ -30,10 +24,18 @@ const NORMALIZE_SIZE: Record<string, "sm" | "md" | "lg"> = {
   large: "lg",
 };
 
-const VARIANT_STYLES: Record<
-  ButtonVariant,
-  { bg: string; text: string; border: string }
+const SIZE_STYLES: Record<
+  string,
+  { paddingVertical: number; paddingHorizontal: number; fontSize: number }
 > = {
+  sm: { paddingVertical: 6, paddingHorizontal: 12, fontSize: 13 },
+  md: { paddingVertical: 10, paddingHorizontal: 20, fontSize: 15 },
+  lg: { paddingVertical: 14, paddingHorizontal: 28, fontSize: 17 },
+};
+
+const getVariantStyles = (
+  colors: ThemeColors,
+): Record<ButtonVariant, { bg: string; text: string; border: string }> => ({
   primary: {
     bg: colors.accent,
     text: colors.text.primary,
@@ -50,16 +52,7 @@ const VARIANT_STYLES: Record<
     text: colors.text.secondary,
     border: "transparent",
   },
-};
-
-const SIZE_STYLES: Record<
-  string,
-  { paddingVertical: number; paddingHorizontal: number; fontSize: number }
-> = {
-  sm: { paddingVertical: 6, paddingHorizontal: 12, fontSize: 13 },
-  md: { paddingVertical: 10, paddingHorizontal: 20, fontSize: 15 },
-  lg: { paddingVertical: 14, paddingHorizontal: 28, fontSize: 17 },
-};
+});
 
 export function Button({
   title,
@@ -70,7 +63,9 @@ export function Button({
   size = "md",
   accessibilityLabel,
 }: ButtonProps) {
-  const variantStyle = VARIANT_STYLES[variant];
+  const { colors } = useTheme();
+  const variantStyles = getVariantStyles(colors);
+  const variantStyle = variantStyles[variant];
   const normalizedSize = NORMALIZE_SIZE[size] ?? "md";
   const sizeStyle = SIZE_STYLES[normalizedSize];
   const isDisabled = disabled || isLoading;
