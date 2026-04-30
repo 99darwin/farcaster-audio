@@ -37,6 +37,34 @@ def _preview(text: str, max_len: int = 140) -> str:
     return clean[: max_len - 1].rstrip() + "…"
 
 
+def _extract_pfp_url(actor: dict | None) -> str | None:
+    """Pull the actor's PFP URL out of a Neynar payload.
+
+    Tries the common Neynar shapes — v2 flat ``pfp_url``, v1 nested ``pfp.url``,
+    and ``profile.pfp.url`` — so changes in webhook schema don't silently drop
+    the image. Logs the actor's top-level keys when none of them hit so we can
+    spot a new schema variant.
+    """
+    if not isinstance(actor, dict):
+        return None
+
+    if isinstance(actor.get("pfp_url"), str) and actor["pfp_url"]:
+        return actor["pfp_url"]
+
+    pfp = actor.get("pfp")
+    if isinstance(pfp, dict) and isinstance(pfp.get("url"), str) and pfp["url"]:
+        return pfp["url"]
+
+    profile = actor.get("profile")
+    if isinstance(profile, dict):
+        nested = profile.get("pfp")
+        if isinstance(nested, dict) and isinstance(nested.get("url"), str) and nested["url"]:
+            return nested["url"]
+
+    logger.info("PFP extraction missed: actor keys=%s", sorted(actor.keys()))
+    return None
+
+
 def _is_safe_image_url(url: str | None) -> bool:
     """Validate that ``url`` is safe to hand to Expo's richContent.image.
 
@@ -365,7 +393,7 @@ class PushService:
             parent_author_fid = cast_data.get("parent_author", {}).get("fid")
             author = cast_data.get("author", {})
             author_name = author.get("display_name") or author.get("username", "Someone")
-            actor_pfp_url = author.get("pfp_url")
+            actor_pfp_url = _extract_pfp_url(author)
             cast_hash = cast_data.get("hash", "")
 
             # Build a thread-aware URL so the client opens the full conversation
@@ -422,7 +450,7 @@ class PushService:
             target_fid = cast_author.get("fid") if isinstance(cast_author, dict) else cast_author
             reactor = reaction_data.get("user", {})
             reactor_name = reactor.get("display_name") or reactor.get("username", "Someone")
-            actor_pfp_url = reactor.get("pfp_url")
+            actor_pfp_url = _extract_pfp_url(reactor)
             cast_hash = cast.get("hash", "")
 
             cast_preview = _preview(cast.get("text", ""))
@@ -443,7 +471,7 @@ class PushService:
             follower = follow_data.get("follower", {})
             follower_name = follower.get("display_name") or follower.get("username", "Someone")
             follower_fid = follower.get("fid")
-            actor_pfp_url = follower.get("pfp_url")
+            actor_pfp_url = _extract_pfp_url(follower)
 
             notification_type = "follows"
             title = "New Follower"
