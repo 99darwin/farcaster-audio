@@ -37,32 +37,8 @@ def _preview(text: str, max_len: int = 140) -> str:
     return clean[: max_len - 1].rstrip() + "…"
 
 
-def _extract_pfp_url(actor: dict | None) -> str | None:
-    """Pull the actor's PFP URL out of a Neynar payload.
-
-    Tries the common Neynar shapes — v2 flat ``pfp_url``, v1 nested ``pfp.url``,
-    and ``profile.pfp.url`` — so changes in webhook schema don't silently drop
-    the image. Logs the actor's top-level keys when none of them hit so we can
-    spot a new schema variant.
-    """
-    if not isinstance(actor, dict):
-        return None
-
-    if isinstance(actor.get("pfp_url"), str) and actor["pfp_url"]:
-        return actor["pfp_url"]
-
-    pfp = actor.get("pfp")
-    if isinstance(pfp, dict) and isinstance(pfp.get("url"), str) and pfp["url"]:
-        return pfp["url"]
-
-    profile = actor.get("profile")
-    if isinstance(profile, dict):
-        nested = profile.get("pfp")
-        if isinstance(nested, dict) and isinstance(nested.get("url"), str) and nested["url"]:
-            return nested["url"]
-
-    logger.info("PFP extraction missed: actor keys=%s", sorted(actor.keys()))
-    return None
+PFP_CACHE_PREFIX = "push:pfp:"
+PFP_CACHE_TTL = 86400  # 24h, including null sentinel for users without a PFP
 
 
 def _is_safe_image_url(url: str | None) -> bool:
@@ -106,6 +82,43 @@ class PushService:
     def __init__(self, db: AsyncSession, redis: aioredis.Redis):
         self.db = db
         self.redis = redis
+
+    async def _resolve_pfp_url(self, fid: int | None) -> str | None:
+        """Resolve a user's pfp_url, falling back to Neynar bulk-users when needed.
+
+        Neynar webhook payloads include a skinny actor object (fid + username
+        only — no pfp_url), so we have to enrich on the push path. Cache the
+        result for 24h, including a null sentinel ("") for users without a PFP
+        so we don't re-call the API for every notification they trigger.
+        """
+        if not fid:
+            return None
+        cache_key = f"{PFP_CACHE_PREFIX}{fid}"
+        cached = await self.redis.get(cache_key)
+        if cached is not None:
+            return cached or None
+
+        pfp: str | None = None
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{NEYNAR_BASE}/farcaster/user/bulk",
+                    params={"fids": str(fid)},
+                    headers={"x-api-key": settings.NEYNAR_API_KEY},
+                    timeout=5.0,
+                )
+                resp.raise_for_status()
+                users = resp.json().get("users", [])
+                if users:
+                    candidate = users[0].get("pfp_url")
+                    if isinstance(candidate, str) and candidate:
+                        pfp = candidate
+        except Exception as e:
+            logger.warning("Neynar pfp lookup failed for fid=%s: %s", fid, e)
+            return None
+
+        await self.redis.set(cache_key, pfp or "", ex=PFP_CACHE_TTL)
+        return pfp
 
     # ------------------------------------------------------------------
     # Device token management
@@ -393,7 +406,7 @@ class PushService:
             parent_author_fid = cast_data.get("parent_author", {}).get("fid")
             author = cast_data.get("author", {})
             author_name = author.get("display_name") or author.get("username", "Someone")
-            actor_pfp_url = _extract_pfp_url(author)
+            actor_pfp_url = author.get("pfp_url") or await self._resolve_pfp_url(author.get("fid"))
             cast_hash = cast_data.get("hash", "")
 
             # Build a thread-aware URL so the client opens the full conversation
@@ -450,7 +463,7 @@ class PushService:
             target_fid = cast_author.get("fid") if isinstance(cast_author, dict) else cast_author
             reactor = reaction_data.get("user", {})
             reactor_name = reactor.get("display_name") or reactor.get("username", "Someone")
-            actor_pfp_url = _extract_pfp_url(reactor)
+            actor_pfp_url = reactor.get("pfp_url") or await self._resolve_pfp_url(reactor.get("fid"))
             cast_hash = cast.get("hash", "")
 
             cast_preview = _preview(cast.get("text", ""))
@@ -471,7 +484,7 @@ class PushService:
             follower = follow_data.get("follower", {})
             follower_name = follower.get("display_name") or follower.get("username", "Someone")
             follower_fid = follower.get("fid")
-            actor_pfp_url = _extract_pfp_url(follower)
+            actor_pfp_url = follower.get("pfp_url") or await self._resolve_pfp_url(follower_fid)
 
             notification_type = "follows"
             title = "New Follower"
