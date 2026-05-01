@@ -16,21 +16,42 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
 
-        guard let urlString = Self.extractImageURL(from: request.content.userInfo),
-              let url = URL(string: urlString) else {
+        // DIAGNOSTIC — remove once PFP path is confirmed.
+        // Prepend top-level userInfo keys + extracted image URL prefix so we
+        // can see on-device what the APNs payload actually contains.
+        let userInfo = request.content.userInfo
+        let keys = userInfo.keys
+            .compactMap { $0 as? String }
+            .sorted()
+            .joined(separator: ",")
+        let urlString = Self.extractImageURL(from: userInfo)
+        let urlSnippet = urlString.map { String($0.prefix(40)) } ?? "nil"
+        content.body = "[keys=\(keys)][img=\(urlSnippet)] " + content.body
+
+        guard let urlString = urlString, let url = URL(string: urlString) else {
             contentHandler(content)
             return
         }
 
-        URLSession.shared.downloadTask(with: url) { tmp, _, _ in
+        URLSession.shared.downloadTask(with: url) { tmp, _, error in
             defer { contentHandler(content) }
-            guard let tmp = tmp else { return }
+            if let error = error {
+                let msg = String(error.localizedDescription.prefix(30))
+                content.body = "[err=\(msg)] " + content.body
+                return
+            }
+            guard let tmp = tmp else {
+                content.body = "[err=no-tmp] " + content.body
+                return
+            }
             let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
             let dst = tmp.deletingLastPathComponent()
                 .appendingPathComponent("\(UUID().uuidString).\(ext)")
             try? FileManager.default.moveItem(at: tmp, to: dst)
             if let attachment = try? UNNotificationAttachment(identifier: "pfp", url: dst) {
                 content.attachments = [attachment]
+            } else {
+                content.body = "[err=attach-failed] " + content.body
             }
         }.resume()
     }
