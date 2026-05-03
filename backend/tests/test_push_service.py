@@ -79,6 +79,11 @@ async def test_send_push_with_image_url_includes_rich_content():
     assert message["title"] == "New Like"
     assert message["body"] == "Alice liked your cast"
     assert message["sound"] == "default"
+    assert message["data"] == {
+        "type": "like",
+        "url": "/cast/0xabc",
+        "pfp_url": PFP_URL,
+    }
     assert message["richContent"] == {"image": PFP_URL}
     assert message["mutableContent"] is True
 
@@ -108,6 +113,7 @@ async def test_send_push_without_image_url_omits_rich_content():
 
     assert "richContent" not in message
     assert "mutableContent" not in message
+    assert "pfp_url" not in message["data"]
 
 
 @pytest.mark.asyncio
@@ -134,6 +140,7 @@ async def test_send_push_with_explicit_none_image_omits_rich_content():
 
     assert "richContent" not in message
     assert "mutableContent" not in message
+    assert "pfp_url" not in message["data"]
 
 
 @pytest.mark.asyncio
@@ -178,6 +185,7 @@ async def test_send_push_with_image_applies_to_all_tokens():
     payload = kwargs["json"]
     assert len(payload) == 2
     for message in payload:
+        assert message["data"]["pfp_url"] == PFP_URL
         assert message["richContent"] == {"image": PFP_URL}
         assert message["mutableContent"] is True
 
