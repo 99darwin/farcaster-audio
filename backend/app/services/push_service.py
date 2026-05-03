@@ -344,16 +344,18 @@ class PushService:
             )
         messages: list[dict] = []
         for token in tokens:
+            message_data = dict(data or {})
             message: dict = {
                 "to": token,
                 "title": title,
                 "body": body,
                 "sound": "default",
-                "data": data or {},
+                "data": message_data,
             }
             if attach_image:
                 message["richContent"] = {"image": image_url}
                 message["mutableContent"] = True
+                message_data["pfp_url"] = image_url
             messages.append(message)
 
         try:
@@ -643,4 +645,3 @@ class PushService:
                     )
         except Exception as e:
             logger.error("Failed to sync webhook target_fids: %s", e)
-
