@@ -66,8 +66,10 @@ MAX_SCHEDULE_AHEAD = timedelta(days=30)
 
 
 def _is_allowed_websocket_origin(origin: str | None) -> bool:
-    """Allow native clients without Origin; enforce CORS origins for browsers."""
+    """Allow native/app clients; enforce CORS origins for browser sockets."""
     if not origin:
+        return True
+    if not origin.startswith(("http://", "https://")):
         return True
     return origin in settings.CORS_ORIGINS
 
