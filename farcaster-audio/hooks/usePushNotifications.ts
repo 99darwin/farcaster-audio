@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
 import * as api from "@/services/api";
 import * as storage from "@/services/storage";
+import { getNotificationRoute } from "@/utils/notificationRouting";
 
 const PROJECT_ID = "YOUR_EAS_PROJECT_ID";
 
@@ -24,30 +25,50 @@ export function usePushNotifications() {
   const router = useRouter();
   const notificationResponseListener = useRef<Notifications.Subscription>(null);
   const registeredRef = useRef(false);
+  const handledNotificationRef = useRef<string | null>(null);
+
+  const handleNotificationResponse = useCallback(
+    (response: Notifications.NotificationResponse | null | undefined) => {
+      if (!response) return;
+      if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) {
+        return;
+      }
+
+      const request = response.notification.request;
+      const route = getNotificationRoute(request.content.data);
+      if (!route) return;
+
+      const dedupeKey = `${request.identifier}:${route}`;
+      if (handledNotificationRef.current === dedupeKey) return;
+      handledNotificationRef.current = dedupeKey;
+      router.push(route as any);
+      Notifications.clearLastNotificationResponse();
+    },
+    [router],
+  );
 
   useEffect(() => {
     if (!isAuthenticated) {
       registeredRef.current = false;
       return;
     }
-    if (registeredRef.current) return;
 
-    registerForPushNotifications();
+    if (!registeredRef.current) {
+      registerForPushNotifications();
+    }
 
     // Handle notification taps
     notificationResponseListener.current =
-      Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = response.notification.request.content.data;
-        const url = data?.url as string | undefined;
-        if (url) {
-          router.push(url as any);
-        }
-      });
+      Notifications.addNotificationResponseReceivedListener(
+        handleNotificationResponse,
+      );
+
+    handleNotificationResponse(Notifications.getLastNotificationResponse());
 
     return () => {
       notificationResponseListener.current?.remove();
     };
-  }, [isAuthenticated]);
+  }, [handleNotificationResponse, isAuthenticated]);
 
   async function registerForPushNotifications() {
     if (!Device.isDevice) {

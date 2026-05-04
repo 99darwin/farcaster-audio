@@ -413,11 +413,20 @@ class PushService:
 
             # Build a thread-aware URL so the client opens the full conversation
             # with the triggering cast focused. Mirrors NotificationItem logic.
-            thread_hash = cast_data.get("thread_hash") or cast_data.get("parent_hash") or cast_hash
+            thread_hash = (
+                cast_data.get("thread_hash")
+                or cast_data.get("parent_hash")
+                or cast_hash
+            )
             if thread_hash and thread_hash != cast_hash:
                 cast_url = f"/cast/{thread_hash}?focusHash={cast_hash}"
             else:
                 cast_url = f"/cast/{cast_hash}"
+            cast_route_data = {
+                "cast_hash": cast_hash,
+                "thread_hash": thread_hash or cast_hash,
+                "focus_hash": cast_hash,
+            }
 
             # Check for mentions
             mentioned_fids = [
@@ -432,7 +441,7 @@ class PushService:
                 title = "New Reply"
                 preview = _preview(cast_data.get("text", ""))
                 body = f"{author_name}: {preview}" if preview else f"{author_name} replied to your cast"
-                data = {"type": "reply", "url": cast_url}
+                data = {"type": "reply", "url": cast_url, **cast_route_data}
 
             # Send mention notifications (separate from reply)
             for mfid in mentioned_fids:
@@ -452,7 +461,11 @@ class PushService:
                         fid=mfid,
                         title="You were mentioned",
                         body=mention_body,
-                        data={"type": "mention", "url": cast_url},
+                        data={
+                            "type": "mention",
+                            "url": cast_url,
+                            **cast_route_data,
+                        },
                         image_url=actor_pfp_url,
                     )
 
@@ -473,12 +486,20 @@ class PushService:
                 notification_type = "likes"
                 title = "New Like"
                 body = f"{reactor_name} liked: {cast_preview}" if cast_preview else f"{reactor_name} liked your cast"
-                data = {"type": "like", "url": f"/cast/{cast_hash}"}
+                data = {
+                    "type": "like",
+                    "url": f"/cast/{cast_hash}",
+                    "cast_hash": cast_hash,
+                }
             elif reaction_type in ("recast", 2):
                 notification_type = "recasts"
                 title = "New Recast"
                 body = f"{reactor_name} recasted: {cast_preview}" if cast_preview else f"{reactor_name} recasted your cast"
-                data = {"type": "recast", "url": f"/cast/{cast_hash}"}
+                data = {
+                    "type": "recast",
+                    "url": f"/cast/{cast_hash}",
+                    "cast_hash": cast_hash,
+                }
 
         elif event_type == "follow.created":
             follow_data = payload.get("data", {})
@@ -491,7 +512,11 @@ class PushService:
             notification_type = "follows"
             title = "New Follower"
             body = f"{follower_name} followed you"
-            data = {"type": "follow", "url": f"/profile/{follower_fid}"}
+            data = {
+                "type": "follow",
+                "url": f"/profile/{follower_fid}",
+                "profile_fid": str(follower_fid),
+            }
 
         if not target_fid or not notification_type:
             logger.info("Skipping event %s: no target_fid or notification_type", event_type)
