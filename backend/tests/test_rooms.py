@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from jose import jwt
 
 from app.config import settings
+from app.routers.rooms import _is_allowed_websocket_origin
 
 
 def make_auth_header(fid: int = 12345) -> dict:
@@ -10,14 +11,26 @@ def make_auth_header(fid: int = 12345) -> dict:
     token = jwt.encode(
         {
             "fid": fid,
-            "exp": int(
-                (datetime.now(timezone.utc) + timedelta(hours=72)).timestamp()
-            ),
+            "exp": int((datetime.now(timezone.utc) + timedelta(hours=72)).timestamp()),
         },
         settings.JWT_SECRET,
         algorithm=settings.JWT_ALGORITHM,
     )
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_room_events_origin_allows_native_clients():
+    """Native clients may send no Origin or a non-web Origin."""
+    assert _is_allowed_websocket_origin(None)
+    assert _is_allowed_websocket_origin("app://juke")
+    assert _is_allowed_websocket_origin("farcaster-audio://spaces")
+
+
+def test_room_events_origin_enforces_browser_cors(monkeypatch):
+    """Browser WebSocket Origins are checked against configured CORS origins."""
+    monkeypatch.setattr(settings, "CORS_ORIGINS", ["https://juke.audio"])
+    assert _is_allowed_websocket_origin("https://juke.audio")
+    assert not _is_allowed_websocket_origin("https://evil.example")
 
 
 @pytest.mark.asyncio
