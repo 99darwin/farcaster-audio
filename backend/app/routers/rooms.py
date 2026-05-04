@@ -9,10 +9,21 @@ Endpoints:
   DELETE /v1/rooms/{room_id} End an active room (host/co-host only)
 """
 
+import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from app.config import settings
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import (
@@ -54,6 +65,13 @@ MIN_SCHEDULE_AHEAD = timedelta(minutes=5)
 MAX_SCHEDULE_AHEAD = timedelta(days=30)
 
 
+def _is_allowed_websocket_origin(origin: str | None) -> bool:
+    """Allow native clients without Origin; enforce CORS origins for browsers."""
+    if not origin:
+        return True
+    return origin in settings.CORS_ORIGINS
+
+
 @router.get("", response_model=RoomListResponse)
 async def list_rooms(
     status: Literal["active", "scheduled"] = Query(default="active"),
@@ -65,6 +83,44 @@ async def list_rooms(
     if status == "scheduled":
         return await room_service.list_scheduled_rooms(limit=limit, cursor=cursor)
     return await room_service.list_active_rooms(limit=limit, cursor=cursor)
+
+
+@router.websocket("/events")
+async def room_events(websocket: WebSocket) -> None:
+    """Stream global active/scheduled room changes to clients."""
+    if not _is_allowed_websocket_origin(websocket.headers.get("origin")):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await websocket.accept()
+    redis = websocket.app.state.redis
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(RedisService.ROOM_DISCOVERY_CHANNEL)
+
+    try:
+        while True:
+            message = await pubsub.get_message(
+                ignore_subscribe_messages=True,
+                timeout=25,
+            )
+            if not message:
+                await websocket.send_json({"type": "ping"})
+                continue
+
+            raw_data = message.get("data")
+            if isinstance(raw_data, bytes):
+                raw_data = raw_data.decode("utf-8")
+            try:
+                payload = json.loads(raw_data)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            await websocket.send_json(payload)
+            await asyncio.sleep(0)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await pubsub.unsubscribe(RedisService.ROOM_DISCOVERY_CHANNEL)
+        await pubsub.close()
 
 
 @router.post("", response_model=RoomCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -79,14 +135,21 @@ async def create_room(
         try:
             scheduled_at = datetime.fromisoformat(body.scheduled_at)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid scheduled_at format (use ISO 8601)") from exc
+            raise HTTPException(
+                status_code=400, detail="Invalid scheduled_at format (use ISO 8601)"
+            ) from exc
         if scheduled_at.tzinfo is None:
             scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
         now = datetime.now(tz=timezone.utc)
         if scheduled_at < now + MIN_SCHEDULE_AHEAD:
-            raise HTTPException(status_code=400, detail="Scheduled time must be at least 5 minutes in the future")
+            raise HTTPException(
+                status_code=400,
+                detail="Scheduled time must be at least 5 minutes in the future",
+            )
         if scheduled_at > now + MAX_SCHEDULE_AHEAD:
-            raise HTTPException(status_code=400, detail="Cannot schedule more than 30 days in advance")
+            raise HTTPException(
+                status_code=400, detail="Cannot schedule more than 30 days in advance"
+            )
 
     return await room_service.create_room(
         fid=current_user_fid,
@@ -134,7 +197,9 @@ async def start_room(
     room_service: RoomService = Depends(get_room_service),
 ) -> RoomGoLiveResponse:
     """Start a scheduled room. Only the host can go live."""
-    return await room_service.start_scheduled_room(room_id=room_id, fid=current_user_fid)
+    return await room_service.start_scheduled_room(
+        room_id=room_id, fid=current_user_fid
+    )
 
 
 @router.delete("/{room_id}", response_model=StatusResponse)
@@ -164,9 +229,7 @@ async def start_recording(
     Returns ``{egress_id, status: "recording"}``. The recording URL is
     populated asynchronously when LiveKit emits the ``egress_ended`` webhook.
     """
-    return await room_service.start_recording(
-        room_id=room_id, fid=current_user_fid
-    )
+    return await room_service.start_recording(room_id=room_id, fid=current_user_fid)
 
 
 @router.post("/{room_id}/recording/stop")
@@ -176,6 +239,4 @@ async def stop_recording(
     room_service: RoomService = Depends(get_room_service),
 ) -> dict:
     """Stop the active recording. Host/co-host only."""
-    return await room_service.stop_recording(
-        room_id=room_id, fid=current_user_fid
-    )
+    return await room_service.stop_recording(room_id=room_id, fid=current_user_fid)

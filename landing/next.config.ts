@@ -22,6 +22,7 @@ const CSP_DIRECTIVES = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: process.cwd(),
   async headers() {
     return [
       {

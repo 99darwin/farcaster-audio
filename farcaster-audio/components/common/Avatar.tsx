@@ -63,7 +63,7 @@ export function Avatar({
             borderRadius: dimension / 2,
           }}
           contentFit="cover"
-          transition={200}
+          cachePolicy="memory-disk"
         />
       ) : (
         <View

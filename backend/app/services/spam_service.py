@@ -80,12 +80,7 @@ class SpamService:
         if not settings.SPAM_FILTER_ENABLED:
             return users
 
-        for user in users:
-            fid = user.get("fid")
-            if fid is None:
-                continue
-            neynar_score = user.get("experimental", {}).get("neynar_user_score")
-            user["is_spam"] = await self.is_spam(fid, neynar_score)
+        await self._annotate_author_list(users)
         return users
 
     async def filter_users(self, users: list[dict]) -> list[dict]:
@@ -113,11 +108,8 @@ class SpamService:
         if not settings.SPAM_FILTER_ENABLED:
             return casts
 
-        for cast in casts:
-            author = cast.get("author")
-            if author and author.get("fid"):
-                neynar_score = author.get("experimental", {}).get("neynar_user_score")
-                author["is_spam"] = await self.is_spam(author["fid"], neynar_score)
+        authors = [cast.get("author") for cast in casts if cast.get("author")]
+        await self._annotate_author_list(authors)
         return casts
 
     async def annotate_thread(self, conversation: dict) -> dict:
@@ -143,6 +135,77 @@ class SpamService:
         for reply in cast.get("direct_replies", []):
             await self._annotate_cast_tree(reply, depth=depth + 1)
 
+    async def _annotate_author_list(self, authors: list[dict]) -> None:
+        """Batch annotate author dicts to avoid sequential cache/DB lookups."""
+        fid_to_authors: dict[int, list[dict]] = {}
+        neynar_scores: dict[int, float | None] = {}
+
+        for author in authors:
+            fid = _validate_fid(author.get("fid"))
+            if fid is None:
+                continue
+            fid_to_authors.setdefault(fid, []).append(author)
+            neynar_scores[fid] = author.get("experimental", {}).get("neynar_user_score")
+
+        if not fid_to_authors:
+            return
+
+        fids = list(fid_to_authors)
+        results: dict[int, bool] = {}
+        missed_fids: list[int] = []
+
+        try:
+            cached_values = await self._redis.mget([f"trust:{fid}" for fid in fids])
+        except Exception as e:
+            logger.debug("[spam] Redis batch cache read failed: %s", e)
+            cached_values = [None] * len(fids)
+
+        for fid, raw in zip(fids, cached_values):
+            if raw is None:
+                missed_fids.append(fid)
+                continue
+            try:
+                data = json.loads(raw)
+                results[fid] = data.get("is_spam", False)
+            except Exception:
+                missed_fids.append(fid)
+
+        rows_by_fid: dict[int, TrustScore] = {}
+        if missed_fids:
+            db_rows = await self._db.execute(
+                select(TrustScore).where(TrustScore.fid.in_(missed_fids))
+            )
+            rows_by_fid = {row.fid: row for row in db_rows.scalars().all()}
+
+        cache_pipe = self._redis.pipeline()
+        should_write_cache = False
+        for fid in missed_fids:
+            row = rows_by_fid.get(fid)
+            if row:
+                is_spam = row.is_spam
+                composite = row.composite
+            elif neynar_scores.get(fid) is not None:
+                composite, is_spam = self._compute_composite(neynar_scores[fid], None)
+            else:
+                composite, is_spam = 0.5, False
+            results[fid] = is_spam
+            cache_pipe.setex(
+                f"trust:{fid}",
+                CACHE_TTL_SECONDS,
+                json.dumps({"is_spam": is_spam, "composite": composite}),
+            )
+            should_write_cache = True
+
+        if should_write_cache:
+            try:
+                await cache_pipe.execute()
+            except Exception as e:
+                logger.warning("[spam] Redis batch cache set failed: %s", e)
+
+        for fid, author_list in fid_to_authors.items():
+            for author in author_list:
+                author["is_spam"] = results.get(fid, False)
+
     # ------------------------------------------------------------------
     # Public: background jobs
     # ------------------------------------------------------------------
@@ -165,15 +228,23 @@ class SpamService:
 
         # Check Content-Length before processing
         content_length = resp.headers.get("content-length")
-        if content_length and content_length.isdigit() and int(content_length) > MAX_LABELS_CONTENT_LENGTH:
-            logger.error("[spam] Warpcast labels file too large: %s bytes", content_length)
+        if (
+            content_length
+            and content_length.isdigit()
+            and int(content_length) > MAX_LABELS_CONTENT_LENGTH
+        ):
+            logger.error(
+                "[spam] Warpcast labels file too large: %s bytes", content_length
+            )
             return 0
 
         count = 0
         batch_count = 0
         for line in resp.text.strip().splitlines():
             if count >= MAX_LABELS_COUNT:
-                logger.warning("[spam] Reached max label count (%d), stopping", MAX_LABELS_COUNT)
+                logger.warning(
+                    "[spam] Reached max label count (%d), stopping", MAX_LABELS_COUNT
+                )
                 break
 
             try:
@@ -194,20 +265,24 @@ class SpamService:
                 neynar=None, warpcast_label=label
             )
 
-            stmt = pg_insert(TrustScore).values(
-                fid=fid,
-                warpcast_label=label,
-                composite=composite,
-                is_spam=is_spam,
-                updated_at=datetime.now(timezone.utc),
-            ).on_conflict_do_update(
-                index_elements=["fid"],
-                set_={
-                    "warpcast_label": label,
-                    "composite": composite,
-                    "is_spam": is_spam,
-                    "updated_at": datetime.now(timezone.utc),
-                },
+            stmt = (
+                pg_insert(TrustScore)
+                .values(
+                    fid=fid,
+                    warpcast_label=label,
+                    composite=composite,
+                    is_spam=is_spam,
+                    updated_at=datetime.now(timezone.utc),
+                )
+                .on_conflict_do_update(
+                    index_elements=["fid"],
+                    set_={
+                        "warpcast_label": label,
+                        "composite": composite,
+                        "is_spam": is_spam,
+                        "updated_at": datetime.now(timezone.utc),
+                    },
+                )
             )
             await self._db.execute(stmt)
             count += 1
@@ -241,25 +316,31 @@ class SpamService:
             return
 
         # Upsert the neynar_score, then recompute composite under row lock
-        stmt = pg_insert(TrustScore).values(
-            fid=fid,
-            neynar_score=clamped,
-            composite=0.0,  # placeholder
-            is_spam=False,  # placeholder
-            updated_at=datetime.now(timezone.utc),
-        ).on_conflict_do_update(
-            index_elements=["fid"],
-            set_={
-                "neynar_score": clamped,
-                "updated_at": datetime.now(timezone.utc),
-            },
+        stmt = (
+            pg_insert(TrustScore)
+            .values(
+                fid=fid,
+                neynar_score=clamped,
+                composite=0.0,  # placeholder
+                is_spam=False,  # placeholder
+                updated_at=datetime.now(timezone.utc),
+            )
+            .on_conflict_do_update(
+                index_elements=["fid"],
+                set_={
+                    "neynar_score": clamped,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+            )
         )
         await self._db.execute(stmt)
 
         # Recompute composite from the now-current row with FOR UPDATE lock
-        row = (await self._db.execute(
-            select(TrustScore).where(TrustScore.fid == fid).with_for_update()
-        )).scalar_one()
+        row = (
+            await self._db.execute(
+                select(TrustScore).where(TrustScore.fid == fid).with_for_update()
+            )
+        ).scalar_one()
         composite, is_spam = self._compute_composite(
             row.neynar_score, row.warpcast_label
         )
@@ -288,11 +369,11 @@ class SpamService:
             logger.debug("[spam] Redis cache miss for fid=%d: %s", fid, e)
         return None
 
-    async def _compute_and_cache(self, fid: int, neynar_score: float | None = None) -> bool:
+    async def _compute_and_cache(
+        self, fid: int, neynar_score: float | None = None
+    ) -> bool:
         """Load from DB, compute if needed, cache result."""
-        result = await self._db.execute(
-            select(TrustScore).where(TrustScore.fid == fid)
-        )
+        result = await self._db.execute(select(TrustScore).where(TrustScore.fid == fid))
         row = result.scalar_one_or_none()
 
         if row:
@@ -309,7 +390,9 @@ class SpamService:
             await self._redis.setex(
                 f"trust:{fid}",
                 CACHE_TTL_SECONDS,
-                json.dumps({"is_spam": is_spam, "composite": row.composite if row else 0.5}),
+                json.dumps(
+                    {"is_spam": is_spam, "composite": row.composite if row else 0.5}
+                ),
             )
         except Exception as e:
             logger.warning("[spam] Redis cache set failed for fid=%d: %s", fid, e)

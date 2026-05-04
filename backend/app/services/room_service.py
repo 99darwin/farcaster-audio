@@ -80,6 +80,19 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat()
 
 
+def _livekit_expires_at() -> str:
+    return (_utcnow() + timedelta(hours=6)).isoformat()
+
+
+def _room_discovery_event(room_id: str, reason: str, status: str) -> dict[str, str]:
+    return {
+        "type": "rooms_changed",
+        "reason": reason,
+        "room_id": room_id,
+        "status": status,
+    }
+
+
 # ---------------------------------------------------------------------------
 # RoomService
 # ---------------------------------------------------------------------------
@@ -156,17 +169,28 @@ class RoomService:
             # Optionally announce on Farcaster
             if announce_cast:
                 scheduled_label = scheduled_at.strftime("%b %d at %I:%M %p UTC")  # type: ignore[union-attr]
-                cast_hash = await self._announce_room_scheduled(room_id, title, host, scheduled_label)
+                cast_hash = await self._announce_room_scheduled(
+                    room_id, title, host, scheduled_label
+                )
                 if cast_hash:
                     await self.db.execute(
-                        update(Room).where(Room.id == room.id).values(cast_hash=cast_hash)
+                        update(Room)
+                        .where(Room.id == room.id)
+                        .values(cast_hash=cast_hash)
                     )
                     await self.db.commit()
                     await self.db.refresh(room)
 
             room_response = await self._build_room_response(room, host, 0, 0)
-            logger.info("Scheduled room %s created by fid=%s for %s", room_id, fid, scheduled_at)
-            return RoomCreateResponse(room=room_response, livekit_token=None, livekit_ws_url=None)
+            await self.redis.publish_room_discovery_event(
+                _room_discovery_event(room_id, "room_scheduled", "scheduled")
+            )
+            logger.info(
+                "Scheduled room %s created by fid=%s for %s", room_id, fid, scheduled_at
+            )
+            return RoomCreateResponse(
+                room=room_response, livekit_token=None, livekit_ws_url=None
+            )
 
         # --- Immediate rooms: full LiveKit/Redis setup ---
 
@@ -176,14 +200,18 @@ class RoomService:
         except Exception as exc:
             logger.exception("LiveKit room creation failed for room %s", room_id)
             await self.db.rollback()
-            raise HTTPException(status_code=502, detail="Failed to create media room") from exc
+            raise HTTPException(
+                status_code=502, detail="Failed to create media room"
+            ) from exc
 
         room.livekit_room_id = room_id
         await self.db.commit()
         await self.db.refresh(room)
 
         # Seed Redis state
-        started_ts = room.started_at.timestamp() if room.started_at else _utcnow().timestamp()
+        started_ts = (
+            room.started_at.timestamp() if room.started_at else _utcnow().timestamp()
+        )
         await self.redis.set_room_state(
             room_id,
             {
@@ -232,7 +260,9 @@ class RoomService:
         elif announce_cast:
             cast_hash = await self._announce_room(room_id, title, host)
             if cast_hash:
-                webhook_id, webhook_secret = await self._register_cast_webhook(room_id, cast_hash)
+                webhook_id, webhook_secret = await self._register_cast_webhook(
+                    room_id, cast_hash
+                )
                 await self.db.execute(
                     update(Room)
                     .where(Room.id == room.id)
@@ -257,13 +287,19 @@ class RoomService:
         speaker_count = await self.redis.get_speaker_count(room_id)
         listener_count = await self.redis.get_listener_count(room_id)
 
-        room_response = await self._build_room_response(room, host, speaker_count, listener_count)
+        room_response = await self._build_room_response(
+            room, host, speaker_count, listener_count
+        )
 
+        await self.redis.publish_room_discovery_event(
+            _room_discovery_event(room_id, "room_started", "active")
+        )
         logger.info("Room %s created by fid=%s", room_id, fid)
         return RoomCreateResponse(
             room=room_response,
             livekit_token=token,
             livekit_ws_url=settings.LIVEKIT_WS_URL,
+            expires_at=_livekit_expires_at(),
         )
 
     async def start_scheduled_room(self, room_id: str, fid: int) -> RoomGoLiveResponse:
@@ -276,7 +312,9 @@ class RoomService:
         room = await self._get_room_or_404(room_id)
 
         if room.host_fid != fid:
-            raise HTTPException(status_code=403, detail="Only the host can start a scheduled room")
+            raise HTTPException(
+                status_code=403, detail="Only the host can start a scheduled room"
+            )
 
         host = await self._get_user(fid)
 
@@ -289,7 +327,9 @@ class RoomService:
             .values(status="active", started_at=now, livekit_room_id=room_id)
         )
         if result.rowcount == 0:
-            raise HTTPException(status_code=400, detail="Room is not in scheduled state")
+            raise HTTPException(
+                status_code=400, detail="Room is not in scheduled state"
+            )
         await self.db.commit()
         await self.db.refresh(room)
 
@@ -297,14 +337,18 @@ class RoomService:
         try:
             await self.livekit.create_room(room_id=room_id, title=room.title)
         except Exception as exc:
-            logger.exception("LiveKit room creation failed for scheduled room %s", room_id)
+            logger.exception(
+                "LiveKit room creation failed for scheduled room %s", room_id
+            )
             await self.db.execute(
                 update(Room)
                 .where(Room.id == room.id)
                 .values(status="scheduled", started_at=None, livekit_room_id=None)
             )
             await self.db.commit()
-            raise HTTPException(status_code=502, detail="Failed to create media room") from exc
+            raise HTTPException(
+                status_code=502, detail="Failed to create media room"
+            ) from exc
 
         # Seed Redis state
         started_ts = now.timestamp()
@@ -364,14 +408,20 @@ class RoomService:
         except Exception:
             pass  # don't block go-live
 
+        await self.redis.publish_room_discovery_event(
+            _room_discovery_event(room_id, "room_started", "active")
+        )
         logger.info("Scheduled room %s started by fid=%s", room_id, fid)
         return RoomGoLiveResponse(
             room=room_response,
             livekit_token=token,
             livekit_ws_url=settings.LIVEKIT_WS_URL,
+            expires_at=_livekit_expires_at(),
         )
 
-    async def get_room(self, room_id: str, current_fid: int | None = None) -> RoomDetailResponse:
+    async def get_room(
+        self, room_id: str, current_fid: int | None = None
+    ) -> RoomDetailResponse:
         """
         Fetch room details including live participant list and hand queue from Redis.
         Scheduled rooms return empty participants (no Redis state yet).
@@ -391,18 +441,28 @@ class RoomService:
                 await self.db.commit()
                 await self.db.refresh(room)
             rsvp_summary = await self._get_rsvp_summary(room.id, current_fid)
-            room_response = await self._build_room_response(room, host, 0, 0, rsvp_summary=rsvp_summary)
-            return RoomDetailResponse(room=room_response, participants=[], hand_queue=[])
+            room_response = await self._build_room_response(
+                room, host, 0, 0, rsvp_summary=rsvp_summary
+            )
+            return RoomDetailResponse(
+                room=room_response, participants=[], hand_queue=[]
+            )
 
         participants_data = await self.redis.get_all_participants(room_id)
         hand_queue = await self.redis.get_hand_queue(room_id)
 
         speaker_count = sum(
-            1 for p in participants_data if p.get("role") in ("host", "co_host", "speaker")
+            1
+            for p in participants_data
+            if p.get("role") in ("host", "co_host", "speaker")
         )
-        listener_count = sum(1 for p in participants_data if p.get("role") == "listener")
+        listener_count = sum(
+            1 for p in participants_data if p.get("role") == "listener"
+        )
 
-        room_response = await self._build_room_response(room, host, speaker_count, listener_count)
+        room_response = await self._build_room_response(
+            room, host, speaker_count, listener_count
+        )
 
         participants = [
             ParticipantResponse(
@@ -444,6 +504,7 @@ class RoomService:
 
         # Batch-fetch RSVP counts for all rooms on this page
         count_map: dict[uuid.UUID, int] = {}
+        hosts_by_fid: dict[int, User] = {}
         if page:
             room_ids = [r.id for r in page]
             counts = await self.db.execute(
@@ -452,13 +513,26 @@ class RoomService:
                 .group_by(RoomRsvp.room_id)
             )
             count_map = dict(counts.all())
+            host_fids = list({room.host_fid for room in page})
+            host_rows = await self.db.execute(
+                select(User).where(User.fid.in_(host_fids))
+            )
+            hosts_by_fid = {user.fid: user for user in host_rows.scalars().all()}
 
         rooms: list[RoomResponse] = []
         for room in page:
-            host = await self._get_user(room.host_fid)
+            host = hosts_by_fid.get(room.host_fid)
+            if host is None:
+                raise HTTPException(
+                    status_code=404, detail=f"User with fid={room.host_fid} not found"
+                )
             rsvp_count = count_map.get(room.id, 0)
             rsvp_summary = RsvpSummary(count=rsvp_count)
-            rooms.append(await self._build_room_response(room, host, 0, 0, rsvp_summary=rsvp_summary))
+            rooms.append(
+                await self._build_room_response(
+                    room, host, 0, 0, rsvp_summary=rsvp_summary
+                )
+            )
 
         next_cursor = str(cursor + limit) if has_more else None
         return RoomListResponse(rooms=rooms, next_cursor=next_cursor)
@@ -487,10 +561,21 @@ class RoomService:
             try:
                 uuids.append(uuid.UUID(rid))
             except ValueError:
-                logger.warning("Skipping malformed room_id in active_rooms set: %s", rid)
+                logger.warning(
+                    "Skipping malformed room_id in active_rooms set: %s", rid
+                )
 
         result = await self.db.execute(select(Room).where(Room.id.in_(uuids)))
-        rooms_by_id: dict[str, Room] = {_room_id_str(r.id): r for r in result.scalars().all()}
+        rooms_by_id: dict[str, Room] = {
+            _room_id_str(r.id): r for r in result.scalars().all()
+        }
+        ordered_rooms = [rooms_by_id[rid] for rid in page_ids if rid in rooms_by_id]
+        host_fids = list({room.host_fid for room in ordered_rooms})
+        host_rows = await self.db.execute(select(User).where(User.fid.in_(host_fids)))
+        hosts_by_fid: dict[int, User] = {
+            user.fid: user for user in host_rows.scalars().all()
+        }
+        count_map = await self.redis.get_room_participant_counts(page_ids)
 
         # Preserve Redis ordering
         rooms = []
@@ -500,9 +585,12 @@ class RoomService:
                 # Stale entry — clean up asynchronously (fire-and-forget is fine here)
                 logger.warning("Room %s in Redis active set but missing from DB", rid)
                 continue
-            host = await self._get_user(room.host_fid)
-            speaker_count = await self.redis.get_speaker_count(rid)
-            listener_count = await self.redis.get_listener_count(rid)
+            host = hosts_by_fid.get(room.host_fid)
+            if host is None:
+                raise HTTPException(
+                    status_code=404, detail=f"User with fid={room.host_fid} not found"
+                )
+            speaker_count, listener_count = count_map.get(rid, (0, 0))
             room_response = await self._build_room_response(
                 room, host, speaker_count, listener_count
             )
@@ -516,7 +604,9 @@ class RoomService:
         """RSVP to a scheduled room. Idempotent (uses INSERT ON CONFLICT DO NOTHING)."""
         room = await self._get_room_or_404(room_id)
         if room.status != "scheduled":
-            raise HTTPException(status_code=400, detail="RSVPs are only available for scheduled rooms")
+            raise HTTPException(
+                status_code=400, detail="RSVPs are only available for scheduled rooms"
+            )
 
         stmt = (
             pg_insert(RoomRsvp)
@@ -525,17 +615,25 @@ class RoomService:
         )
         await self.db.execute(stmt)
         await self.db.commit()
+        await self.redis.publish_room_discovery_event(
+            _room_discovery_event(room_id, "rsvp_updated", "scheduled")
+        )
         return RsvpResponse(status="going")
 
     async def unregister_rsvp(self, room_id: str, fid: int) -> RsvpResponse:
         """Remove an RSVP from a scheduled room."""
         room = await self._get_room_or_404(room_id)
         if room.status != "scheduled":
-            raise HTTPException(status_code=400, detail="RSVPs can only be removed from scheduled rooms")
+            raise HTTPException(
+                status_code=400, detail="RSVPs can only be removed from scheduled rooms"
+            )
         await self.db.execute(
             delete(RoomRsvp).where(RoomRsvp.room_id == room.id, RoomRsvp.fid == fid)
         )
         await self.db.commit()
+        await self.redis.publish_room_discovery_event(
+            _room_discovery_event(room_id, "rsvp_updated", "scheduled")
+        )
         return RsvpResponse(status="removed")
 
     # -----------------------------------------------------------------------
@@ -559,9 +657,7 @@ class RoomService:
         key = f"recording:ratelimit:fid:{fid}"
         count = await self.redis.redis.incr(key)
         if count == 1:
-            await self.redis.redis.expire(
-                key, self._RECORDING_RATE_LIMIT_WINDOW_SEC
-            )
+            await self.redis.redis.expire(key, self._RECORDING_RATE_LIMIT_WINDOW_SEC)
         if count > self._RECORDING_RATE_LIMIT_PER_HOUR:
             raise HTTPException(
                 status_code=429,
@@ -863,20 +959,27 @@ class RoomService:
         # Scheduled rooms: host can cancel directly (no Redis state to check)
         if room.status == "scheduled":
             if room.host_fid != fid:
-                raise HTTPException(status_code=403, detail="Only the host can cancel a scheduled room")
+                raise HTTPException(
+                    status_code=403, detail="Only the host can cancel a scheduled room"
+                )
             await self.db.execute(
                 update(Room)
                 .where(Room.id == room.id)
                 .values(status="cancelled", ended_at=_utcnow())
             )
             await self.db.commit()
+            await self.redis.publish_room_discovery_event(
+                _room_discovery_event(room_id, "room_cancelled", "cancelled")
+            )
             logger.info("Scheduled room %s cancelled by fid=%s", room_id, fid)
             return
 
         # Active rooms: require host/co-host role from Redis
         actor_role = await self._get_actor_role(room_id, fid)
         if not permission_service.can_end_room(actor_role):
-            raise HTTPException(status_code=403, detail="Only hosts and co-hosts can end the room")
+            raise HTTPException(
+                status_code=403, detail="Only hosts and co-hosts can end the room"
+            )
 
         # If the room is currently recording, stop the egress before tearing down
         # LiveKit — otherwise the egress worker will be force-disconnected and
@@ -907,7 +1010,9 @@ class RoomService:
         try:
             await self.livekit.delete_room(room_id)
         except Exception:
-            logger.exception("Failed to delete LiveKit room %s during end_room", room_id)
+            logger.exception(
+                "Failed to delete LiveKit room %s during end_room", room_id
+            )
 
         # Publish event before clearing state so subscribers receive it
         await self.redis.publish_room_event(
@@ -918,6 +1023,9 @@ class RoomService:
         # Clear all Redis state (also clears user active rooms)
         await self.redis.clear_room_state(room_id)
 
+        await self.redis.publish_room_discovery_event(
+            _room_discovery_event(room_id, "room_ended", "ended")
+        )
         logger.info("Room %s ended by fid=%s", room_id, fid)
 
     async def join_room(self, room_id: str, fid: int) -> JoinResponse:
@@ -952,9 +1060,13 @@ class RoomService:
             participants_data = await self.redis.get_all_participants(room_id)
             host = await self._get_user(room.host_fid)
             speaker_count = sum(
-                1 for p in participants_data if p.get("role") in ("host", "co_host", "speaker")
+                1
+                for p in participants_data
+                if p.get("role") in ("host", "co_host", "speaker")
             )
-            listener_count = sum(1 for p in participants_data if p.get("role") == "listener")
+            listener_count = sum(
+                1 for p in participants_data if p.get("role") == "listener"
+            )
             room_response = await self._build_room_response(
                 room, host, speaker_count, listener_count
             )
@@ -972,6 +1084,7 @@ class RoomService:
             return JoinResponse(
                 livekit_token=token,
                 livekit_ws_url=settings.LIVEKIT_WS_URL,
+                expires_at=_livekit_expires_at(),
                 role=existing["role"],
                 room=room_response,
                 participants=participants,
@@ -1043,10 +1156,16 @@ class RoomService:
         participants_data = await self.redis.get_all_participants(room_id)
         host = await self._get_user(room.host_fid)
         speaker_count = sum(
-            1 for p in participants_data if p.get("role") in ("host", "co_host", "speaker")
+            1
+            for p in participants_data
+            if p.get("role") in ("host", "co_host", "speaker")
         )
-        listener_count = sum(1 for p in participants_data if p.get("role") == "listener")
-        room_response = await self._build_room_response(room, host, speaker_count, listener_count)
+        listener_count = sum(
+            1 for p in participants_data if p.get("role") == "listener"
+        )
+        room_response = await self._build_room_response(
+            room, host, speaker_count, listener_count
+        )
 
         participants = [
             ParticipantResponse(
@@ -1064,6 +1183,7 @@ class RoomService:
         return JoinResponse(
             livekit_token=token,
             livekit_ws_url=settings.LIVEKIT_WS_URL,
+            expires_at=_livekit_expires_at(),
             role=role,
             room=room_response,
             participants=participants,
@@ -1091,7 +1211,9 @@ class RoomService:
             raise HTTPException(status_code=400, detail="Room is not active")
 
         if not room.allow_agents:
-            raise HTTPException(status_code=403, detail="This room does not allow agents")
+            raise HTTPException(
+                status_code=403, detail="This room does not allow agents"
+            )
 
         # Ban check (agents can be banned by FID like any participant)
         await self._assert_not_banned(room_id, agent_fid)
@@ -1113,9 +1235,13 @@ class RoomService:
             participants_data = await self.redis.get_all_participants(room_id)
             host = await self._get_user(room.host_fid)
             speaker_count = sum(
-                1 for p in participants_data if p.get("role") in ("host", "co_host", "speaker")
+                1
+                for p in participants_data
+                if p.get("role") in ("host", "co_host", "speaker")
             )
-            listener_count = sum(1 for p in participants_data if p.get("role") == "listener")
+            listener_count = sum(
+                1 for p in participants_data if p.get("role") == "listener"
+            )
             room_response = await self._build_room_response(
                 room, host, speaker_count, listener_count
             )
@@ -1133,6 +1259,7 @@ class RoomService:
             return JoinResponse(
                 livekit_token=token,
                 livekit_ws_url=settings.LIVEKIT_WS_URL,
+                expires_at=_livekit_expires_at(),
                 role=existing["role"],
                 room=room_response,
                 participants=participants,
@@ -1204,10 +1331,16 @@ class RoomService:
         participants_data = await self.redis.get_all_participants(room_id)
         host = await self._get_user(room.host_fid)
         speaker_count = sum(
-            1 for p in participants_data if p.get("role") in ("host", "co_host", "speaker")
+            1
+            for p in participants_data
+            if p.get("role") in ("host", "co_host", "speaker")
         )
-        listener_count = sum(1 for p in participants_data if p.get("role") == "listener")
-        room_response = await self._build_room_response(room, host, speaker_count, listener_count)
+        listener_count = sum(
+            1 for p in participants_data if p.get("role") == "listener"
+        )
+        room_response = await self._build_room_response(
+            room, host, speaker_count, listener_count
+        )
 
         participants = [
             ParticipantResponse(
@@ -1225,6 +1358,7 @@ class RoomService:
         return JoinResponse(
             livekit_token=token,
             livekit_ws_url=settings.LIVEKIT_WS_URL,
+            expires_at=_livekit_expires_at(),
             role="listener",
             room=room_response,
             participants=participants,
@@ -1281,7 +1415,9 @@ class RoomService:
             await self.redis.clear_room_state(room_id)
             logger.info("Room %s auto-ended (no participants remaining)", room_id)
 
-    async def raise_hand(self, room_id: str, fid: int, raised: bool) -> RaiseHandResponse:
+    async def raise_hand(
+        self, room_id: str, fid: int, raised: bool
+    ) -> RaiseHandResponse:
         """
         Toggle the raise-hand state for a listener.
         """
@@ -1322,7 +1458,11 @@ class RoomService:
                 room_state = await self.redis.get_room_state(room_id)
                 host_fid = room_state.get("host_fid") if room_state else None
                 if host_fid and int(host_fid) != fid:
-                    raiser_name = participant.get("display_name") or participant.get("username") or "Someone"
+                    raiser_name = (
+                        participant.get("display_name")
+                        or participant.get("username")
+                        or "Someone"
+                    )
                     raiser_pfp_url = participant.get("pfp_url")
                     await self.push.notify_hand_raised(
                         host_fid=int(host_fid),
@@ -1410,7 +1550,12 @@ class RoomService:
             },
         )
 
-        logger.info("fid=%s promoted to speaker in room %s by fid=%s", target_fid, room_id, actor_fid)
+        logger.info(
+            "fid=%s promoted to speaker in room %s by fid=%s",
+            target_fid,
+            room_id,
+            actor_fid,
+        )
 
         # Send push notification to the promoted user
         try:
@@ -1420,7 +1565,11 @@ class RoomService:
             inviter_name = "The host"
             inviter_pfp_url: str | None = None
             if actor_participant:
-                inviter_name = actor_participant.get("display_name") or actor_participant.get("username") or "The host"
+                inviter_name = (
+                    actor_participant.get("display_name")
+                    or actor_participant.get("username")
+                    or "The host"
+                )
                 inviter_pfp_url = actor_participant.get("pfp_url")
             await self.push.notify_invited_to_speak(
                 target_fid=target_fid,
@@ -1500,7 +1649,12 @@ class RoomService:
             },
         )
 
-        logger.info("fid=%s demoted to listener in room %s by fid=%s", target_fid, room_id, actor_fid)
+        logger.info(
+            "fid=%s demoted to listener in room %s by fid=%s",
+            target_fid,
+            room_id,
+            actor_fid,
+        )
         return PromoteResponse(fid=target_fid, role="listener")
 
     async def mute_participant(
@@ -1526,12 +1680,16 @@ class RoomService:
 
         # Call LiveKit server-side mute
         try:
-            await self.livekit.mute_participant(room_id=room_id, identity=str(target_fid))
+            await self.livekit.mute_participant(
+                room_id=room_id, identity=str(target_fid)
+            )
         except Exception:
             logger.exception(
                 "LiveKit mute failed for fid=%s in room %s", target_fid, room_id
             )
-            raise HTTPException(status_code=502, detail="Failed to mute participant via media server")
+            raise HTTPException(
+                status_code=502, detail="Failed to mute participant via media server"
+            )
 
         # Update Redis
         target_participant["is_muted"] = True
@@ -1589,7 +1747,9 @@ class RoomService:
             extra_event_fields={"by_fid": actor_fid},
         )
 
-        logger.info("fid=%s kicked from room %s by fid=%s", target_fid, room_id, actor_fid)
+        logger.info(
+            "fid=%s kicked from room %s by fid=%s", target_fid, room_id, actor_fid
+        )
 
     async def ban_participant(
         self,
@@ -1689,17 +1849,29 @@ class RoomService:
         try:
             await self.livekit.delete_room(room_id)
         except Exception:
-            logger.exception("Failed to delete LiveKit room %s during admin_end_room", room_id)
+            logger.exception(
+                "Failed to delete LiveKit room %s during admin_end_room", room_id
+            )
 
         await self.redis.publish_room_event(
             room_id,
-            {"event": "room_ended", "room_id": room_id, "ended_by_fid": admin_fid, "admin": True},
+            {
+                "event": "room_ended",
+                "room_id": room_id,
+                "ended_by_fid": admin_fid,
+                "admin": True,
+            },
         )
         await self.redis.clear_room_state(room_id)
 
+        await self.redis.publish_room_discovery_event(
+            _room_discovery_event(room_id, "room_ended", "ended")
+        )
         logger.info("Room %s force-ended by admin fid=%s", room_id, admin_fid)
 
-    async def admin_kick_participant(self, room_id: str, target_fid: int, admin_fid: int) -> None:
+    async def admin_kick_participant(
+        self, room_id: str, target_fid: int, admin_fid: int
+    ) -> None:
         """Kick any participant without permission checks (admin only)."""
         await self._get_room_or_404(room_id)
         await self._get_participant_or_403(room_id, target_fid)
@@ -1711,7 +1883,12 @@ class RoomService:
             extra_event_fields={"by_fid": admin_fid, "admin": True},
         )
 
-        logger.info("fid=%s force-kicked from room %s by admin fid=%s", target_fid, room_id, admin_fid)
+        logger.info(
+            "fid=%s force-kicked from room %s by admin fid=%s",
+            target_fid,
+            room_id,
+            admin_fid,
+        )
 
     async def list_active_rooms_from_db(self) -> list[RoomResponse]:
         """Return all active rooms from DB (admin view, no pagination)."""
@@ -1741,7 +1918,9 @@ class RoomService:
 
         participant = await self.redis.get_participant(room_id, fid)
         if not participant:
-            raise HTTPException(status_code=403, detail="You are not an active participant in this room")
+            raise HTTPException(
+                status_code=403, detail="You are not an active participant in this room"
+            )
 
         user = await self._get_user(fid)
         display_name = user.display_name or user.username or str(fid)
@@ -1788,7 +1967,9 @@ class RoomService:
         result = await self.db.execute(select(User).where(User.fid == fid))
         user = result.scalar_one_or_none()
         if user is None:
-            raise HTTPException(status_code=404, detail=f"User with fid={fid} not found")
+            raise HTTPException(
+                status_code=404, detail=f"User with fid={fid} not found"
+            )
         return user
 
     async def _get_rsvp_summary(
@@ -1939,10 +2120,14 @@ class RoomService:
                 webhook = resp.json().get("webhook", {})
                 webhook_id = webhook.get("webhook_id")
                 webhook_secret = webhook.get("secret")
-                logger.info("Registered Neynar webhook %s for room %s", webhook_id, room_id)
+                logger.info(
+                    "Registered Neynar webhook %s for room %s", webhook_id, room_id
+                )
                 return webhook_id, webhook_secret
         except Exception as e:
-            logger.warning("Failed to register Neynar webhook for room %s: %s", room_id, e)
+            logger.warning(
+                "Failed to register Neynar webhook for room %s: %s", room_id, e
+            )
             return None, None
 
     async def _delete_cast_webhook(self, webhook_id: str) -> None:

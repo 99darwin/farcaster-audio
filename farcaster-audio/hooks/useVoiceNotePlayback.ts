@@ -8,6 +8,7 @@ const AudioSession = requireNativeModule("AudioSessionModule");
 
 type PlaybackSpeed = 1 | 1.25 | 1.5 | 2;
 const SPEEDS: PlaybackSpeed[] = [1, 1.25, 1.5, 2];
+const ACTIVE_STATUS_INTERVAL_MS = 250;
 
 export function useVoiceNotePlayback(
   voiceNoteId: string,
@@ -22,7 +23,7 @@ export function useVoiceNotePlayback(
 
   // Only load audio for the active voice note
   const player = useAudioPlayer(isActive ? audioUrl : null, {
-    updateInterval: 100,
+    updateInterval: ACTIVE_STATUS_INTERVAL_MS,
   });
   const status = useAudioPlayerStatus(player);
 

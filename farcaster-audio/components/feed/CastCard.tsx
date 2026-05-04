@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, memo } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import {
   View,
   Text,
@@ -109,13 +109,17 @@ function CastImages({
   embeds: NeynarEmbed[];
   onImagePress: (images: string[], index: number) => void;
 }) {
-  const images = embeds.filter((e) => e.url && !e.cast && isImageUrl(e));
-  if (images.length === 0) return null;
-  const imageUrls = images.map((e) => e.url!);
+  const images = useMemo(
+    () => embeds.filter((e) => e.url && !e.cast && isImageUrl(e)),
+    [embeds],
+  );
+  const imageUrls = useMemo(() => images.map((e) => e.url!), [images]);
   const [activeIndex, setActiveIndex] = useState(0);
   const { width: screenWidth } = useWindowDimensions();
   // Account for container padding (16) + avatar (40) + gap (12) + right padding (16)
   const carouselWidth = screenWidth - 16 - 40 - 12 - 16;
+
+  if (images.length === 0) return null;
 
   if (images.length === 1) {
     const img = images[0];
@@ -173,7 +177,10 @@ function CastImages({
 }
 
 function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
-  const videos = embeds.filter((e) => e.url && !e.cast && isVideoUrl(e));
+  const videos = useMemo(
+    () => embeds.filter((e) => e.url && !e.cast && isVideoUrl(e)),
+    [embeds],
+  );
   if (videos.length === 0) return null;
 
   const video = videos[0];
@@ -281,36 +288,54 @@ function CastCardImpl({
   hideThreadLine,
 }: CastCardProps) {
   const router = useRouter();
-  const isLiked =
-    cast.viewer_context?.liked ??
-    cast.reactions.likes.some((l) => l.fid === myFid);
-  const isRecasted =
-    cast.viewer_context?.recasted ??
-    cast.reactions.recasts.some((r) => r.fid === myFid);
-  const truncatedText =
-    cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text;
+  const isLiked = useMemo(
+    () =>
+      cast.viewer_context?.liked ??
+      cast.reactions.likes.some((l) => l.fid === myFid),
+    [cast.reactions.likes, cast.viewer_context?.liked, myFid],
+  );
+  const isRecasted = useMemo(
+    () =>
+      cast.viewer_context?.recasted ??
+      cast.reactions.recasts.some((r) => r.fid === myFid),
+    [cast.reactions.recasts, cast.viewer_context?.recasted, myFid],
+  );
+  const truncatedText = useMemo(
+    () => (cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text),
+    [cast.text],
+  );
 
-  const embeds = cast.embeds ?? [];
-  const quoteCast = embeds.find((e) => e.cast)?.cast;
+  const embeds = useMemo(() => cast.embeds ?? [], [cast.embeds]);
+  const quoteCast = useMemo(() => embeds.find((e) => e.cast)?.cast, [embeds]);
 
   // Collect URLs that will render as OG preview cards so we can hide them from cast text
-  const renderedEmbedUrls = new Set(
-    embeds
-      .filter((e) => {
-        if (!e.url || e.cast || isImageUrl(e) || isVideoUrl(e)) return false;
-        // X/Twitter always renders a card (even without OG data)
-        const domain = e.url!.match(
-          /^https?:\/\/(?:www\.)?(x\.com|twitter\.com)/,
-        );
-        if (domain) return true;
-        const html = e.metadata?.html;
-        const frame = e.metadata?.fc_frame ?? (e.metadata as any)?.frame;
-        const hasImage = !!(frame?.image_url || html?.ogImage?.[0]?.url);
-        const hasTitle = !!html?.ogTitle;
-        const hasDescription = !!html?.ogDescription;
-        return hasImage || hasTitle || hasDescription;
-      })
-      .map((e) => e.url!),
+  const renderedEmbedUrls = useMemo(
+    () =>
+      new Set(
+        embeds
+          .filter((e) => {
+            if (!e.url || e.cast || isImageUrl(e) || isVideoUrl(e)) {
+              return false;
+            }
+            // X/Twitter always renders a card (even without OG data)
+            const domain = e.url.match(
+              /^https?:\/\/(?:www\.)?(x\.com|twitter\.com)/,
+            );
+            if (domain) return true;
+            const html = e.metadata?.html;
+            const frame = e.metadata?.fc_frame ?? (e.metadata as any)?.frame;
+            const hasImage = !!(frame?.image_url || html?.ogImage?.[0]?.url);
+            const hasTitle = !!html?.ogTitle;
+            const hasDescription = !!html?.ogDescription;
+            return hasImage || hasTitle || hasDescription;
+          })
+          .map((e) => e.url!),
+      ),
+    [embeds],
+  );
+  const ogEmbeds = useMemo(
+    () => embeds.filter((e) => e.url && !e.cast && !isImageUrl(e) && !isVideoUrl(e)),
+    [embeds],
   );
 
   const [viewerState, setViewerState] = useState<{
@@ -378,9 +403,7 @@ function CastCardImpl({
           onImagePress={(images, index) => setViewerState({ images, index })}
         />
         <CastVideos embeds={embeds} />
-        {embeds
-          .filter((e) => e.url && !e.cast && !isImageUrl(e) && !isVideoUrl(e))
-          .map((embed) => (
+        {ogEmbeds.map((embed) => (
             <OgPreview
               key={embed.url}
               embed={embed}

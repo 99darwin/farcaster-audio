@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { View, FlatList, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useScrollToTop } from "@react-navigation/native";
@@ -75,6 +75,8 @@ export default function HomeScreen() {
     setIsComposeVisible(true);
   }, []);
 
+  const feedHeader = useMemo(() => <SpacesRail />, []);
+
   const closeCompose = useCallback(() => {
     setIsComposeVisible(false);
     setReplyTarget(null);
@@ -100,7 +102,7 @@ export default function HomeScreen() {
         onVoiceNoteLike={handleVoiceNoteLike}
         onVoiceNoteRecast={handleVoiceNoteRecast}
         onVoiceNoteDelete={handleVoiceNoteDelete}
-        ListHeaderComponent={<SpacesRail />}
+        ListHeaderComponent={feedHeader}
         error={error}
         onRetry={fetch}
       />

@@ -131,6 +131,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
   ref,
 ) {
   const router = useRouter();
+  const endReachedLockedRef = useRef(false);
   const handleCastPress = useCallback(
     (hash: string) => router.push(`/cast/${hash}`),
     [router],
@@ -140,6 +141,20 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
   const noopRecast = useCallback((_id: string, _isRecasted: boolean) => {}, []);
   const stableVoiceNoteLike = onVoiceNoteLike ?? noopLike;
   const stableVoiceNoteRecast = onVoiceNoteRecast ?? noopRecast;
+
+  const handleEndReached = useCallback(() => {
+    if (endReachedLockedRef.current || isLoading || !hasMore || items.length === 0) {
+      return;
+    }
+    endReachedLockedRef.current = true;
+    onEndReached();
+  }, [hasMore, isLoading, items.length, onEndReached]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      endReachedLockedRef.current = false;
+    }
+  }, [isLoading, items.length]);
 
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => {
@@ -209,8 +224,13 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
           tintColor={colors.accent}
         />
       }
-      onEndReached={onEndReached}
+      onEndReached={handleEndReached}
       onEndReachedThreshold={0.5}
+      initialNumToRender={8}
+      maxToRenderPerBatch={6}
+      updateCellsBatchingPeriod={50}
+      windowSize={7}
+      removeClippedSubviews
       ListHeaderComponent={ListHeaderComponent}
       ListFooterComponent={
         hasMore && items.length > 0 ? (

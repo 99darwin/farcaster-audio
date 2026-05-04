@@ -54,12 +54,14 @@ class RoomCreateResponse(BaseModel):
     room: RoomResponse
     livekit_token: str | None = None
     livekit_ws_url: str | None = None
+    expires_at: str | None = None
 
 
 class RoomGoLiveResponse(BaseModel):
     room: RoomResponse
     livekit_token: str
     livekit_ws_url: str
+    expires_at: str | None = None
 
 
 class RoomListResponse(BaseModel):

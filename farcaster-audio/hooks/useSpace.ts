@@ -29,6 +29,7 @@ export function useSpace() {
 
   const setupRoomListeners = useCallback(
     (room: Room) => {
+      if (roomRef.current === room) return;
       roomRef.current = room;
 
       room.on("participantConnected", (participant: RemoteParticipant) => {
@@ -80,13 +81,7 @@ export function useSpace() {
           const speakingFids = new Set(
             activeSpeakers.map((p) => parseInt(p.identity, 10)),
           );
-          const allParticipants = useSpaceStore.getState().participants;
-          for (const p of allParticipants) {
-            const isSpeaking = speakingFids.has(p.fid);
-            if (p.is_speaking !== isSpeaking) {
-              store.updateParticipant(p.fid, { is_speaking: isSpeaking });
-            }
-          }
+          store.setSpeakingParticipants(speakingFids);
         },
       );
 
@@ -290,10 +285,9 @@ export function useSpace() {
       const response = await api.joinRoom(roomId);
       store.joinSpace(response.room, response.participants, response.role);
       await connect(roomId, response.livekit_token, response.livekit_ws_url);
-      // Seed the reconnect engine with the initial token.
-      // expires_at is not returned by /join, so pass empty string;
-      // useReconnect will refresh proactively on the next minute-interval check.
-      setToken(response.livekit_token, "");
+      // Seed the reconnect engine with the initial token and backend-provided
+      // LiveKit endpoint so foreground reconnect uses the same SFU URL.
+      setToken(response.livekit_token, response.expires_at, response.livekit_ws_url);
       return response;
     },
     [connect, store, setToken],
@@ -367,8 +361,17 @@ export function useSpace() {
     const activeRoom = livekitService.getActiveRoom();
     if (activeRoom && !roomRef.current) {
       setupRoomListeners(activeRoom);
+      const roomId = useSpaceStore.getState().room?.id;
+      if (roomId) {
+        api
+          .refreshRoomToken(roomId)
+          .then(({ livekit_token, expires_at }) => {
+            setToken(livekit_token, expires_at, livekitService.getActiveWsUrl());
+          })
+          .catch(() => {});
+      }
     }
-  }, [setupRoomListeners]);
+  }, [setupRoomListeners, setToken]);
 
   const setOnRoomEnded = useCallback((cb: () => void) => {
     onRoomEndedRef.current = cb;

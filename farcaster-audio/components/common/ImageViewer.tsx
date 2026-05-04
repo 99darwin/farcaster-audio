@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -29,18 +29,18 @@ interface MediaViewerProps {
 }
 
 const SPRING_CONFIG = { damping: 20, stiffness: 200 };
-const DISMISS_THRESHOLD = 150;
+const DISMISS_THRESHOLD = 110;
 
 function ZoomableImage({
   uri,
   width,
   height,
-  onClose,
+  onZoomChange,
 }: {
   uri: string;
   width: number;
   height: number;
-  onClose: () => void;
+  onZoomChange: (zoomed: boolean) => void;
 }) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
@@ -48,8 +48,15 @@ function ZoomableImage({
   const translateY = useSharedValue(0);
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
-  const opacity = useSharedValue(1);
   const [isZoomed, setIsZoomed] = useState(false);
+
+  const updateZoomed = useCallback(
+    (zoomed: boolean) => {
+      setIsZoomed(zoomed);
+      onZoomChange(zoomed);
+    },
+    [onZoomChange],
+  );
 
   const gesture = useMemo(() => {
     const pinch = Gesture.Pinch()
@@ -64,34 +71,16 @@ function ZoomableImage({
           translateY.value = withSpring(0, SPRING_CONFIG);
           savedTranslateX.value = 0;
           savedTranslateY.value = 0;
-          runOnJS(setIsZoomed)(false);
+          runOnJS(updateZoomed)(false);
         } else {
           savedScale.value = scale.value;
-          runOnJS(setIsZoomed)(scale.value > 1);
-        }
-      });
-
-    // Vertical-only dismiss pan — used when not zoomed. Fails on horizontal
-    // movement so the parent FlatList can page between images.
-    const dismissPan = Gesture.Pan()
-      .activeOffsetY([-20, 20])
-      .failOffsetX([-20, 20])
-      .onUpdate((e) => {
-        translateY.value = e.translationY;
-        opacity.value = Math.max(0.4, 1 - Math.abs(e.translationY) / 400);
-      })
-      .onEnd((e) => {
-        if (Math.abs(e.translationY) > DISMISS_THRESHOLD) {
-          opacity.value = withTiming(0, { duration: 200 });
-          runOnJS(onClose)();
-        } else {
-          translateY.value = withSpring(0, SPRING_CONFIG);
-          opacity.value = withSpring(1, SPRING_CONFIG);
+          runOnJS(updateZoomed)(scale.value > 1);
         }
       });
 
     // Full pan for when zoomed in — allows panning in all directions.
     const zoomPan = Gesture.Pan()
+      .enabled(isZoomed)
       .onUpdate((e) => {
         translateX.value = savedTranslateX.value + e.translationX;
         translateY.value = savedTranslateY.value + e.translationY;
@@ -111,28 +100,24 @@ function ZoomableImage({
           translateY.value = withSpring(0, SPRING_CONFIG);
           savedTranslateX.value = 0;
           savedTranslateY.value = 0;
-          runOnJS(setIsZoomed)(false);
+          runOnJS(updateZoomed)(false);
         } else {
           scale.value = withSpring(2, SPRING_CONFIG);
           savedScale.value = 2;
-          runOnJS(setIsZoomed)(true);
+          runOnJS(updateZoomed)(true);
         }
       });
 
-    // Only compose the active pan mode so unused pans never capture the
-    // gesture from the parent horizontal FlatList.
-    const activePan = isZoomed ? zoomPan : dismissPan;
-    return Gesture.Exclusive(doubleTap, Gesture.Simultaneous(pinch, activePan));
+    return Gesture.Exclusive(doubleTap, Gesture.Simultaneous(pinch, zoomPan));
   }, [
     isZoomed,
-    onClose,
+    updateZoomed,
     scale,
     savedScale,
     translateX,
     translateY,
     savedTranslateX,
     savedTranslateY,
-    opacity,
   ]);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -141,7 +126,6 @@ function ZoomableImage({
       { translateY: translateY.value },
       { scale: scale.value },
     ],
-    opacity: opacity.value,
   }));
 
   return (
@@ -173,62 +157,116 @@ export function MediaViewer({
   const { width, height } = useWindowDimensions();
   const currentIndex = useSharedValue(initialIndex);
   const flatListRef = useRef<FlatList>(null);
+  const dismissTranslateY = useSharedValue(0);
+  const backdropOpacity = useSharedValue(1);
+  const [isZoomed, setIsZoomed] = useState(false);
 
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
       if (viewableItems.length > 0 && viewableItems[0].index != null) {
         currentIndex.value = viewableItems[0].index;
+        setIsZoomed(false);
       }
     },
     [currentIndex],
   );
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
+  const dismissGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(!isZoomed)
+        .activeOffsetY(12)
+        .failOffsetX([-80, 80])
+        .onUpdate((e) => {
+          const dragY = Math.max(0, e.translationY);
+          dismissTranslateY.value = dragY;
+          backdropOpacity.value = Math.max(0.35, 1 - dragY / 420);
+        })
+        .onEnd((e) => {
+          const shouldDismiss =
+            e.translationY > DISMISS_THRESHOLD || e.velocityY > 900;
+          if (shouldDismiss) {
+            dismissTranslateY.value = withTiming(height, { duration: 180 });
+            backdropOpacity.value = withTiming(0, { duration: 180 }, (finished) => {
+              if (finished) {
+                runOnJS(onClose)();
+              }
+            });
+          } else {
+            dismissTranslateY.value = withSpring(0, SPRING_CONFIG);
+            backdropOpacity.value = withSpring(1, SPRING_CONFIG);
+          }
+        }),
+    [backdropOpacity, dismissTranslateY, height, isZoomed, onClose],
+  );
+
+  useEffect(() => {
+    if (visible) {
+      dismissTranslateY.value = 0;
+      backdropOpacity.value = 1;
+      setIsZoomed(false);
+    }
+  }, [backdropOpacity, dismissTranslateY, visible]);
+
+  const backdropStyle = useAnimatedStyle(() => ({
+    backgroundColor: `rgba(0,0,0,${0.95 * backdropOpacity.value})`,
+  }));
+
+  const dismissStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: dismissTranslateY.value }],
+  }));
 
   if (!visible || images.length === 0) return null;
 
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <FlatList
-          ref={flatListRef}
-          data={images}
-          horizontal
-          pagingEnabled
-          initialScrollIndex={initialIndex}
-          getItemLayout={(_, index) => ({
-            length: width,
-            offset: width * index,
-            index,
-          })}
-          showsHorizontalScrollIndicator={false}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          keyExtractor={(item) => item}
-          renderItem={({ item }) => (
-            <ZoomableImage
-              uri={item}
-              width={width}
-              height={height}
-              onClose={onClose}
+      <GestureDetector gesture={dismissGesture}>
+        <Animated.View style={[styles.backdrop, backdropStyle]}>
+          <Animated.View style={[styles.viewerContent, dismissStyle]}>
+            <FlatList
+              ref={flatListRef}
+              data={images}
+              horizontal
+              pagingEnabled
+              initialScrollIndex={initialIndex}
+              getItemLayout={(_, index) => ({
+                length: width,
+                offset: width * index,
+                index,
+              })}
+              showsHorizontalScrollIndicator={false}
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={viewabilityConfig}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <ZoomableImage
+                  uri={item}
+                  width={width}
+                  height={height}
+                  onZoomChange={setIsZoomed}
+                />
+              )}
             />
-          )}
-        />
-        {images.length > 1 && (
-          <View style={[styles.dotsContainer, { bottom: insets.bottom + 20 }]}>
-            {images.map((_, i) => (
-              <PageDot key={i} index={i} currentIndex={currentIndex} />
-            ))}
-          </View>
-        )}
-        <Pressable
-          style={[styles.closeButton, { top: insets.top + 12 }]}
-          onPress={onClose}
-          hitSlop={12}
-        >
-          <Ionicons name="close" size={28} color="#fff" />
-        </Pressable>
-      </View>
+            {images.length > 1 && (
+              <View
+                style={[styles.dotsContainer, { bottom: insets.bottom + 20 }]}
+              >
+                {images.map((_, i) => (
+                  <PageDot key={i} index={i} currentIndex={currentIndex} />
+                ))}
+              </View>
+            )}
+            <Pressable
+              style={[styles.closeButton, { top: insets.top + 12 }]}
+              onPress={onClose}
+              hitSlop={12}
+            >
+              <Ionicons name="close" size={28} color="#fff" />
+            </Pressable>
+          </Animated.View>
+        </Animated.View>
+      </GestureDetector>
     </Modal>
   );
 }
@@ -251,7 +289,9 @@ function PageDot({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.95)",
+  },
+  viewerContent: {
+    flex: 1,
   },
   closeButton: {
     position: "absolute",

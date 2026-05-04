@@ -11,6 +11,7 @@ interface ReconnectState {
   isReconnecting: boolean;
   token: string;
   tokenExpiresAt: number;
+  wsUrl: string;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -31,14 +32,31 @@ export function useReconnect() {
     isReconnecting: false,
     token: "",
     tokenExpiresAt: 0,
+    wsUrl: "",
   });
 
   const isTokenExpiringSoon = useCallback(() => {
     const now = Date.now() / 1000;
-    return (
+    return !Number.isFinite(stateRef.current.tokenExpiresAt) || (
       stateRef.current.tokenExpiresAt - now < Config.TOKEN_REFRESH_BUFFER_SEC
     );
   }, []);
+
+  const cacheToken = useCallback(
+    (token: string, expiresAt?: string | null, wsUrl?: string | null) => {
+      stateRef.current.token = token;
+      if (expiresAt) {
+        const parsed = new Date(expiresAt).getTime() / 1000;
+        stateRef.current.tokenExpiresAt = Number.isFinite(parsed) ? parsed : 0;
+      } else {
+        stateRef.current.tokenExpiresAt = 0;
+      }
+      if (wsUrl) {
+        stateRef.current.wsUrl = wsUrl;
+      }
+    },
+    [],
+  );
 
   const reconnect = useCallback(async () => {
     if (!room || stateRef.current.isReconnecting) return;
@@ -57,12 +75,8 @@ export function useReconnect() {
       try {
         // 1. Refresh token if needed
         if (isTokenExpiringSoon() || !stateRef.current.token) {
-          const { livekit_token, expires_at } = await api.refreshRoomToken(
-            room.id,
-          );
-          stateRef.current.token = livekit_token;
-          stateRef.current.tokenExpiresAt =
-            new Date(expires_at).getTime() / 1000;
+          const { livekit_token, expires_at } = await api.refreshRoomToken(room.id);
+          cacheToken(livekit_token, expires_at);
         }
 
         // 2. Check if room still exists
@@ -76,7 +90,7 @@ export function useReconnect() {
         // 3. Reconnect to LiveKit
         await livekitService.disconnectFromRoom();
         await livekitService.connectToRoom(
-          Config.LIVEKIT_WS_URL,
+          stateRef.current.wsUrl || Config.LIVEKIT_WS_URL,
           stateRef.current.token,
         );
 
@@ -115,6 +129,7 @@ export function useReconnect() {
     setMyRole,
     leaveSpace,
     isTokenExpiringSoon,
+    cacheToken,
   ]);
 
   // Handle app state changes (background/foreground)
@@ -147,25 +162,18 @@ export function useReconnect() {
         api
           .refreshRoomToken(room.id)
           .then(({ livekit_token, expires_at }) => {
-            stateRef.current.token = livekit_token;
-            stateRef.current.tokenExpiresAt =
-              new Date(expires_at).getTime() / 1000;
+            cacheToken(livekit_token, expires_at);
           })
           .catch(() => {});
       }
     }, 60_000); // Check every minute
 
     return () => clearInterval(checkToken);
-  }, [room, isTokenExpiringSoon]);
-
-  const setToken = useCallback((token: string, expiresAt: string) => {
-    stateRef.current.token = token;
-    stateRef.current.tokenExpiresAt = new Date(expiresAt).getTime() / 1000;
-  }, []);
+  }, [room, isTokenExpiringSoon, cacheToken]);
 
   return {
     reconnect,
-    setToken,
+    setToken: cacheToken,
     isReconnecting: stateRef.current.isReconnecting,
   };
 }
