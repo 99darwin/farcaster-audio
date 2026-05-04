@@ -14,7 +14,6 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from app.config import settings
 from fastapi import (
     APIRouter,
     Depends,
@@ -65,15 +64,6 @@ MIN_SCHEDULE_AHEAD = timedelta(minutes=5)
 MAX_SCHEDULE_AHEAD = timedelta(days=30)
 
 
-def _is_allowed_websocket_origin(origin: str | None) -> bool:
-    """Allow native/app clients; enforce CORS origins for browser sockets."""
-    if not origin:
-        return True
-    if not origin.startswith(("http://", "https://")):
-        return True
-    return origin in settings.CORS_ORIGINS
-
-
 @router.get("", response_model=RoomListResponse)
 async def list_rooms(
     status: Literal["active", "scheduled"] = Query(default="active"),
@@ -90,10 +80,6 @@ async def list_rooms(
 @router.websocket("/events")
 async def room_events(websocket: WebSocket) -> None:
     """Stream global active/scheduled room changes to clients."""
-    if not _is_allowed_websocket_origin(websocket.headers.get("origin")):
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
     await websocket.accept()
     redis = websocket.app.state.redis
     pubsub = redis.pubsub()
