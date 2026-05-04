@@ -1,4 +1,5 @@
 import hashlib
+import tempfile
 import time
 
 import httpx
@@ -24,8 +25,8 @@ ALLOWED_VIDEO_TYPES = {
 
 ALLOWED_CONTENT_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
 
-MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10 MB
-MAX_VIDEO_SIZE = 50 * 1024 * 1024   # 50 MB
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_VIDEO_SIZE = 50 * 1024 * 1024  # 50 MB
 
 # Magic byte signatures for allowed image types
 _IMAGE_MAGIC_BYTES = {
@@ -63,9 +64,7 @@ def _detect_media_type(data: bytes) -> str | None:
 
 def _generate_signature(params: dict[str, str], api_secret: str) -> str:
     """Generate Cloudinary signed upload signature."""
-    sorted_params = "&".join(
-        f"{k}={v}" for k, v in sorted(params.items())
-    )
+    sorted_params = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
     raw = sorted_params + api_secret
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
@@ -92,86 +91,92 @@ async def upload_media(
     is_video_declared = file.content_type in ALLOWED_VIDEO_TYPES
     max_size = MAX_VIDEO_SIZE if is_video_declared else MAX_IMAGE_SIZE
 
-    # Read file in chunks with early abort on size limit
+    # Read file in chunks with early abort on size limit. Keep data in a
+    # spooled temp file so larger videos don't require one contiguous bytes
+    # object in memory before forwarding to Cloudinary.
     CHUNK_SIZE = 256 * 1024  # 256 KB
-    chunks: list[bytes] = []
     total = 0
-    while True:
-        chunk = await file.read(CHUNK_SIZE)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > max_size:
-            limit_mb = max_size // (1024 * 1024)
+    head = b""
+    spooled = tempfile.SpooledTemporaryFile(max_size=2 * 1024 * 1024)
+    try:
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            if len(head) < 4096:
+                head += chunk[: 4096 - len(head)]
+            total += len(chunk)
+            if total > max_size:
+                limit_mb = max_size // (1024 * 1024)
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File exceeds {limit_mb} MB limit",
+                )
+            spooled.write(chunk)
+
+        if total == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Empty file",
+            )
+
+        # Validate actual file content via magic bytes
+        detected_type = _detect_media_type(head)
+        if detected_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File content does not match a supported media format",
+            )
+
+        is_video = detected_type in ALLOWED_VIDEO_TYPES
+
+        # Enforce video size limit even if declared content type was image
+        if is_video and total > MAX_VIDEO_SIZE:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File exceeds {limit_mb} MB limit",
+                detail=f"File exceeds {MAX_VIDEO_SIZE // (1024 * 1024)} MB limit",
             )
-        chunks.append(chunk)
-    contents = b"".join(chunks)
 
-    if not contents:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Empty file",
-        )
+        # Build signed upload params
+        timestamp = str(int(time.time()))
 
-    # Validate actual file content via magic bytes
-    detected_type = _detect_media_type(contents)
-    if detected_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File content does not match a supported media format",
-        )
+        if is_video:
+            transformation = "q_auto,f_auto,w_1280,c_limit"
+            resource_type = "video"
+        else:
+            transformation = "q_auto,f_auto,w_1600,c_limit"
+            resource_type = "image"
 
-    is_video = detected_type in ALLOWED_VIDEO_TYPES
+        params = {
+            "timestamp": timestamp,
+            "transformation": transformation,
+        }
+        signature = _generate_signature(params, settings.CLOUDINARY_API_SECRET)
 
-    # Enforce video size limit even if declared content type was image
-    if is_video and total > MAX_VIDEO_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds {MAX_VIDEO_SIZE // (1024 * 1024)} MB limit",
-        )
+        upload_url = f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/{resource_type}/upload"
 
-    # Build signed upload params
-    timestamp = str(int(time.time()))
+        # Use a generated filename instead of client-supplied one
+        ext = detected_type.split("/")[1]
+        if ext == "quicktime":
+            ext = "mov"
+        safe_filename = f"cast_{fid}_{timestamp}.{ext}"
 
-    if is_video:
-        transformation = "q_auto,f_auto,w_1280,c_limit"
-        resource_type = "video"
-    else:
-        transformation = "q_auto,f_auto,w_1600,c_limit"
-        resource_type = "image"
+        timeout = 120.0 if is_video else 30.0
+        spooled.seek(0)
 
-    params = {
-        "timestamp": timestamp,
-        "transformation": transformation,
-    }
-    signature = _generate_signature(params, settings.CLOUDINARY_API_SECRET)
-
-    upload_url = (
-        f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/{resource_type}/upload"
-    )
-
-    # Use a generated filename instead of client-supplied one
-    ext = detected_type.split("/")[1]
-    if ext == "quicktime":
-        ext = "mov"
-    safe_filename = f"cast_{fid}_{timestamp}.{ext}"
-
-    timeout = 120.0 if is_video else 30.0
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(
-            upload_url,
-            data={
-                "api_key": settings.CLOUDINARY_API_KEY,
-                "timestamp": timestamp,
-                "signature": signature,
-                "transformation": transformation,
-            },
-            files={"file": (safe_filename, contents, detected_type)},
-        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                upload_url,
+                data={
+                    "api_key": settings.CLOUDINARY_API_KEY,
+                    "timestamp": timestamp,
+                    "signature": signature,
+                    "transformation": transformation,
+                },
+                files={"file": (safe_filename, spooled, detected_type)},
+            )
+    finally:
+        spooled.close()
 
     if response.status_code != 200:
         raise HTTPException(

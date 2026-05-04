@@ -5,6 +5,7 @@ import { NativeModules } from "react-native";
 const { AudioSessionModule } = NativeModules;
 
 let activeRoom: Room | null = null;
+let activeWsUrl: string | null = null;
 
 const ROOM_OPTIONS: RoomOptions = {
   adaptiveStream: false,
@@ -33,6 +34,7 @@ export async function connectToRoom(
   }
 
   activeRoom = room;
+  activeWsUrl = wsUrl;
   return room;
 }
 
@@ -41,6 +43,7 @@ export async function disconnectFromRoom(): Promise<void> {
     await activeRoom.disconnect();
     activeRoom = null;
   }
+  activeWsUrl = null;
   if (AudioSessionModule) {
     await AudioSessionModule.deactivate();
   }
@@ -83,4 +86,8 @@ export async function sendReaction(key: string): Promise<void> {
 
 export function getActiveRoom(): Room | null {
   return activeRoom;
+}
+
+export function getActiveWsUrl(): string | null {
+  return activeWsUrl;
 }

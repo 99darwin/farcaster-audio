@@ -29,6 +29,14 @@ import type { RecordingItem } from "@/services/api";
 import type { NeynarCast } from "@/types/neynar";
 import type { VoiceNoteDetail } from "@/types/voiceNote";
 
+const LIST_PERF_PROPS = {
+  initialNumToRender: 8,
+  maxToRenderPerBatch: 6,
+  updateCellsBatchingPeriod: 50,
+  windowSize: 7,
+  removeClippedSubviews: true,
+};
+
 export default function ProfileScreen() {
   const { fid: fidParam } = useLocalSearchParams<{ fid: string }>();
   const fid = Number(fidParam);
@@ -296,6 +304,7 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       {activeTab === "recordings" ? (
         <FlatList
+          {...LIST_PERF_PROPS}
           data={recordings}
           keyExtractor={(item) => `rec-${item.room_id}`}
           ListHeaderComponent={profileHeader}
@@ -329,6 +338,7 @@ export default function ProfileScreen() {
         />
       ) : activeTab === "voice_notes" ? (
         <FlatList
+          {...LIST_PERF_PROPS}
           data={profileVoiceNotes}
           keyExtractor={(item) => `vn-${item.voice_note.id}`}
           ListHeaderComponent={profileHeader}
@@ -369,6 +379,7 @@ export default function ProfileScreen() {
         />
       ) : (
         <FlatList
+          {...LIST_PERF_PROPS}
           data={filteredCasts}
           keyExtractor={(item) => item.hash}
           ListHeaderComponent={profileHeader}

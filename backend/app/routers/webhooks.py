@@ -114,15 +114,16 @@ async def _handle_participant_left(
     )
     await db.commit()
 
-    await redis_service.publish_room_event(room_name, {
-        "type": "participant_left",
-        "fid": fid,
-    })
+    await redis_service.publish_room_event(
+        room_name,
+        {
+            "type": "participant_left",
+            "fid": fid,
+        },
+    )
 
 
-async def _handle_room_finished(
-    event, db: AsyncSession, redis_service: RedisService
-):
+async def _handle_room_finished(event, db: AsyncSession, redis_service: RedisService):
     """Handle LiveKit room auto-close (empty_timeout reached)."""
     room_name = event.room.name
 
@@ -149,13 +150,26 @@ async def _handle_room_finished(
                     headers={"x-api-key": settings.NEYNAR_API_KEY},
                 )
                 resp.raise_for_status()
-                logger.info("Deleted Neynar webhook %s (room auto-closed)", room.neynar_webhook_id)
+                logger.info(
+                    "Deleted Neynar webhook %s (room auto-closed)",
+                    room.neynar_webhook_id,
+                )
         except Exception as e:
-            logger.warning("Failed to delete Neynar webhook %s: %s", room.neynar_webhook_id, e)
+            logger.warning(
+                "Failed to delete Neynar webhook %s: %s", room.neynar_webhook_id, e
+            )
 
     await redis_service.clear_room_state(room_name)
 
     await redis_service.publish_room_event(room_name, {"type": "room_ended"})
+    await redis_service.publish_room_discovery_event(
+        {
+            "type": "rooms_changed",
+            "reason": "room_ended",
+            "room_id": room_name,
+            "status": "ended",
+        }
+    )
 
 
 async def _handle_egress_ended(event, db: AsyncSession, redis_service: RedisService):
@@ -188,9 +202,7 @@ async def _handle_egress_ended(event, db: AsyncSession, redis_service: RedisServ
         )
         return
 
-    expected_egress_id = await redis_service.redis.get(
-        f"room:{room_name}:egress_id"
-    )
+    expected_egress_id = await redis_service.redis.get(f"room:{room_name}:egress_id")
     if not expected_egress_id or expected_egress_id != egress_id:
         # Security event — the egress_id in the webhook doesn't match the
         # one we stashed when we kicked off the recording. Either a stale
@@ -252,9 +264,7 @@ async def _handle_egress_ended(event, db: AsyncSession, redis_service: RedisServ
     # already have been torn down by this point.
     livekit = LiveKitService()
     try:
-        payload = json.dumps(
-            {"type": "recording_state", "recording": False}
-        ).encode()
+        payload = json.dumps({"type": "recording_state", "recording": False}).encode()
         await livekit.send_data(room_name, payload, topic="space_state")
     except Exception as exc:
         logger.warning(
@@ -289,7 +299,9 @@ async def neynar_webhook(
     signature = request.headers.get("x-neynar-signature", "")
 
     if not signature:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature"
+        )
 
     payload = json.loads(body)
     event_type = payload.get("type")
@@ -322,10 +334,12 @@ async def neynar_webhook(
     room_id = str(room.id)
     livekit = LiveKitService()
     try:
-        message = json.dumps({
-            "type": "new_reply",
-            "cast_hash": parent_hash,
-        }).encode()
+        message = json.dumps(
+            {
+                "type": "new_reply",
+                "cast_hash": parent_hash,
+            }
+        ).encode()
         await livekit.send_data(room_id, message, topic="space_chat")
     except Exception as e:
         logger.warning("Failed to broadcast new_reply to room %s: %s", room_id, e)
@@ -358,8 +372,11 @@ def _validate_notification_url(url: str) -> bool:
     """Only allow notification URLs from known Farcaster client domains."""
     try:
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
-        return parsed.scheme == "https" and parsed.hostname in ALLOWED_NOTIFICATION_HOSTS
+        return (
+            parsed.scheme == "https" and parsed.hostname in ALLOWED_NOTIFICATION_HOSTS
+        )
     except Exception:
         return False
 
@@ -376,7 +393,10 @@ async def miniapp_webhook(
     Next.js proxy at juke.audio/api/webhook should call this endpoint.
     """
     webhook_secret = request.headers.get("x-webhook-secret", "")
-    if not settings.MINIAPP_WEBHOOK_SECRET or webhook_secret != settings.MINIAPP_WEBHOOK_SECRET:
+    if (
+        not settings.MINIAPP_WEBHOOK_SECRET
+        or webhook_secret != settings.MINIAPP_WEBHOOK_SECRET
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid webhook secret",
@@ -432,7 +452,9 @@ async def neynar_notification_webhook(
     signature = request.headers.get("x-neynar-signature", "")
 
     if not signature:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature"
+        )
 
     # Verify the HMAC over raw bytes BEFORE parsing JSON. We don't yet know
     # which event type this is (that lives inside the body), so try each
@@ -451,7 +473,9 @@ async def neynar_notification_webhook(
             matched_event_type = candidate_event
             break
     if matched_event_type is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature"
+        )
 
     # Body is authenticated — safe to parse. Reject if the declared event
     # type doesn't match the secret that signed the body (cross-event
@@ -459,12 +483,17 @@ async def neynar_notification_webhook(
     try:
         payload = json.loads(body)
     except (ValueError, json.JSONDecodeError):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body"
+        )
     event_type = payload.get("type", "")
     if event_type != matched_event_type:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature"
+        )
 
     from app.services.push_service import PushService
+
     push_service = PushService(db, redis)
     await push_service.handle_notification_event(event_type, payload)
 

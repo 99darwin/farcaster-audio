@@ -66,6 +66,67 @@ def _user_to_author(user: User) -> VoiceNoteAuthor:
     )
 
 
+async def _build_voice_note_details(
+    db: AsyncSession,
+    rows: list,
+    viewer_fid: int | None,
+) -> list[VoiceNoteDetailResponse]:
+    """Build feed response rows with batched counts and viewer reactions."""
+    vn_ids = [row[0].id for row in rows]
+
+    reaction_map: dict[uuid.UUID, dict[str, int]] = {vid: {} for vid in vn_ids}
+    play_map: dict[uuid.UUID, int] = {vid: 0 for vid in vn_ids}
+    viewer_map: dict[uuid.UUID, list[str]] = {vid: [] for vid in vn_ids}
+
+    if vn_ids:
+        rc_result = await db.execute(
+            select(
+                VoiceNoteReaction.voice_note_id,
+                VoiceNoteReaction.reaction_type,
+                sa_func.count(),
+            )
+            .where(VoiceNoteReaction.voice_note_id.in_(vn_ids))
+            .group_by(VoiceNoteReaction.voice_note_id, VoiceNoteReaction.reaction_type)
+        )
+        for vid, rtype, cnt in rc_result.all():
+            reaction_map[vid][rtype] = cnt
+
+        pc_result = await db.execute(
+            select(VoiceNotePlay.voice_note_id, sa_func.count())
+            .where(VoiceNotePlay.voice_note_id.in_(vn_ids))
+            .group_by(VoiceNotePlay.voice_note_id)
+        )
+        for vid, cnt in pc_result.all():
+            play_map[vid] = cnt
+
+        if viewer_fid:
+            vr_result = await db.execute(
+                select(
+                    VoiceNoteReaction.voice_note_id,
+                    VoiceNoteReaction.reaction_type,
+                ).where(
+                    VoiceNoteReaction.voice_note_id.in_(vn_ids),
+                    VoiceNoteReaction.fid == viewer_fid,
+                )
+            )
+            for vid, rtype in vr_result.all():
+                viewer_map[vid].append(rtype)
+
+    items: list[VoiceNoteDetailResponse] = []
+    for row in rows:
+        vn, user = row.tuple()
+        items.append(
+            VoiceNoteDetailResponse(
+                voice_note=_voice_note_to_response(vn),
+                author=_user_to_author(user),
+                reaction_counts=reaction_map.get(vn.id, {}),
+                viewer_reactions=viewer_map.get(vn.id, []),
+                play_count=play_map.get(vn.id, 0),
+            )
+        )
+    return items
+
+
 async def create_voice_note(
     db: AsyncSession,
     fid: int,
@@ -177,43 +238,7 @@ async def get_feed(
         last_vn = rows[-1][0]
         next_cursor = last_vn.created_at.isoformat()
 
-    items: list[VoiceNoteDetailResponse] = []
-    for row in rows:
-        vn, user = row.tuple()
-
-        # Batch reaction counts per voice note
-        count_result = await db.execute(
-            select(VoiceNoteReaction.reaction_type, sa_func.count())
-            .where(VoiceNoteReaction.voice_note_id == vn.id)
-            .group_by(VoiceNoteReaction.reaction_type)
-        )
-        reaction_counts = {r[0]: r[1] for r in count_result.all()}
-
-        # Viewer reactions
-        vr_result = await db.execute(
-            select(VoiceNoteReaction.reaction_type).where(
-                VoiceNoteReaction.voice_note_id == vn.id,
-                VoiceNoteReaction.fid == fid,
-            )
-        )
-        viewer_reactions = [r[0] for r in vr_result.all()]
-
-        # Play count
-        play_result = await db.execute(
-            select(sa_func.count()).where(VoiceNotePlay.voice_note_id == vn.id)
-        )
-        play_count = play_result.scalar() or 0
-
-        items.append(
-            VoiceNoteDetailResponse(
-                voice_note=_voice_note_to_response(vn),
-                author=_user_to_author(user),
-                reaction_counts=reaction_counts,
-                viewer_reactions=viewer_reactions,
-                play_count=play_count,
-            )
-        )
-
+    items = await _build_voice_note_details(db, rows, viewer_fid=fid)
     return items, next_cursor
 
 
@@ -249,42 +274,7 @@ async def get_user_voice_notes(
         last_vn = rows[-1][0]
         next_cursor = last_vn.created_at.isoformat()
 
-    items: list[VoiceNoteDetailResponse] = []
-    for row in rows:
-        vn, user = row.tuple()
-
-        count_result = await db.execute(
-            select(VoiceNoteReaction.reaction_type, sa_func.count())
-            .where(VoiceNoteReaction.voice_note_id == vn.id)
-            .group_by(VoiceNoteReaction.reaction_type)
-        )
-        reaction_counts = {r[0]: r[1] for r in count_result.all()}
-
-        viewer_reactions: list[str] = []
-        if viewer_fid:
-            vr_result = await db.execute(
-                select(VoiceNoteReaction.reaction_type).where(
-                    VoiceNoteReaction.voice_note_id == vn.id,
-                    VoiceNoteReaction.fid == viewer_fid,
-                )
-            )
-            viewer_reactions = [r[0] for r in vr_result.all()]
-
-        play_result = await db.execute(
-            select(sa_func.count()).where(VoiceNotePlay.voice_note_id == vn.id)
-        )
-        play_count = play_result.scalar() or 0
-
-        items.append(
-            VoiceNoteDetailResponse(
-                voice_note=_voice_note_to_response(vn),
-                author=_user_to_author(user),
-                reaction_counts=reaction_counts,
-                viewer_reactions=viewer_reactions,
-                play_count=play_count,
-            )
-        )
-
+    items = await _build_voice_note_details(db, rows, viewer_fid=viewer_fid)
     return items, next_cursor
 
 
@@ -318,47 +308,7 @@ async def get_recent_voice_notes(
         last_vn = rows[-1][0]
         next_cursor = last_vn.created_at.isoformat()
 
-    vn_ids = [row[0].id for row in rows]
-
-    # Batch reaction counts (1 query instead of N)
-    reaction_map: dict[uuid.UUID, dict[str, int]] = {vid: {} for vid in vn_ids}
-    if vn_ids:
-        rc_result = await db.execute(
-            select(
-                VoiceNoteReaction.voice_note_id,
-                VoiceNoteReaction.reaction_type,
-                sa_func.count(),
-            )
-            .where(VoiceNoteReaction.voice_note_id.in_(vn_ids))
-            .group_by(VoiceNoteReaction.voice_note_id, VoiceNoteReaction.reaction_type)
-        )
-        for vid, rtype, cnt in rc_result.all():
-            reaction_map[vid][rtype] = cnt
-
-    # Batch play counts (1 query instead of N)
-    play_map: dict[uuid.UUID, int] = {vid: 0 for vid in vn_ids}
-    if vn_ids:
-        pc_result = await db.execute(
-            select(VoiceNotePlay.voice_note_id, sa_func.count())
-            .where(VoiceNotePlay.voice_note_id.in_(vn_ids))
-            .group_by(VoiceNotePlay.voice_note_id)
-        )
-        for vid, cnt in pc_result.all():
-            play_map[vid] = cnt
-
-    items: list[VoiceNoteDetailResponse] = []
-    for row in rows:
-        vn, user = row.tuple()
-        items.append(
-            VoiceNoteDetailResponse(
-                voice_note=_voice_note_to_response(vn),
-                author=_user_to_author(user),
-                reaction_counts=reaction_map.get(vn.id, {}),
-                viewer_reactions=[],
-                play_count=play_map.get(vn.id, 0),
-            )
-        )
-
+    items = await _build_voice_note_details(db, rows, viewer_fid=None)
     return items, next_cursor
 
 
@@ -411,11 +361,15 @@ async def add_reaction(
 
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    stmt = pg_insert(VoiceNoteReaction).values(
-        voice_note_id=voice_note_id,
-        fid=fid,
-        reaction_type=reaction_type,
-    ).on_conflict_do_nothing()
+    stmt = (
+        pg_insert(VoiceNoteReaction)
+        .values(
+            voice_note_id=voice_note_id,
+            fid=fid,
+            reaction_type=reaction_type,
+        )
+        .on_conflict_do_nothing()
+    )
     await db.execute(stmt)
     await db.commit()
 
@@ -454,7 +408,9 @@ async def soft_delete(
     if not vn:
         raise HTTPException(status_code=404, detail="Voice note not found")
     if vn.fid != fid:
-        raise HTTPException(status_code=403, detail="Only the author can delete this voice note")
+        raise HTTPException(
+            status_code=403, detail="Only the author can delete this voice note"
+        )
 
     vn.deleted_at = datetime.now(timezone.utc)
     await db.commit()

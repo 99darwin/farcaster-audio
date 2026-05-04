@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { Text, type TextStyle, Linking } from "react-native";
 import { colors } from "@/constants/theme";
 
@@ -71,14 +72,17 @@ function filterHiddenUrls(
   return filtered;
 }
 
-export function CastText({
+function CastTextImpl({
   text,
   style,
   numberOfLines,
   onMentionPress,
   hiddenUrls,
 }: CastTextProps) {
-  const segments = filterHiddenUrls(tokenize(text), hiddenUrls);
+  const segments = useMemo(
+    () => filterHiddenUrls(tokenize(text), hiddenUrls),
+    [text, hiddenUrls],
+  );
 
   return (
     <Text style={style} numberOfLines={numberOfLines}>
@@ -113,3 +117,5 @@ export function CastText({
     </Text>
   );
 }
+
+export const CastText = memo(CastTextImpl);

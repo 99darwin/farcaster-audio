@@ -77,18 +77,28 @@ async def agent_join_room(
     # Pre-check: does this room allow agents? Do this BEFORE payment processing
     # to avoid charging agents for rooms they can't enter.
     import uuid as uuid_mod
+
     try:
         room_uuid = uuid_mod.UUID(room_id)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
+        )
     result = await db.execute(sa_select(Room).where(Room.id == room_uuid))
     room = result.scalar_one_or_none()
     if room is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Room not found"
+        )
     if room.status != "active":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Room is not active")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Room is not active"
+        )
     if not room.allow_agents:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This room does not allow agents")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This room does not allow agents",
+        )
 
     # Check for existing session token (re-join)
     session_token = request.headers.get("x-session-token")
@@ -109,6 +119,7 @@ async def agent_join_room(
                 session_token=session_token,
                 livekit_token=join_response.livekit_token,
                 livekit_ws_url=join_response.livekit_ws_url,
+                expires_at=join_response.expires_at,
                 role=join_response.role,
                 room=join_response.room.model_dump(),
                 participants=[p.model_dump() for p in join_response.participants],
@@ -119,8 +130,11 @@ async def agent_join_room(
     # Check for x402 payment (set by middleware on request.state)
     # The x402 middleware sets payment_payload and payment_requirements on verified payment.
     import logging as _logging
+
     _log = _logging.getLogger(__name__)
-    _state_attrs = {k: type(getattr(request.state, k)).__name__ for k in vars(request.state)}
+    _state_attrs = {
+        k: type(getattr(request.state, k)).__name__ for k in vars(request.state)
+    }
     _log.info("agent-join request.state: %s", _state_attrs)
 
     if not hasattr(request.state, "payment_payload"):
@@ -146,6 +160,7 @@ async def agent_join_room(
 
     # Create temporary User record for the agent
     from sqlalchemy import select
+
     result = await db.execute(select(User).where(User.fid == session.agent_fid))
     existing_user = result.scalar_one_or_none()
 
@@ -175,6 +190,7 @@ async def agent_join_room(
             session_token=token,
             livekit_token=join_response.livekit_token,
             livekit_ws_url=join_response.livekit_ws_url,
+            expires_at=join_response.expires_at,
             role=join_response.role,
             room=join_response.room.model_dump(),
             participants=[p.model_dump() for p in join_response.participants],

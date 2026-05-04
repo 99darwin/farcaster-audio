@@ -1,6 +1,8 @@
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import React, { useCallback, useMemo, useState } from "react";
-import type { LayoutChangeEvent, GestureResponderEvent } from "react-native";
+import type { LayoutChangeEvent } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 import { colors } from "@/constants/theme";
 
 interface WaveformProps {
@@ -26,45 +28,70 @@ export const Waveform = React.memo(function Waveform({
     setWidth(e.nativeEvent.layout.width);
   }, []);
 
-  const handlePress = useCallback(
-    (e: GestureResponderEvent) => {
+  const seekFromX = useCallback(
+    (x: number) => {
       if (!onSeek || !width) return;
-      const x = e.nativeEvent.locationX;
       onSeek(Math.max(0, Math.min(1, x / width)));
     },
     [onSeek, width],
   );
 
-  // Memoize bar heights so they don't recompute when only progress changes
-  const barHeights = useMemo(
-    () => peaks.map((peak) => Math.max(2, peak * height)),
-    [peaks, height],
+  const barHeights = useMemo(() => {
+    if (peaks.length === 0) return [];
+    const targetCount =
+      width > 0 ? Math.min(96, Math.max(32, Math.floor(width / 3))) : 64;
+    if (peaks.length <= targetCount) {
+      return peaks.map((peak) => Math.max(2, peak * height));
+    }
+    const bucketSize = peaks.length / targetCount;
+    return Array.from({ length: targetCount }, (_, i) => {
+      const start = Math.floor(i * bucketSize);
+      const end = Math.max(start + 1, Math.floor((i + 1) * bucketSize));
+      let max = 0;
+      for (let j = start; j < end && j < peaks.length; j++) {
+        max = Math.max(max, peaks[j]);
+      }
+      return Math.max(2, max * height);
+    });
+  }, [peaks, height, width]);
+
+  const barCount = barHeights.length || 1;
+  const filledIndex = Math.floor(progress * barCount);
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .onBegin((event) => {
+          runOnJS(seekFromX)(event.x);
+        })
+        .onUpdate((event) => {
+          runOnJS(seekFromX)(event.x);
+        }),
+    [seekFromX],
   );
 
-  const barCount = peaks.length || 200;
-  const filledIndex = Math.floor(progress * barCount);
-
   return (
-    <Pressable
-      onPress={handlePress}
-      onLayout={handleLayout}
-      style={[styles.container, { height }]}
-      accessibilityLabel="Audio waveform"
-      accessibilityRole="adjustable"
-    >
-      {barHeights.map((barHeight, i) => (
-        <View
-          key={i}
-          style={[
-            styles.bar,
-            {
-              height: barHeight,
-              backgroundColor: i <= filledIndex ? filledColor : unfilledColor,
-            },
-          ]}
-        />
-      ))}
-    </Pressable>
+    <GestureDetector gesture={panGesture}>
+      <View
+        onLayout={handleLayout}
+        style={[styles.container, { height }]}
+        accessibilityLabel="Audio waveform"
+        accessibilityRole="adjustable"
+      >
+        {barHeights.map((barHeight, i) => (
+          <View
+            key={i}
+            style={[
+              styles.bar,
+              {
+                height: barHeight,
+                backgroundColor: i <= filledIndex ? filledColor : unfilledColor,
+              },
+            ]}
+          />
+        ))}
+      </View>
+    </GestureDetector>
   );
 });
 

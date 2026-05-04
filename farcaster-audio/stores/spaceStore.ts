@@ -22,6 +22,7 @@ interface SpaceStore {
   addParticipant: (participant: Participant) => void;
   removeParticipant: (fid: number) => void;
   updateParticipant: (fid: number, updates: Partial<Participant>) => void;
+  setSpeakingParticipants: (speakingFids: Set<number>) => void;
   setHandQueue: (queue: number[]) => void;
   setMyRole: (role: ParticipantRole) => void;
   setConnected: (connected: boolean) => void;
@@ -88,6 +89,18 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
         p.fid === fid ? { ...p, ...updates } : p,
       ),
     })),
+
+  setSpeakingParticipants: (speakingFids) =>
+    set((state) => {
+      let changed = false;
+      const participants = state.participants.map((p) => {
+        const isSpeaking = speakingFids.has(p.fid);
+        if (p.is_speaking === isSpeaking) return p;
+        changed = true;
+        return { ...p, is_speaking: isSpeaking };
+      });
+      return changed ? { participants } : state;
+    }),
 
   setHandQueue: (handQueue) => set({ handQueue }),
   setMyRole: (myRole) => set({ myRole }),

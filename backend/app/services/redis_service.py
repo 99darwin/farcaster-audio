@@ -4,6 +4,8 @@ import redis.asyncio as aioredis
 
 
 class RedisService:
+    ROOM_DISCOVERY_CHANNEL = "rooms:events"
+
     def __init__(self, redis: aioredis.Redis):
         self.redis = redis
 
@@ -22,7 +24,9 @@ class RedisService:
     # --- Participants ---
 
     async def set_participant(self, room_id: str, fid: int, data: dict) -> None:
-        await self.redis.hset(f"room:{room_id}:participants", str(fid), json.dumps(data))
+        await self.redis.hset(
+            f"room:{room_id}:participants", str(fid), json.dumps(data)
+        )
 
     async def get_participant(self, room_id: str, fid: int) -> dict | None:
         data = await self.redis.hget(f"room:{room_id}:participants", str(fid))
@@ -40,11 +44,35 @@ class RedisService:
 
     async def get_speaker_count(self, room_id: str) -> int:
         participants = await self.get_all_participants(room_id)
-        return sum(1 for p in participants if p.get("role") in ("host", "co_host", "speaker"))
+        return sum(
+            1 for p in participants if p.get("role") in ("host", "co_host", "speaker")
+        )
 
     async def get_listener_count(self, room_id: str) -> int:
         participants = await self.get_all_participants(room_id)
         return sum(1 for p in participants if p.get("role") == "listener")
+
+    async def get_room_participant_counts(
+        self, room_ids: list[str]
+    ) -> dict[str, tuple[int, int]]:
+        """Return speaker/listener counts for many rooms in one Redis pipeline."""
+        if not room_ids:
+            return {}
+        pipe = self.redis.pipeline()
+        for room_id in room_ids:
+            pipe.hgetall(f"room:{room_id}:participants")
+        rows = await pipe.execute()
+        counts: dict[str, tuple[int, int]] = {}
+        for room_id, data in zip(room_ids, rows):
+            participants = [json.loads(v) for v in data.values()]
+            speakers = sum(
+                1
+                for p in participants
+                if p.get("role") in ("host", "co_host", "speaker")
+            )
+            listeners = sum(1 for p in participants if p.get("role") == "listener")
+            counts[room_id] = (speakers, listeners)
+        return counts
 
     # --- Hand Queue ---
 
@@ -93,10 +121,15 @@ class RedisService:
     async def publish_room_event(self, room_id: str, event: dict) -> None:
         await self.redis.publish(f"room:{room_id}:events", json.dumps(event))
 
+    async def publish_room_discovery_event(self, event: dict[str, Any]) -> None:
+        await self.redis.publish(self.ROOM_DISCOVERY_CHANNEL, json.dumps(event))
+
     # --- Cleanup ---
 
     async def clear_room_state(self, room_id: str) -> None:
         """Remove all Redis keys for a room."""
+        participants = await self.get_all_participants(room_id)
+
         pipe = self.redis.pipeline()
         pipe.delete(f"room:{room_id}:state")
         pipe.delete(f"room:{room_id}:participants")
@@ -105,7 +138,6 @@ class RedisService:
         await pipe.execute()
 
         # Clear user active room for all participants
-        participants = await self.get_all_participants(room_id)
         if participants:
             pipe = self.redis.pipeline()
             for p in participants:

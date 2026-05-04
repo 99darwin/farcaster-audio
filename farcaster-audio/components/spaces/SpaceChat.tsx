@@ -145,6 +145,11 @@ export function SpaceChat({
       <FlatList<NeynarCastWithReplies>
         data={replies}
         keyExtractor={(item) => item.hash}
+        initialNumToRender={8}
+        maxToRenderPerBatch={6}
+        updateCellsBatchingPeriod={50}
+        windowSize={7}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}

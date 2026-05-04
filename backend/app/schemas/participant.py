@@ -20,6 +20,7 @@ class ParticipantResponse(BaseModel):
 class JoinResponse(BaseModel):
     livekit_token: str
     livekit_ws_url: str
+    expires_at: str | None = None
     role: str
     room: RoomResponse
     participants: list[ParticipantResponse]

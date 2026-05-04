@@ -22,6 +22,14 @@ import {
 } from "@/services/neynar";
 import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
 
+const LIST_PERF_PROPS = {
+  initialNumToRender: 6,
+  maxToRenderPerBatch: 5,
+  updateCellsBatchingPeriod: 50,
+  windowSize: 7,
+  removeClippedSubviews: true,
+};
+
 export default function CastThreadScreen() {
   const { hash, focusHash } = useLocalSearchParams<{
     hash: string;
@@ -185,6 +193,7 @@ export default function CastThreadScreen() {
   return (
     <View style={styles.container}>
       <FlatList<NeynarCastWithReplies>
+        {...LIST_PERF_PROPS}
         ref={flatListRef}
         data={replies}
         keyExtractor={(item) => item.hash}
