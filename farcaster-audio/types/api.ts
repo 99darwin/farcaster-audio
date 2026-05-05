@@ -54,6 +54,8 @@ export interface RoomDetailResponse {
   hand_queue: number[];
 }
 
+export type RoomChatTargetResponse = Room;
+
 // Participants
 export interface JoinResponse {
   livekit_token: string;

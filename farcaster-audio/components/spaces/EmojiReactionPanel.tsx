@@ -1,4 +1,4 @@
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, Pressable, ScrollView, StyleSheet } from "react-native";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { glass } from "@/constants/theme";
@@ -19,32 +19,48 @@ export function EmojiReactionPanel({ onReaction }: EmojiReactionPanelProps) {
   };
 
   return (
-    <View style={styles.container}>
-      {REACTION_EMOJI.map(({ key, label }) => (
-        <Pressable
-          key={key}
-          onPress={() => handlePress(key)}
-          accessibilityLabel={label}
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.emojiButton,
-            pressed && styles.emojiButtonPressed,
-          ]}
-        >
-          <Image
-            source={{ uri: emojiImageUrl(key) }}
-            style={styles.emojiImage}
-            contentFit="contain"
-            cachePolicy="memory-disk"
-          />
-        </Pressable>
-      ))}
-    </View>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.scroll}
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.inner}>
+        {REACTION_EMOJI.map(({ key, label }) => (
+          <Pressable
+            key={key}
+            onPress={() => handlePress(key)}
+            accessibilityLabel={label}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.emojiButton,
+              pressed && styles.emojiButtonPressed,
+            ]}
+          >
+            <Image
+              source={{ uri: emojiImageUrl(key) }}
+              style={styles.emojiImage}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          </Pressable>
+        ))}
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    maxWidth: "92%",
+    alignSelf: "center",
+    borderRadius: glass.pillRadius,
+  },
   container: {
+    flexGrow: 0,
+  },
+  inner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

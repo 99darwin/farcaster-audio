@@ -482,6 +482,69 @@ class RoomService:
             hand_queue=hand_queue,
         )
 
+    async def ensure_chat_target(self, room_id: str, fid: int) -> RoomResponse:
+        """
+        Ensure an active room has a Farcaster cast hash that can act as the
+        FIP-2 chat target. If the host did not announce the room, create a
+        fallback cast from the configured @jukeaudio signer.
+        """
+        room = await self._get_room_or_404(room_id)
+
+        if room.status != "active":
+            raise HTTPException(
+                status_code=400,
+                detail="Chat is only available for active rooms",
+            )
+
+        await self._get_participant_or_403(room_id, fid)
+
+        host = await self._get_user(room.host_fid)
+        if room.cast_hash:
+            speaker_count, listener_count = await self._get_live_counts(room_id)
+            return await self._build_room_response(
+                room, host, speaker_count, listener_count
+            )
+
+        if not settings.JUKEAUDIO_SIGNER_UUID:
+            raise HTTPException(
+                status_code=503,
+                detail="System chat signer is not configured",
+            )
+
+        # Lock before the external Neynar call so concurrent clients don't
+        # create duplicate fallback casts for the same room.
+        locked_result = await self.db.execute(
+            select(Room).where(Room.id == room.id).with_for_update()
+        )
+        room = locked_result.scalar_one()
+        if room.status != "active":
+            raise HTTPException(
+                status_code=400,
+                detail="Chat is only available for active rooms",
+            )
+        if room.cast_hash:
+            await self.db.commit()
+            speaker_count, listener_count = await self._get_live_counts(room_id)
+            return await self._build_room_response(
+                room, host, speaker_count, listener_count
+            )
+
+        cast_hash = await self._create_system_chat_cast(room_id, room.title, host)
+        webhook_id, webhook_secret = await self._register_cast_webhook(
+            room_id, cast_hash
+        )
+
+        room.cast_hash = cast_hash
+        room.neynar_webhook_id = webhook_id
+        room.neynar_webhook_secret = webhook_secret
+        await self.db.commit()
+        await self.db.refresh(room)
+
+        speaker_count, listener_count = await self._get_live_counts(room_id)
+        return await self._build_room_response(
+            room, host, speaker_count, listener_count
+        )
+
     async def list_scheduled_rooms(
         self,
         limit: int = 20,
@@ -2018,6 +2081,12 @@ class RoomService:
         )
         return [row[0] for row in result.all()]
 
+    async def _get_live_counts(self, room_id: str) -> tuple[int, int]:
+        """Return (speaker_count, listener_count) from Redis participant state."""
+        speaker_count = await self.redis.get_speaker_count(room_id)
+        listener_count = await self.redis.get_listener_count(room_id)
+        return speaker_count, listener_count
+
     async def _build_room_response(
         self,
         room: Room,
@@ -2095,6 +2164,43 @@ class RoomService:
         except Exception as e:
             logger.warning("Failed to announce scheduled room: %s", e)
             return None
+
+    async def _create_system_chat_cast(
+        self, room_id: str, title: str, host: User
+    ) -> str:
+        """Create a @jukeaudio fallback cast to use as the room chat target."""
+        text = (
+            f"Chat for: {title}\n\n"
+            f"Hosted by @{host.username or host.fid}. Reply here to chat in Juke."
+        )
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.neynar.com/v2/farcaster/cast",
+                    json={
+                        "signer_uuid": settings.JUKEAUDIO_SIGNER_UUID,
+                        "text": text,
+                        "embeds": [{"url": f"https://juke.audio/space/{room_id}"}],
+                    },
+                    headers={"x-api-key": settings.NEYNAR_API_KEY},
+                    timeout=15.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                cast_hash = data.get("cast", {}).get("hash")
+                if not cast_hash:
+                    raise ValueError("Neynar response missing cast hash")
+                return cast_hash
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Failed to create system chat cast for room %s: %s", room_id, exc
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to create chat target",
+            ) from exc
 
     async def _register_cast_webhook(
         self, room_id: str, cast_hash: str

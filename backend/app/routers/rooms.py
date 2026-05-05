@@ -39,6 +39,7 @@ from app.schemas.room import (
     RoomDetailResponse,
     RoomGoLiveResponse,
     RoomListResponse,
+    RoomResponse,
     RsvpResponse,
 )
 from app.services.livekit_service import LiveKitService
@@ -156,6 +157,16 @@ async def get_room(
 ) -> RoomDetailResponse:
     """Get room details including the live participant list and hand-raise queue."""
     return await room_service.get_room(room_id=room_id, current_fid=current_fid)
+
+
+@router.post("/{room_id}/chat-target", response_model=RoomResponse)
+async def ensure_room_chat_target(
+    room_id: str,
+    current_user_fid: int = Depends(require_non_demo_user),
+    room_service: RoomService = Depends(get_room_service),
+) -> RoomResponse:
+    """Create or return the Farcaster cast hash used as this room's chat target."""
+    return await room_service.ensure_chat_target(room_id=room_id, fid=current_user_fid)
 
 
 @router.post("/{room_id}/rsvp", response_model=RsvpResponse)
