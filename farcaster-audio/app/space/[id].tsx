@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -307,9 +307,13 @@ export default function SpaceScreen() {
   const addedMiniApps = useMiniAppStore((s) => s.addedMiniApps);
   const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
   const [scheduledRoom, setScheduledRoom] = useState<Room | null>(null);
+  const [chatTargetAttemptedRoomId, setChatTargetAttemptedRoomId] = useState<
+    string | null
+  >(null);
   const winampMode = usePrefsStore((s) => s.winampMode);
   const insets = useSafeAreaInsets();
   const hasChatTab = !!room?.cast_hash;
+  const isEnsuringChatTargetRef = useRef(false);
 
   // When the host ends the space, LiveKit fires a server-initiated disconnect.
   // Navigate all remaining participants back to the home screen.
@@ -362,6 +366,36 @@ export default function SpaceScreen() {
       })
       .finally(() => setIsJoining(false));
   }, [id]);
+
+  useEffect(() => {
+    if (
+      !id ||
+      !room ||
+      room.status !== "active" ||
+      room.cast_hash ||
+      chatTargetAttemptedRoomId === room.id ||
+      isEnsuringChatTargetRef.current
+    ) {
+      return;
+    }
+
+    isEnsuringChatTargetRef.current = true;
+    setChatTargetAttemptedRoomId(room.id);
+    api
+      .ensureRoomChatTarget(room.id)
+      .then((updatedRoom) => {
+        useSpaceStore.getState().setRoom(updatedRoom);
+      })
+      .catch(() => {
+        Toast.show({
+          type: "error",
+          text1: "Couldn't start chat for this space.",
+        });
+      })
+      .finally(() => {
+        isEnsuringChatTargetRef.current = false;
+      });
+  }, [id, room, chatTargetAttemptedRoomId]);
 
   const handleLeave = useCallback(async () => {
     if (!id) return;

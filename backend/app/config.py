@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     NEYNAR_WEBHOOK_ID_CAST: str = ""
     NEYNAR_WEBHOOK_ID_REACTION: str = ""
     NEYNAR_WEBHOOK_ID_FOLLOW: str = ""
+    JUKEAUDIO_SIGNER_UUID: str = ""
     FARCASTER_APP_MNEMONIC: str = ""
     FARCASTER_APP_FID: int = 0
     MINIAPP_WEBHOOK_SECRET: str = ""

@@ -11,6 +11,7 @@ import type {
   RoomGoLiveResponse,
   RoomListResponse,
   RoomDetailResponse,
+  RoomChatTargetResponse,
   JoinResponse,
   RaiseHandRequest,
   RaiseHandResponse,
@@ -133,6 +134,11 @@ export const createRoom = (body: RoomCreateRequest) =>
 
 export const getRoom = (roomId: string) =>
   apiClient.get<RoomDetailResponse>(`/v1/rooms/${roomId}`).then((r) => r.data);
+
+export const ensureRoomChatTarget = (roomId: string) =>
+  apiClient
+    .post<RoomChatTargetResponse>(`/v1/rooms/${roomId}/chat-target`)
+    .then((r) => r.data);
 
 export const startRoom = (roomId: string) =>
   apiClient

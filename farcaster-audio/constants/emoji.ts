@@ -9,6 +9,13 @@ export const REACTION_EMOJI = [
   { key: "1f602", label: "Joy" },
   { key: "1f62d", label: "Sob" },
   { key: "1f44d", label: "Thumbs up" },
+  { key: "1f525", label: "Fire" },
+  { key: "2764", label: "Heart" },
+  { key: "1f440", label: "Eyes" },
+  { key: "1f64c", label: "Raised hands" },
+  { key: "1f914", label: "Thinking" },
+  { key: "1f389", label: "Party popper" },
+  { key: "1fae1", label: "Salute" },
 ] as const;
 
 export type ReactionKey = (typeof REACTION_EMOJI)[number]["key"];
