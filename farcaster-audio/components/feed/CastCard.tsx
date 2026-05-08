@@ -18,7 +18,7 @@ import { MediaViewer } from "@/components/common/ImageViewer";
 import { VideoPlayer } from "@/components/feed/VideoPlayer";
 import { colors } from "@/constants/theme";
 import { getUserByUsername } from "@/services/api";
-import type { NeynarCast, NeynarEmbed } from "@/types/neynar";
+import type { NeynarCast, NeynarChannel, NeynarEmbed } from "@/types/neynar";
 
 const TRUNCATE_LENGTH = 280;
 
@@ -199,6 +199,33 @@ function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
   );
 }
 
+function ChannelAttribution({ channel }: { channel: NeynarChannel }) {
+  const router = useRouter();
+  const label = `/${channel.id}`;
+
+  return (
+    <Pressable
+      style={styles.channelChip}
+      onPress={() => router.push(`/channel/${channel.id}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`View channel ${label}`}
+    >
+      {channel.image_url ? (
+        <Image
+          source={{ uri: channel.image_url }}
+          style={styles.channelAvatar}
+          contentFit="cover"
+        />
+      ) : (
+        <Ionicons name="albums-outline" size={13} color={colors.purple} />
+      )}
+      <Text style={styles.channelChipText} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function QuoteCast({
   cast,
   onPress,
@@ -307,6 +334,7 @@ function CastCardImpl({
 
   const embeds = useMemo(() => cast.embeds ?? [], [cast.embeds]);
   const quoteCast = useMemo(() => embeds.find((e) => e.cast)?.cast, [embeds]);
+  const channel = cast.channel?.id ? cast.channel : null;
 
   // Collect URLs that will render as OG preview cards so we can hide them from cast text
   const renderedEmbedUrls = useMemo(
@@ -374,22 +402,31 @@ function CastCardImpl({
         />
       </Pressable>
       <View style={styles.content}>
-        <Pressable
-          style={styles.header}
-          onPress={() => navigateToProfile(cast.author.fid)}
-        >
-          <Text style={styles.displayName} numberOfLines={1}>
-            {cast.author.display_name}
-          </Text>
-          <Text style={styles.username}>@{cast.author.username}</Text>
-          {cast.author.pro?.status === "subscribed" && (
-            <Ionicons name="checkmark-circle" size={14} color={colors.purple} />
-          )}
-          <Text style={styles.dot}>{"\u00B7"}</Text>
-          <Text style={styles.timestamp}>
-            {getRelativeTime(cast.timestamp)}
-          </Text>
-        </Pressable>
+        <View style={styles.headerRow}>
+          <Pressable
+            style={styles.header}
+            onPress={() => navigateToProfile(cast.author.fid)}
+          >
+            <Text style={styles.displayName} numberOfLines={1}>
+              {cast.author.display_name}
+            </Text>
+            <Text style={styles.username} numberOfLines={1}>
+              @{cast.author.username}
+            </Text>
+            {cast.author.pro?.status === "subscribed" && (
+              <Ionicons
+                name="checkmark-circle"
+                size={14}
+                color={colors.purple}
+              />
+            )}
+            <Text style={styles.dot}>{"\u00B7"}</Text>
+            <Text style={styles.timestamp}>
+              {getRelativeTime(cast.timestamp)}
+            </Text>
+          </Pressable>
+          {channel ? <ChannelAttribution channel={channel} /> : null}
+        </View>
         <Pressable onPress={onPress} disabled={!onPress}>
           <CastBody
             text={cast.text}
@@ -460,11 +497,18 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
   header: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginBottom: 4,
   },
   displayName: {
     color: colors.text.primary,
@@ -475,6 +519,7 @@ const styles = StyleSheet.create({
   username: {
     color: colors.text.secondary,
     fontSize: 14,
+    flexShrink: 1,
   },
   dot: {
     color: colors.text.secondary,
@@ -483,6 +528,29 @@ const styles = StyleSheet.create({
   timestamp: {
     color: colors.text.secondary,
     fontSize: 14,
+  },
+  channelChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    maxWidth: 112,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.purple,
+    backgroundColor: "rgba(139, 92, 246, 0.12)",
+  },
+  channelAvatar: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: colors.background.subtle,
+  },
+  channelChipText: {
+    color: colors.text.primary,
+    fontSize: 12,
+    fontWeight: "600",
   },
   text: {
     color: colors.text.body,

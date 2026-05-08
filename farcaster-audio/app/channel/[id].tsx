@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "@/stores/authStore";
 import { useComposeStore } from "@/stores/composeStore";
 import { useChannelFeed } from "@/hooks/useChannelFeed";
@@ -13,6 +14,7 @@ import type { NeynarCast } from "@/types/neynar";
 export default function ChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const channelId = Array.isArray(id) ? id[0] : id;
   const normalizedChannelId = channelId ?? "";
@@ -62,7 +64,7 @@ export default function ChannelScreen() {
 
   const header = useMemo(
     () => (
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable
           onPress={() => router.back()}
           hitSlop={12}
@@ -93,7 +95,7 @@ export default function ChannelScreen() {
         </Pressable>
       </View>
     ),
-    [normalizedChannelId, router],
+    [insets.top, normalizedChannelId, router],
   );
 
   return (
@@ -144,7 +146,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     paddingHorizontal: 16,
-    paddingTop: 16,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.background.border,
