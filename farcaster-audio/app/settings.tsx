@@ -149,8 +149,10 @@ export default function SettingsScreen() {
             color={colors.purple}
           />
           <View style={styles.rowLabelWrap}>
-            <Text style={styles.rowText}>Winamp Mode</Text>
-            <Text style={styles.rowHint}>
+            <Text style={styles.rowLabelText} numberOfLines={1}>
+              Winamp Mode
+            </Text>
+            <Text style={styles.rowHint} numberOfLines={1}>
               Retro player skin for audio spaces
             </Text>
           </View>
@@ -162,7 +164,6 @@ export default function SettingsScreen() {
               true: colors.purple,
             }}
             thumbColor="#ffffff"
-            style={{ marginLeft: "auto" }}
           />
         </View>
       </View>
@@ -226,11 +227,16 @@ const useStyles = () =>
     },
     rowLabelWrap: {
       flex: 1,
+      minWidth: 0,
     },
     rowText: {
       color: colors.text.primary,
       fontSize: 16,
       flex: 1,
+    },
+    rowLabelText: {
+      color: colors.text.primary,
+      fontSize: 16,
     },
     rowValue: {
       color: colors.text.secondary,
