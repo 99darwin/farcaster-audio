@@ -8,6 +8,7 @@ import { useComposeStore } from "@/stores/composeStore";
 import { useChannelFeed } from "@/hooks/useChannelFeed";
 import { FeedList } from "@/components/feed/FeedList";
 import { ComposeModal } from "@/components/feed/ComposeModal";
+import { GlassView } from "@/components/common/GlassView";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast } from "@/types/neynar";
@@ -15,7 +16,7 @@ import type { NeynarCast } from "@/types/neynar";
 export default function ChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, glass } = useTheme();
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
@@ -65,6 +66,12 @@ export default function ChannelScreen() {
     clearDraft();
   }, [clearDraft]);
 
+  const openChannelCompose = useCallback(() => {
+    setReplyTarget(null);
+    setQuoteCastTarget(null);
+    setIsComposeVisible(true);
+  }, []);
+
   const header = useMemo(
     () => (
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -83,19 +90,6 @@ export default function ChannelScreen() {
             /{normalizedChannelId}
           </Text>
         </View>
-        <Pressable
-          onPress={() => {
-            setReplyTarget(null);
-            setQuoteCastTarget(null);
-            setIsComposeVisible(true);
-          }}
-          hitSlop={12}
-          accessibilityLabel={`Cast to ${normalizedChannelId}`}
-          accessibilityRole="button"
-          style={styles.composeButton}
-        >
-          <Ionicons name="add" size={24} color={colors.text.primary} />
-        </Pressable>
       </View>
     ),
     [colors.text.primary, insets.top, normalizedChannelId, router, styles],
@@ -119,6 +113,27 @@ export default function ChannelScreen() {
         error={error}
         onRetry={fetch}
       />
+
+      <GlassView
+        style={[
+          styles.floatingComposeButton,
+          { bottom: insets.bottom + 24 },
+        ]}
+        overlayColor={glass.accentOverlay}
+      >
+        <Pressable
+          onPress={openChannelCompose}
+          accessibilityRole="button"
+          accessibilityLabel={`Cast to ${normalizedChannelId}`}
+          style={styles.floatingComposeTouchTarget}
+        >
+          <Ionicons
+            name="create-outline"
+            size={24}
+            color={colors.text.primary}
+          />
+        </Pressable>
+      </GlassView>
 
       <ComposeModal
         isVisible={isComposeVisible}
@@ -174,11 +189,16 @@ const useStyles = () =>
       fontSize: 22,
       fontWeight: "700" as const,
     },
-    composeButton: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
-      backgroundColor: colors.purple,
+    floatingComposeButton: {
+      position: "absolute",
+      right: 20,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+    },
+    floatingComposeTouchTarget: {
+      width: 56,
+      height: 56,
       alignItems: "center",
       justifyContent: "center",
     },
