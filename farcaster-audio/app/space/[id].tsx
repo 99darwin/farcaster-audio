@@ -43,6 +43,7 @@ import * as livekitService from "@/services/livekit";
 import {
   addScheduledSpaceToNativeCalendar,
   isUpcomingScheduledRoom,
+  openScheduledSpaceInGoogleCalendar,
   shareScheduledSpaceCalendar,
 } from "@/services/calendar";
 import type { Participant, Room } from "@/types/space";
@@ -161,7 +162,7 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
     );
   };
 
-  const handleAddToCalendar = async () => {
+  const addToAppleCalendar = async () => {
     setIsAddingToCalendar(true);
     try {
       await addScheduledSpaceToNativeCalendar(room, id);
@@ -184,6 +185,29 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
     } finally {
       setIsAddingToCalendar(false);
     }
+  };
+
+  const addToGoogleCalendar = async () => {
+    setIsAddingToCalendar(true);
+    try {
+      await openScheduledSpaceInGoogleCalendar(room, id);
+    } catch (err) {
+      Toast.show({
+        type: "error",
+        text1: "Calendar unavailable",
+        text2: api.getErrorMessage(err),
+      });
+    } finally {
+      setIsAddingToCalendar(false);
+    }
+  };
+
+  const handleAddToCalendar = () => {
+    Alert.alert("Add to calendar", "Choose where to add this space.", [
+      { text: "Apple Calendar", onPress: addToAppleCalendar },
+      { text: "Google Calendar", onPress: addToGoogleCalendar },
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
   const handleShareScheduledSpace = () => {

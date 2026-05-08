@@ -9,6 +9,7 @@ jest.mock("expo-calendar", () => ({
 }));
 
 import {
+  buildGoogleCalendarUrl,
   buildScheduledSpaceEvent,
   buildSpaceCalendarUrl,
   isUpcomingScheduledRoom,
@@ -71,5 +72,24 @@ describe("calendar service", () => {
     expect(event.notes).toContain("Starts on Juke");
     expect(event.startDate).toEqual(new Date(startsAt));
     expect(event.endDate).toEqual(new Date("2026-06-01T19:00:00.000Z"));
+  });
+
+  it("builds a Google Calendar URL from room data", () => {
+    const url = new URL(
+      buildGoogleCalendarUrl(buildRoom("2026-06-01T18:00:00.000Z"), "room-1"),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      "https://calendar.google.com/calendar/render",
+    );
+    expect(url.searchParams.get("action")).toBe("TEMPLATE");
+    expect(url.searchParams.get("text")).toBe("Juke Space: Builders Hour");
+    expect(url.searchParams.get("dates")).toBe(
+      "20260601T180000Z/20260601T190000Z",
+    );
+    expect(url.searchParams.get("details")).toContain("Hosted by Alice");
+    expect(url.searchParams.get("location")).toBe(
+      "https://juke.audio/space/room-1",
+    );
   });
 });
