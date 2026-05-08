@@ -15,6 +15,7 @@ interface CastTextProps {
   numberOfLines?: number;
   onMentionPress?: (username: string) => void;
   hiddenUrls?: Set<string>;
+  selectable?: boolean;
 }
 
 interface TextSegment {
@@ -78,6 +79,7 @@ function CastTextImpl({
   numberOfLines,
   onMentionPress,
   hiddenUrls,
+  selectable,
 }: CastTextProps) {
   const { colors } = useTheme();
   const segments = useMemo(
@@ -86,7 +88,7 @@ function CastTextImpl({
   );
 
   return (
-    <Text style={style} numberOfLines={numberOfLines}>
+    <Text style={style} numberOfLines={numberOfLines} selectable={selectable}>
       {segments.map((seg, i) => {
         if (seg.type === "mention") {
           const username = seg.value.slice(1);
