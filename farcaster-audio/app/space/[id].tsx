@@ -40,6 +40,11 @@ import { buildSpaceUrl } from "@/utils/shareLinks";
 import { formatScheduledTime } from "@/utils/formatDate";
 import * as api from "@/services/api";
 import * as livekitService from "@/services/livekit";
+import {
+  addScheduledSpaceToNativeCalendar,
+  isUpcomingScheduledRoom,
+  shareScheduledSpaceCalendar,
+} from "@/services/calendar";
 import type { Participant, Room } from "@/types/space";
 
 // ─── Scheduled space view (no LiveKit, no participants) ───
@@ -54,7 +59,9 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
   const [rsvpUsers, setRsvpUsers] = useState(room.rsvp_summary?.users ?? []);
   const [isTogglingRsvp, setIsTogglingRsvp] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isAddingToCalendar, setIsAddingToCalendar] = useState(false);
   const isHost = user?.fid === room.host_fid;
+  const canAddToCalendar = isUpcomingScheduledRoom(room);
 
   const handleGoLive = async () => {
     setIsStarting(true);
@@ -154,6 +161,39 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
     );
   };
 
+  const handleAddToCalendar = async () => {
+    setIsAddingToCalendar(true);
+    try {
+      await addScheduledSpaceToNativeCalendar(room, id);
+      Toast.show({
+        type: "success",
+        text1: "Added to Calendar",
+        text2: formatScheduledTime(room.scheduled_at!),
+      });
+    } catch (err) {
+      console.warn("[ScheduledSpace] Calendar add failed, sharing ICS:", err);
+      try {
+        await shareScheduledSpaceCalendar(room, id);
+      } catch (shareErr) {
+        Toast.show({
+          type: "error",
+          text1: "Calendar unavailable",
+          text2: api.getErrorMessage(shareErr),
+        });
+      }
+    } finally {
+      setIsAddingToCalendar(false);
+    }
+  };
+
+  const handleShareScheduledSpace = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Share.share({
+      message: `"${room.title}" on Juke — ${room.scheduled_at ? formatScheduledTime(room.scheduled_at) : ""}`,
+      url: buildSpaceUrl(id),
+    });
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.scheduledContent}>
@@ -198,17 +238,54 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
               isLoading={isStarting}
               size="lg"
             />
-            <Pressable
-              onPress={handleCancel}
-              disabled={isCancelling}
-              style={styles.cancelBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel this scheduled space"
-            >
-              <Text style={styles.cancelBtnText}>
-                {isCancelling ? "Cancelling..." : "Cancel Space"}
-              </Text>
-            </Pressable>
+            <View style={styles.scheduledSecondaryActions}>
+              {canAddToCalendar && (
+                <Pressable
+                  onPress={handleAddToCalendar}
+                  disabled={isAddingToCalendar}
+                  style={styles.scheduledSecondaryAction}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add this scheduled space to your calendar"
+                  accessibilityState={{
+                    disabled: isAddingToCalendar,
+                    busy: isAddingToCalendar,
+                  }}
+                >
+                  <Ionicons
+                    name="calendar-outline"
+                    size={17}
+                    color={colors.text.secondary}
+                  />
+                  <Text style={styles.scheduledSecondaryText}>
+                    {isAddingToCalendar ? "Opening..." : "Calendar"}
+                  </Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={handleShareScheduledSpace}
+                style={styles.scheduledSecondaryAction}
+                accessibilityLabel="Share space"
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name="share-outline"
+                  size={17}
+                  color={colors.text.secondary}
+                />
+                <Text style={styles.scheduledSecondaryText}>Share</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleCancel}
+                disabled={isCancelling}
+                style={styles.scheduledSecondaryAction}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel this scheduled space"
+              >
+                <Text style={styles.scheduledSecondaryDangerText}>
+                  {isCancelling ? "Cancelling..." : "Cancel"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         ) : (
           <View style={styles.scheduledActions}>
@@ -239,27 +316,45 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
             <Text style={styles.scheduledWaiting}>
               Waiting for host to start...
             </Text>
+            <View style={styles.scheduledSecondaryActions}>
+              {canAddToCalendar && (
+                <Pressable
+                  onPress={handleAddToCalendar}
+                  disabled={isAddingToCalendar}
+                  style={styles.scheduledSecondaryAction}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add this scheduled space to your calendar"
+                  accessibilityState={{
+                    disabled: isAddingToCalendar,
+                    busy: isAddingToCalendar,
+                  }}
+                >
+                  <Ionicons
+                    name="calendar-outline"
+                    size={17}
+                    color={colors.text.secondary}
+                  />
+                  <Text style={styles.scheduledSecondaryText}>
+                    {isAddingToCalendar ? "Opening..." : "Calendar"}
+                  </Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={handleShareScheduledSpace}
+                style={styles.scheduledSecondaryAction}
+                accessibilityLabel="Share space"
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name="share-outline"
+                  size={17}
+                  color={colors.text.secondary}
+                />
+                <Text style={styles.scheduledSecondaryText}>Share</Text>
+              </Pressable>
+            </View>
           </View>
         )}
-
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            Share.share({
-              message: `"${room.title}" on Juke — ${room.scheduled_at ? formatScheduledTime(room.scheduled_at) : ""}`,
-              url: buildSpaceUrl(id),
-            });
-          }}
-          style={styles.scheduledShareBtn}
-          accessibilityLabel="Share space"
-        >
-          <Ionicons
-            name="share-outline"
-            size={20}
-            color={colors.text.secondary}
-          />
-          <Text style={styles.scheduledShareText}>Share</Text>
-        </Pressable>
       </View>
 
       <Pressable
@@ -1021,19 +1116,33 @@ const styles = StyleSheet.create({
   scheduledWaiting: {
     color: colors.text.secondary,
     fontSize: 15,
-    marginBottom: 16,
+    marginTop: 14,
+    marginBottom: 18,
   },
-  scheduledShareBtn: {
+  scheduledSecondaryActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 18,
+    flexWrap: "wrap",
+    marginTop: 18,
+  },
+  scheduledSecondaryAction: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
     minHeight: 44,
+    paddingHorizontal: 6,
   },
-  scheduledShareText: {
+  scheduledSecondaryText: {
     color: colors.text.secondary,
     fontSize: 15,
+    fontWeight: "600",
+  },
+  scheduledSecondaryDangerText: {
+    color: colors.error,
+    fontSize: 15,
+    fontWeight: "600",
   },
   scheduledBackBtn: {
     position: "absolute",
@@ -1047,17 +1156,6 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: 16,
     fontWeight: "500",
-  },
-  cancelBtn: {
-    marginTop: 12,
-    paddingVertical: 10,
-    alignItems: "center",
-    minHeight: 44,
-  },
-  cancelBtnText: {
-    color: colors.error,
-    fontSize: 15,
-    fontWeight: "600",
   },
   rsvpBtn: {
     borderWidth: 1.5,

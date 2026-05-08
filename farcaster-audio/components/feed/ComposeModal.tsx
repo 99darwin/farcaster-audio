@@ -20,13 +20,14 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import Toast from "react-native-toast-message";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
-import { uploadImage, uploadVideo } from "@/services/api";
+import { publishCastToChannel, uploadImage, uploadVideo } from "@/services/api";
 import { useAuthStore } from "@/stores/authStore";
 import { useVoiceNoteStore } from "@/stores/voiceNoteStore";
 import { useVoiceNoteRecorder } from "@/hooks/useVoiceNoteRecorder";
 import * as voiceNotesApi from "@/services/voiceNotes";
 import { Avatar } from "@/components/common/Avatar";
 import { MentionSuggestions } from "@/components/common/MentionSuggestions";
+import { ChannelSuggestions } from "@/components/feed/ChannelSuggestions";
 import { GifPicker } from "@/components/feed/GifPicker";
 import { Waveform } from "@/components/voice-notes/Waveform";
 import { useOgPreview, extractUrls } from "@/hooks/useOgPreview";
@@ -39,6 +40,7 @@ const CAST_LENGTH_DEFAULT = 320;
 const CAST_LENGTH_PRO = 10000;
 const MAX_IMAGES_DEFAULT = 2;
 const MAX_IMAGES_PRO = 4;
+const CHANNEL_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 
 type RecordingState = "idle" | "recording" | "recorded";
 
@@ -49,6 +51,10 @@ function formatTimer(ms: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
+function normalizeChannelInput(input: string): string {
+  return input.trim().replace(/^\/+/, "");
+}
+
 interface ComposeModalProps {
   isVisible: boolean;
   onClose: () => void;
@@ -57,7 +63,9 @@ interface ComposeModalProps {
     parentHash?: string,
     imageUris?: string[],
     quote?: { fid: number; hash: string },
+    channelId?: string,
   ) => Promise<{ hash: string } | void>;
+  onPublishComplete?: () => void | Promise<void>;
   /**
    * Called after a voice reply successfully posts. Lets the parent screen
    * refresh its thread so the new voice reply appears under the parent cast.
@@ -68,17 +76,20 @@ interface ComposeModalProps {
   quoteCast?: NeynarCast | null;
   defaultText?: string;
   defaultEmbeds?: string[];
+  initialChannelId?: string;
 }
 
 export function ComposeModal({
   isVisible,
   onClose,
   onPublish,
+  onPublishComplete,
   onVoiceReplyPosted,
   replyTo,
   quoteCast,
   defaultText,
   defaultEmbeds,
+  initialChannelId,
 }: ComposeModalProps) {
   const user = useAuthStore((s) => s.user);
   const isPro = user?.is_pro ?? false;
@@ -96,6 +107,10 @@ export function ComposeModal({
   const [isPublishing, setIsPublishing] = useState(false);
   const [postToFarcaster, setPostToFarcaster] = useState(true);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(
+    null,
+  );
+  const inputRef = useRef<TextInput>(null);
   const keyboardPadding = useRef(new Animated.Value(0)).current;
 
   // Voice recording state
@@ -212,6 +227,8 @@ export function ComposeModal({
 
   const hasVideo = attachments.some((a) => a.type === "video");
   const hasVoiceNote = recordingState === "recorded" && !!recorder.result;
+  const canSelectChannel = !replyTo && (!hasVoiceNote || postToFarcaster);
+  const effectiveChannelId = canSelectChannel ? selectedChannelId : null;
   const charCount = text.length;
   const isOverLimit = charCount > maxCastLength;
   const hasContent =
@@ -224,6 +241,61 @@ export function ComposeModal({
     !isOverLimit &&
     !isPublishing &&
     recordingState !== "recording";
+
+  const placeCursor = useCallback((position: number) => {
+    setCursorPosition(position);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setNativeProps({
+        selection: { start: position, end: position },
+      });
+    });
+  }, []);
+
+  const handleChannelPillPress = useCallback(() => {
+    if (!canSelectChannel || isPublishing) return;
+    haptic.selection();
+    const before = text.slice(0, cursorPosition);
+    const after = text.slice(cursorPosition);
+    const prefix = before.length === 0 || /\s$/.test(before) ? "" : " ";
+    const inserted = `${prefix}/`;
+    const nextText = before + inserted + after;
+    const nextCursor = before.length + inserted.length;
+    setText(nextText);
+    placeCursor(nextCursor);
+  }, [canSelectChannel, cursorPosition, isPublishing, placeCursor, text]);
+
+  const handleChannelSelect = useCallback(
+    (channelId: string, tokenStart: number) => {
+      const after = text.slice(cursorPosition);
+      const before = text.slice(0, tokenStart);
+      setSelectedChannelId(channelId);
+      setText(`${before}${after}`);
+      placeCursor(tokenStart);
+      haptic.selection();
+    },
+    [cursorPosition, placeCursor, text],
+  );
+
+  useEffect(() => {
+    if (!isVisible) return;
+    if (replyTo) {
+      setSelectedChannelId(null);
+      return;
+    }
+    const normalized = initialChannelId
+      ? normalizeChannelInput(initialChannelId)
+      : "";
+    setSelectedChannelId(
+      normalized && CHANNEL_ID_PATTERN.test(normalized) ? normalized : null,
+    );
+  }, [initialChannelId, isVisible, replyTo]);
+
+  useEffect(() => {
+    if (replyTo || (hasVoiceNote && !postToFarcaster)) {
+      setSelectedChannelId(null);
+    }
+  }, [hasVoiceNote, postToFarcaster, replyTo]);
 
   // --- Voice recording handlers ---
 
@@ -339,6 +411,10 @@ export function ComposeModal({
           post_to_farcaster: postToFarcaster,
           cast_text: text.trim(),
           parent_cast_hash: replyTo?.hash,
+          channel_id:
+            postToFarcaster && !replyTo?.hash && effectiveChannelId
+              ? effectiveChannelId
+              : undefined,
         });
 
         prependVoiceNote({
@@ -381,12 +457,20 @@ export function ComposeModal({
         const quote = quoteCast
           ? { fid: quoteCast.author.fid, hash: quoteCast.hash }
           : undefined;
-        const result = await onPublish(
-          text.trim(),
-          replyTo?.hash,
-          allEmbeds.length > 0 ? allEmbeds : undefined,
-          quote,
-        );
+        const result = effectiveChannelId
+          ? await publishCastToChannel({
+              text: text.trim(),
+              embeds: allEmbeds.length > 0 ? allEmbeds : undefined,
+              quote,
+              channel_id: effectiveChannelId,
+            })
+          : await onPublish(
+              text.trim(),
+              replyTo?.hash,
+              allEmbeds.length > 0 ? allEmbeds : undefined,
+              quote,
+              effectiveChannelId ?? undefined,
+            );
         if (result?.hash) {
           Toast.show({
             type: "viewCast",
@@ -398,6 +482,7 @@ export function ComposeModal({
       }
 
       haptic.success();
+      await onPublishComplete?.();
       resetState();
       onClose();
     } catch (err: any) {
@@ -420,6 +505,7 @@ export function ComposeModal({
     setAttachments([]);
     setRecordingState("idle");
     setPostToFarcaster(true);
+    setSelectedChannelId(null);
     recorder.reset();
   }, [recorder]);
 
@@ -478,7 +564,14 @@ export function ComposeModal({
       >
         {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={handleClose} hitSlop={12} disabled={isPublishing}>
+          <Pressable
+            onPress={handleClose}
+            hitSlop={12}
+            disabled={isPublishing}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel composing"
+            accessibilityState={{ disabled: isPublishing }}
+          >
             <Text style={styles.cancelText}>Cancel</Text>
           </Pressable>
           <Pressable
@@ -488,6 +581,12 @@ export function ComposeModal({
               !canPublish && styles.publishButtonDisabled,
             ]}
             disabled={!canPublish}
+            accessibilityRole="button"
+            accessibilityLabel={publishLabel}
+            accessibilityState={{
+              disabled: !canPublish,
+              busy: isPublishing,
+            }}
           >
             {isPublishing ? (
               <ActivityIndicator size="small" color={colors.text.primary} />
@@ -557,6 +656,7 @@ export function ComposeModal({
               />
               <View style={styles.inputArea}>
                 <TextInput
+                  ref={inputRef}
                   style={styles.input}
                   placeholder={
                     hasVoiceNote
@@ -579,6 +679,53 @@ export function ComposeModal({
                   onSelectionChange={handleSelectionChange}
                   editable={!isPublishing}
                 />
+
+                {canSelectChannel && (
+                  <View style={styles.channelPillRow}>
+                    <Pressable
+                      onPress={handleChannelPillPress}
+                      disabled={isPublishing}
+                      hitSlop={10}
+                      style={[
+                        styles.channelPill,
+                        selectedChannelId && styles.channelPillSelected,
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        selectedChannelId
+                          ? `Posting to channel ${selectedChannelId}`
+                          : "Select channel"
+                      }
+                    >
+                      <Text
+                        style={[
+                          styles.channelPillText,
+                          selectedChannelId && styles.channelPillTextSelected,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {selectedChannelId
+                          ? `/${selectedChannelId}`
+                          : "Channel"}
+                      </Text>
+                    </Pressable>
+                    {selectedChannelId ? (
+                      <Pressable
+                        onPress={() => setSelectedChannelId(null)}
+                        hitSlop={8}
+                        accessibilityLabel="Clear selected channel"
+                        accessibilityRole="button"
+                        style={styles.channelClear}
+                      >
+                        <Ionicons
+                          name="close"
+                          size={16}
+                          color={colors.text.secondary}
+                        />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                )}
 
                 {/* Voice note attachment preview */}
                 {hasVoiceNote && recorder.result && (
@@ -760,6 +907,12 @@ export function ComposeModal({
               cursorPosition={cursorPosition}
               onSelect={handleMentionSelect}
             />
+            <ChannelSuggestions
+              enabled={canSelectChannel}
+              text={text}
+              cursorPosition={cursorPosition}
+              onSelect={handleChannelSelect}
+            />
 
             {/* Footer */}
             <View style={styles.footer}>
@@ -924,6 +1077,45 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     textAlignVertical: "top",
     paddingTop: 0,
+  },
+  channelPillRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginLeft: -52,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  channelPill: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.background.subtle,
+    borderRadius: 18,
+    paddingHorizontal: 15,
+    paddingVertical: 6,
+    maxWidth: "78%",
+  },
+  channelPillSelected: {
+    borderStyle: "solid",
+    borderColor: colors.purple,
+    backgroundColor: "rgba(133, 93, 205, 0.12)",
+  },
+  channelPillText: {
+    color: colors.text.secondary,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  channelPillTextSelected: {
+    color: colors.text.primary,
+  },
+  channelClear: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background.surface,
   },
   // Voice note preview (inline attachment)
   voiceNotePreview: {

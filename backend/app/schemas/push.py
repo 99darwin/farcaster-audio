@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -29,3 +31,24 @@ class NotificationPreferencesUpdate(BaseModel):
     space_invited_enabled: bool | None = None
     hand_raised_enabled: bool | None = None
     miniapp_enabled: bool | None = None
+
+
+class RoomLiveNotifyRequest(BaseModel):
+    target: Literal["rsvps", "all_active"] = "all_active"
+    dry_run: bool = False
+
+
+class RoomLiveNotifyResponse(BaseModel):
+    room_id: str
+    target: Literal["rsvps", "all_active"]
+    dry_run: bool
+    campaign: str
+    users_considered: int
+    users_eligible: int
+    users_sent: int
+    users_skipped_self: int = 0
+    users_skipped_preferences: int = 0
+    users_skipped_idempotent: int = 0
+    native_targets: int = 0
+    miniapp_targets: int = 0
+    preference_bypass: bool = False

@@ -86,6 +86,10 @@ class CastRequest(BaseModel):
     parent: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
     embeds: list[HttpUrl] | None = Field(default=None, max_length=4)
     quote: CastIdEmbed | None = None
+    channel_id: str | None = Field(
+        default=None,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$",
+    )
 
 
 # --- Endpoints ---
@@ -119,6 +123,83 @@ async def feed_following(
     return data
 
 
+@router.get("/channel/{channel_id}")
+async def feed_channel(
+    channel_id: str = Path(..., pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"),
+    limit: int = Query(default=25, ge=1, le=100),
+    cursor: str | None = Query(
+        default=None,
+        max_length=500,
+        pattern=r"^[a-zA-Z0-9_\-=.%]+$",
+    ),
+    current_user: int = Depends(get_current_user),
+    spam_service: SpamService = Depends(get_spam_service),
+):
+    """Proxy Neynar channel feed endpoint for a single Farcaster channel."""
+    params: dict[str, str | int] = {
+        "channel_ids": channel_id,
+        "limit": limit,
+        "viewer_fid": current_user,
+    }
+    if cursor:
+        params["cursor"] = cursor
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{NEYNAR_BASE}/farcaster/feed/channels",
+            params=params,
+            headers=_neynar_headers(),
+            timeout=15.0,
+        )
+
+    if resp.status_code != 200:
+        _raise_upstream_error(resp)
+
+    data = resp.json()
+    await spam_service.annotate_casts(data.get("casts", []))
+    return data
+
+
+@router.get("/channels/search")
+async def search_channels(
+    q: str = Query(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+    ),
+    limit: int = Query(default=8, ge=1, le=20),
+    _current_user: int = Depends(get_current_user),
+):
+    """Search Farcaster channels by ID or name via Neynar."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{NEYNAR_BASE}/farcaster/channel/search",
+            params={"q": q, "limit": limit},
+            headers=_neynar_headers(),
+            timeout=10.0,
+        )
+
+    if resp.status_code != 200:
+        _raise_upstream_error(resp)
+
+    data = resp.json()
+    channels = data.get("channels") or data.get("result", {}).get("channels", [])
+    return {
+        "channels": [
+            {
+                "id": c.get("id"),
+                "name": c.get("name"),
+                "description": c.get("description"),
+                "image_url": c.get("image_url"),
+                "follower_count": c.get("follower_count"),
+            }
+            for c in channels
+            if c.get("id")
+        ]
+    }
+
+
 @router.post("/cast")
 async def create_cast(
     body: CastRequest,
@@ -127,7 +208,12 @@ async def create_cast(
 ):
     """Post a new cast (or reply) to Farcaster via Neynar."""
     if not body.text.strip() and not body.embeds and not body.quote:
-        raise HTTPException(status_code=400, detail="Cast must have text, embeds, or a quote")
+        raise HTTPException(
+            status_code=400,
+            detail="Cast must have text, embeds, or a quote",
+        )
+    if body.parent and body.channel_id:
+        raise HTTPException(status_code=400, detail="Replies cannot target a channel")
     signer_uuid = await _get_signer_uuid(db, current_user)
 
     payload: dict = {
@@ -143,6 +229,8 @@ async def create_cast(
         embeds.append({"cast_id": {"fid": body.quote.fid, "hash": body.quote.hash}})
     if embeds:
         payload["embeds"] = embeds
+    if body.channel_id:
+        payload["channel_id"] = body.channel_id
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(

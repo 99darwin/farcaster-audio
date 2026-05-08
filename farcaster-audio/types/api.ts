@@ -1,5 +1,6 @@
 import { UserProfile } from "./user";
 import { Room, Participant, ParticipantRole } from "./space";
+import type { NeynarFeedResponse } from "./neynar";
 
 // Auth
 export interface LoginRequest {
@@ -106,6 +107,39 @@ export interface ErrorResponse {
 
 export interface RsvpResponse {
   status: string;
+}
+
+// Feed
+export interface CastCreateRequest {
+  text: string;
+  parent?: string;
+  embeds?: string[];
+  quote?: {
+    fid: number;
+    hash: string;
+  };
+  channel_id?: string;
+}
+
+export interface CastCreateResponse {
+  cast?: {
+    hash: string;
+  };
+  hash?: string;
+}
+
+export type ChannelFeedResponse = NeynarFeedResponse;
+
+export interface ChannelSearchItem {
+  id: string;
+  name: string | null;
+  description: string | null;
+  image_url: string | null;
+  follower_count: number | null;
+}
+
+export interface ChannelSearchResponse {
+  channels: ChannelSearchItem[];
 }
 
 // Auth Address

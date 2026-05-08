@@ -18,6 +18,11 @@
       "infoPlist": {
         "UIBackgroundModes": ["audio", "remote-notification"],
         "NSMicrophoneUsageDescription": "Required to speak in audio spaces and record voice notes",
+        "NSCalendarsUsageDescription": "Add scheduled Juke spaces to your calendar",
+        "NSCalendarsFullAccessUsageDescription": "Add scheduled Juke spaces to your calendar",
+        "NSCalendarsWriteOnlyAccessUsageDescription": "Add scheduled Juke spaces to your calendar",
+        "NSRemindersUsageDescription": "Allow Juke to check reminders permissions required by the calendar module",
+        "NSRemindersFullAccessUsageDescription": "Allow Juke to check reminders permissions required by the calendar module",
         "NSCameraUsageDescription": "Not used in this app",
         "NSPhotoLibraryUsageDescription": "Attach photos to your casts",
         "CFBundleURLTypes": [
@@ -37,6 +42,7 @@
       "expo-secure-store",
       "@sentry/react-native/expo",
       "expo-image-picker",
+      "expo-calendar",
       "expo-video",
       [
         "expo-notifications",

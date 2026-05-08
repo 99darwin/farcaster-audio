@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.dependencies import DEMO_SIGNER_UUID, require_non_demo_user
+from app.routers.voice_notes import _build_voice_note_cast_payload
 from app.schemas.voice_note import VoiceNoteCreateRequest
 
 
@@ -51,6 +52,7 @@ def test_schema_accepts_valid_parent_cast_hash():
 def test_schema_parent_cast_hash_defaults_to_none():
     req = VoiceNoteCreateRequest(upload_id=VALID_UPLOAD_ID, duration_ms=5000)
     assert req.parent_cast_hash is None
+    assert req.channel_id is None
 
 
 def test_schema_accepts_mixed_case_parent_cast_hash():
@@ -61,6 +63,34 @@ def test_schema_accepts_mixed_case_parent_cast_hash():
         parent_cast_hash=h,
     )
     assert req.parent_cast_hash == h
+
+
+def test_schema_accepts_valid_channel_id():
+    req = VoiceNoteCreateRequest(
+        upload_id=VALID_UPLOAD_ID,
+        duration_ms=5000,
+        channel_id="fc-updates_1",
+    )
+    assert req.channel_id == "fc-updates_1"
+
+
+@pytest.mark.parametrize(
+    "bad_channel_id",
+    [
+        "-neynar",
+        "_neynar",
+        "neynar!",
+        "a" * 65,
+        "",
+    ],
+)
+def test_schema_rejects_malformed_channel_id(bad_channel_id):
+    with pytest.raises(ValidationError):
+        VoiceNoteCreateRequest(
+            upload_id=VALID_UPLOAD_ID,
+            duration_ms=5000,
+            channel_id=bad_channel_id,
+        )
 
 
 @pytest.mark.parametrize(
@@ -107,6 +137,49 @@ async def test_create_voice_note_rejects_bad_parent_cast_hash(client):
         headers=headers,
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_voice_note_rejects_reply_with_channel_id(client):
+    headers = make_auth_header()
+    response = await client.post(
+        "/v1/voice-notes/",
+        json={
+            "upload_id": VALID_UPLOAD_ID,
+            "duration_ms": 5000,
+            "post_to_farcaster": True,
+            "parent_cast_hash": VALID_PARENT_HASH,
+            "channel_id": "neynar",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 400
+
+
+def test_voice_note_cast_payload_includes_channel_for_top_level_post():
+    payload = _build_voice_note_cast_payload(
+        signer_uuid="12345678-1234-4234-9234-123456789abc",
+        text="listen",
+        embed_url="https://juke.audio/v/123",
+        parent_cast_hash=None,
+        channel_id="neynar",
+    )
+
+    assert payload["channel_id"] == "neynar"
+    assert "parent" not in payload
+
+
+def test_voice_note_cast_payload_prefers_reply_parent_over_channel():
+    payload = _build_voice_note_cast_payload(
+        signer_uuid="12345678-1234-4234-9234-123456789abc",
+        text="listen",
+        embed_url="https://juke.audio/v/123",
+        parent_cast_hash=VALID_PARENT_HASH,
+        channel_id="neynar",
+    )
+
+    assert payload["parent"] == VALID_PARENT_HASH
+    assert "channel_id" not in payload
 
 
 # --- Demo-readonly gate tests ---

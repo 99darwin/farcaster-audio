@@ -1,41 +1,15 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import {
+  getSpaceDetail,
+  isUpcomingScheduledSpace,
+  type SpaceDetailResponse,
+} from "@/lib/spaces";
 
-const API_BASE_URL =
-  "https://your-api-host.example.com";
 const TESTFLIGHT_URL = "https://testflight.apple.com/join/YOUR_TESTFLIGHT_CODE";
 
-type RoomData = {
-  room: {
-    id: string;
-    title: string;
-    status: string;
-    host_fid: number;
-    host: {
-      display_name: string;
-      username: string;
-      pfp_url: string | null;
-    };
-    speaker_count: number;
-    listener_count: number;
-    scheduled_at: string | null;
-    rsvp_summary?: {
-      count: number;
-      users: Array<{ fid: number; display_name: string; pfp_url: string | null }>;
-    } | null;
-  };
-};
-
-async function fetchRoom(id: string): Promise<RoomData | null> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/v1/rooms/${id}`, {
-      next: { revalidate: 30 },
-    });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
+async function fetchRoom(id: string): Promise<SpaceDetailResponse | null> {
+  return getSpaceDetail(id);
 }
 
 function formatScheduledTime(iso: string): string {
@@ -138,6 +112,7 @@ export default async function SpacePage({
   const count = room.speaker_count + room.listener_count;
   const isLive = room.status === "active";
   const isScheduled = room.status === "scheduled";
+  const showAddToCalendar = isUpcomingScheduledSpace(room);
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-juke-navy px-6">
@@ -242,6 +217,16 @@ export default async function SpacePage({
           >
             Open in Juke
           </a>
+          {showAddToCalendar && (
+            <a
+              href={`/space/${id}/calendar.ics`}
+              download={`juke-space-${id}.ics`}
+              type="text/calendar"
+              className="inline-block rounded-full border border-juke-purple/70 px-8 py-3.5 text-lg font-bold text-juke-text-on-dark transition-colors hover:bg-juke-purple/15"
+            >
+              Add to Calendar
+            </a>
+          )}
           <a
             href={TESTFLIGHT_URL}
             target="_blank"

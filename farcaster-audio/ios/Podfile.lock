@@ -41,6 +41,8 @@ PODS:
     - ExpoModulesCore
   - ExpoBlur (55.0.10):
     - ExpoModulesCore
+  - ExpoCalendar (55.0.14):
+    - ExpoModulesCore
   - ExpoCrypto (55.0.10):
     - ExpoModulesCore
   - ExpoDevice (55.0.10):
@@ -2397,6 +2399,7 @@ DEPENDENCIES:
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoAudio (from `../node_modules/expo-audio/ios`)
   - ExpoBlur (from `../node_modules/expo-blur/ios`)
+  - ExpoCalendar (from `../node_modules/expo-calendar/ios`)
   - ExpoCrypto (from `../node_modules/expo-crypto/ios`)
   - ExpoDevice (from `../node_modules/expo-device/ios`)
   - "ExpoDomWebView (from `../node_modules/@expo/dom-webview/ios`)"
@@ -2542,6 +2545,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-audio/ios"
   ExpoBlur:
     :path: "../node_modules/expo-blur/ios"
+  ExpoCalendar:
+    :path: "../node_modules/expo-calendar/ios"
   ExpoCrypto:
     :path: "../node_modules/expo-crypto/ios"
   ExpoDevice:
@@ -2773,6 +2778,7 @@ SPEC CHECKSUMS:
   ExpoAsset: 4efd0227e808dfa84d286aa3663ded641ef73479
   ExpoAudio: effd4eb58abee67050f79e8764fe1078daea39c8
   ExpoBlur: 8508f5b62611b228eee65f242563ac70856eb4bd
+  ExpoCalendar: b6256830f2effeee5e8ba5e327fd6e3d0eb78683
   ExpoCrypto: 33a6c4fb9ccac7a4d784954d0db6c3ba292123e9
   ExpoDevice: 59e75517522497afec3b48bd1e31735f066a9f43
   ExpoDomWebView: f101fb3db4b6eec4163fca51f7507189b7e48661
@@ -2797,7 +2803,7 @@ SPEC CHECKSUMS:
   EXUpdates: 1d1fec5075e1934d83748d723b5ee34d9680b8b6
   EXUpdatesInterface: d48f288b92900bd95a27c6cf92a7b9aff826d49a
   FBLazyVector: 32e9ed0301d0fcbc1b2b341dd7fcbf291f51eb83
-  hermes-engine: 9f2fd6e2c828aa90a7f1eb9346ec11e52ce0d43a
+  hermes-engine: 96d1cc75dc42d15e5f1c039650037e4513e832c7
   JukeVoiceRecorder: a89f40d22b381d3e6d3a08c190a7ba0ba66aa5bb
   libavif: 5f8e715bea24debec477006f21ef9e95432e254d
   libdav1d: 23581a4d8ec811ff171ed5e2e05cd27bad64c39f
@@ -2813,7 +2819,7 @@ SPEC CHECKSUMS:
   React: f4edc7518ccb0b54a6f580d89dd91471844b4990
   React-callinvoker: 79ef4e3f1c021571f6d2dafbe45ca432b2f3a146
   React-Core: c19ad4660fd48bc8abc060d979f8ee37f1fc4a5a
-  React-Core-prebuilt: 2697d44284196d36c2f651f9e9ee8a1ab7120591
+  React-Core-prebuilt: 9c57476b6fac4a88922933d6dbeba43e6e91061b
   React-CoreModules: f94ec3ee2bac588d033ad15a2377af746284f8c8
   React-cxxreact: de66364f2d5fb77d3da3cfa927b2fd960892c711
   React-debug: 4f6739c820d7da9c20f48caa985573b6a847e5f5

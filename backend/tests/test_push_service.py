@@ -3,9 +3,12 @@ through Expo push payloads.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
+from fastapi import HTTPException
 import pytest
 
+from app.models.room import Room
 from app.services.push_service import PushService
 
 PFP_URL = "https://example.com/pfp.png"
@@ -314,3 +317,188 @@ async def test_send_push_no_tokens_short_circuits():
         )
 
     post_mock.assert_not_awaited()
+
+
+def _make_space_service() -> PushService:
+    service = PushService(db=AsyncMock(), redis=AsyncMock())
+    service.is_enabled = AsyncMock(return_value=True)
+    service.send_push = AsyncMock()
+    service._send_miniapp_notification = AsyncMock(return_value=True)
+    service._mark_delivery_once = AsyncMock(return_value=True)
+    service._has_native_target = AsyncMock(return_value=True)
+    service._has_miniapp_target = AsyncMock(return_value=False)
+    return service
+
+
+@pytest.mark.asyncio
+async def test_notify_space_started_rsvps_delivers_native_and_miniapp_and_skips_host():
+    service = _make_space_service()
+    service._rsvp_fids = AsyncMock(return_value=[111, 222, 333])
+    service._has_miniapp_target = AsyncMock(side_effect=lambda fid: fid == 222)
+
+    result = await service.notify_space_started_rsvps(
+        room_id="room-1",
+        room_uuid=uuid4(),
+        title="Morning Juke",
+        host_fid=111,
+    )
+
+    assert result.users_considered == 3
+    assert result.users_skipped_self == 1
+    assert result.users_sent == 2
+    assert result.native_targets == 2
+    assert result.miniapp_targets == 1
+    service.send_push.assert_any_await(
+        fid=222,
+        title="Space is Live",
+        body='"Morning Juke" is now live — join now!',
+        data={"type": "space_live", "url": "/space/room-1"},
+    )
+    service._send_miniapp_notification.assert_awaited_once_with(
+        fid=222,
+        title="Space is Live",
+        body='"Morning Juke" is now live — join now!',
+        target_url="https://juke.audio/space/room-1",
+        notification_id="space_started_rsvp:room-1:222",
+    )
+
+
+@pytest.mark.asyncio
+async def test_notify_space_started_rsvps_respects_space_started_preference():
+    service = _make_space_service()
+    service._rsvp_fids = AsyncMock(return_value=[222])
+    service.is_enabled = AsyncMock(return_value=False)
+
+    result = await service.notify_space_started_rsvps(
+        room_id="room-1",
+        room_uuid=uuid4(),
+        title="Morning Juke",
+        host_fid=111,
+    )
+
+    assert result.users_skipped_preferences == 1
+    assert result.users_sent == 0
+    service.send_push.assert_not_awaited()
+    service._send_miniapp_notification.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_notify_space_started_rsvps_respects_miniapp_preference():
+    service = _make_space_service()
+    service._rsvp_fids = AsyncMock(return_value=[222])
+    service._has_native_target = AsyncMock(return_value=False)
+    service._has_miniapp_target = AsyncMock(return_value=True)
+    service.is_enabled = AsyncMock(
+        side_effect=lambda _fid, notification_type: notification_type == "space_started"
+    )
+
+    result = await service.notify_space_started_rsvps(
+        room_id="room-1",
+        room_uuid=uuid4(),
+        title="Morning Juke",
+        host_fid=111,
+    )
+
+    assert result.users_eligible == 0
+    assert result.users_sent == 0
+    assert result.miniapp_targets == 0
+    service._send_miniapp_notification.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_notify_space_started_rsvps_is_idempotent_per_room_campaign_user():
+    service = _make_space_service()
+    service._rsvp_fids = AsyncMock(return_value=[222])
+    service._mark_delivery_once = AsyncMock(return_value=False)
+
+    result = await service.notify_space_started_rsvps(
+        room_id="room-1",
+        room_uuid=uuid4(),
+        title="Morning Juke",
+        host_fid=111,
+    )
+
+    assert result.users_skipped_idempotent == 1
+    assert result.users_sent == 0
+    service.send_push.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_admin_notify_all_active_bypasses_space_started_preference():
+    room_uuid = uuid4()
+    room = Room(id=room_uuid, title="Live Now", host_fid=111, status="active")
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = room
+    db.execute = AsyncMock(return_value=result)
+    service = PushService(db=db, redis=AsyncMock())
+    service._active_reachable_fids = AsyncMock(return_value=[222])
+    service.is_enabled = AsyncMock(return_value=False)
+    service._has_native_target = AsyncMock(return_value=True)
+    service._has_miniapp_target = AsyncMock(return_value=True)
+    service._mark_delivery_once = AsyncMock(return_value=True)
+    service.send_push = AsyncMock()
+    service._send_miniapp_notification = AsyncMock(return_value=True)
+
+    response = await service.admin_notify_room_live(
+        room_id=str(room_uuid),
+        target="all_active",
+        dry_run=False,
+    )
+
+    assert response.preference_bypass is True
+    assert response.users_sent == 1
+    service.is_enabled.assert_not_awaited()
+    service.send_push.assert_awaited_once()
+    service._send_miniapp_notification.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_admin_notify_all_active_dry_run_does_not_mark_or_send():
+    room_uuid = uuid4()
+    room = Room(id=room_uuid, title="Live Now", host_fid=111, status="active")
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = room
+    db.execute = AsyncMock(return_value=result)
+    service = PushService(db=db, redis=AsyncMock())
+    service._active_reachable_fids = AsyncMock(return_value=[222, 333])
+    service._has_native_target = AsyncMock(side_effect=lambda fid: fid == 222)
+    service._has_miniapp_target = AsyncMock(return_value=True)
+    service._mark_delivery_once = AsyncMock(return_value=True)
+    service.send_push = AsyncMock()
+    service._send_miniapp_notification = AsyncMock(return_value=True)
+
+    response = await service.admin_notify_room_live(
+        room_id=str(room_uuid),
+        target="all_active",
+        dry_run=True,
+    )
+
+    assert response.users_eligible == 2
+    assert response.users_sent == 0
+    assert response.native_targets == 1
+    assert response.miniapp_targets == 2
+    service._mark_delivery_once.assert_not_awaited()
+    service.send_push.assert_not_awaited()
+    service._send_miniapp_notification.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_admin_notify_rejects_invalid_room_state():
+    room_uuid = uuid4()
+    room = Room(id=room_uuid, title="Not Live", host_fid=111, status="scheduled")
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = room
+    db.execute = AsyncMock(return_value=result)
+    service = PushService(db=db, redis=AsyncMock())
+
+    with pytest.raises(HTTPException) as exc:
+        await service.admin_notify_room_live(
+            room_id=str(room_uuid),
+            target="all_active",
+            dry_run=False,
+        )
+
+    assert exc.value.status_code == 400

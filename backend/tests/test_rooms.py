@@ -1,8 +1,11 @@
-import pytest
+import inspect
 from datetime import datetime, timedelta, timezone
+
+import pytest
 from jose import jwt
 
 from app.config import settings
+from app.services.room_service import RoomService
 
 
 def make_auth_header(fid: int = 12345) -> dict:
@@ -99,6 +102,12 @@ async def test_recent_recordings_invalid_cursor(client):
     """GET /v1/recordings/recent should reject malformed cursor."""
     response = await client.get("/v1/recordings/recent?cursor=not-a-date")
     assert response.status_code == 400
+
+
+def test_start_scheduled_room_delegates_rsvp_push_delivery_to_push_service():
+    source = inspect.getsource(RoomService.start_scheduled_room)
+    assert "notify_space_started_rsvps" in source
+    assert "send_push(" not in source
 
 
 @pytest.mark.asyncio
