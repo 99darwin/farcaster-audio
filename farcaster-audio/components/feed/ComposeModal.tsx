@@ -111,6 +111,7 @@ export function ComposeModal({
     null,
   );
   const inputRef = useRef<TextInput>(null);
+  const channelSelectorTokenStartRef = useRef<number | null>(null);
   const keyboardPadding = useRef(new Animated.Value(0)).current;
 
   // Voice recording state
@@ -261,6 +262,7 @@ export function ComposeModal({
     const inserted = `${prefix}/`;
     const nextText = before + inserted + after;
     const nextCursor = before.length + inserted.length;
+    channelSelectorTokenStartRef.current = before.length + prefix.length;
     setText(nextText);
     placeCursor(nextCursor);
   }, [canSelectChannel, cursorPosition, isPublishing, placeCursor, text]);
@@ -269,9 +271,18 @@ export function ComposeModal({
     (channelId: string, tokenStart: number) => {
       const after = text.slice(cursorPosition);
       const before = text.slice(0, tokenStart);
+      const isSelectorToken = channelSelectorTokenStartRef.current === tokenStart;
       setSelectedChannelId(channelId);
-      setText(`${before}${after}`);
-      placeCursor(tokenStart);
+      channelSelectorTokenStartRef.current = null;
+
+      if (isSelectorToken) {
+        setText(`${before}${after}`);
+        placeCursor(tokenStart);
+      } else {
+        const inserted = `/${channelId} `;
+        setText(`${before}${inserted}${after}`);
+        placeCursor(before.length + inserted.length);
+      }
       haptic.selection();
     },
     [cursorPosition, placeCursor, text],
@@ -281,6 +292,7 @@ export function ComposeModal({
     if (!isVisible) return;
     if (replyTo) {
       setSelectedChannelId(null);
+      channelSelectorTokenStartRef.current = null;
       return;
     }
     const normalized = initialChannelId
@@ -294,6 +306,7 @@ export function ComposeModal({
   useEffect(() => {
     if (replyTo || (hasVoiceNote && !postToFarcaster)) {
       setSelectedChannelId(null);
+      channelSelectorTokenStartRef.current = null;
     }
   }, [hasVoiceNote, postToFarcaster, replyTo]);
 
@@ -506,6 +519,7 @@ export function ComposeModal({
     setRecordingState("idle");
     setPostToFarcaster(true);
     setSelectedChannelId(null);
+    channelSelectorTokenStartRef.current = null;
     recorder.reset();
   }, [recorder]);
 
@@ -711,7 +725,10 @@ export function ComposeModal({
                     </Pressable>
                     {selectedChannelId ? (
                       <Pressable
-                        onPress={() => setSelectedChannelId(null)}
+                        onPress={() => {
+                          setSelectedChannelId(null);
+                          channelSelectorTokenStartRef.current = null;
+                        }}
                         hitSlop={8}
                         accessibilityLabel="Clear selected channel"
                         accessibilityRole="button"
