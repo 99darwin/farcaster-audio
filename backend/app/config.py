@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     NEYNAR_CLIENT_ID: str = ""
     GIPHY_API_KEY: str = ""
     API_BASE_URL: str = "http://localhost:8000"
+    WEB_BASE_URL: str = "https://juke.audio"
     LIVEKIT_API_KEY: str = ""
     LIVEKIT_API_SECRET: str = ""
     LIVEKIT_WS_URL: str = "wss://localhost.livekit.cloud"
