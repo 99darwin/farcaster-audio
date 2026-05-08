@@ -3,6 +3,7 @@ import { create } from "zustand";
 export interface ComposeDraft {
   text?: string;
   embeds?: string[];
+  channelId?: string;
 }
 
 interface ComposeStore {

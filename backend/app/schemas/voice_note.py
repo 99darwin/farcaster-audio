@@ -25,6 +25,10 @@ class VoiceNoteCreateRequest(BaseModel):
         default=None,
         pattern=r"^0x[0-9a-fA-F]{40}$",
     )
+    channel_id: str | None = Field(
+        default=None,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$",
+    )
 
 
 class VoiceNoteAuthor(BaseModel):

@@ -25,6 +25,10 @@ import type {
   RegisterSnapSignerResponse,
   SnapSignerStatusResponse,
   RsvpResponse,
+  CastCreateRequest,
+  CastCreateResponse,
+  ChannelFeedResponse,
+  ChannelSearchResponse,
 } from "@/types/api";
 
 export const apiClient: AxiosInstance = axios.create({
@@ -273,6 +277,33 @@ export const followUser = (fid: number) =>
 
 export const unfollowUser = (fid: number) =>
   apiClient.delete(`/v1/users/${fid}/follow`).then((r) => r.data);
+
+// --- Feed / Channels ---
+export const getChannelFeed = (
+  channelId: string,
+  params?: { limit?: number; cursor?: string },
+) =>
+  apiClient
+    .get<ChannelFeedResponse>(
+      `/v1/feed/channel/${encodeURIComponent(channelId)}`,
+      { params },
+    )
+    .then((r) => r.data);
+
+export const searchChannels = (q: string, limit = 8) =>
+  apiClient
+    .get<ChannelSearchResponse>("/v1/feed/channels/search", {
+      params: { q, limit },
+    })
+    .then((r) => r.data);
+
+export const publishCastToChannel = (
+  body: CastCreateRequest,
+): Promise<{ hash: string }> =>
+  apiClient.post<CastCreateResponse>("/v1/feed/cast", body).then((r) => {
+    const data = r.data;
+    return data.cast ?? { hash: data.hash ?? "" };
+  });
 
 // --- Admin ---
 export const adminListRooms = () =>

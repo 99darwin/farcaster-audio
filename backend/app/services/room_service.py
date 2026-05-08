@@ -392,20 +392,14 @@ class RoomService:
 
         # Notify RSVP'd users
         try:
-            rsvp_fids = await self._get_rsvp_fids(room.id)
-            for target_fid in rsvp_fids:
-                if target_fid == fid:
-                    continue
-                try:
-                    await self.push.send_push(
-                        fid=target_fid,
-                        title="Space is Live",
-                        body=f'"{room.title}" is now live \u2014 join now!',
-                        data={"type": "space_live", "url": f"/space/{str(room.id)}"},
-                    )
-                except Exception:
-                    pass  # best-effort
+            await self.push.notify_space_started_rsvps(
+                room_id=str(room.id),
+                room_uuid=room.id,
+                title=room.title,
+                host_fid=fid,
+            )
         except Exception:
+            logger.exception("Failed to send RSVP go-live pushes for room %s", room_id)
             pass  # don't block go-live
 
         await self.redis.publish_room_discovery_event(

@@ -50,6 +50,7 @@ export async function createVoiceNote(params: {
   post_to_farcaster: boolean;
   cast_text: string;
   parent_cast_hash?: string;
+  channel_id?: string;
 }): Promise<VoiceNote> {
   const { data } = await apiClient.post("/v1/voice-notes/", params);
   return data;

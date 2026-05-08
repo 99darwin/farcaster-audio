@@ -1,5 +1,10 @@
-const API_BASE_URL =
+export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
+
+const PUBLIC_BASE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "https://juke.audio";
 
 if (
   typeof process !== "undefined" &&
@@ -108,6 +113,77 @@ export async function getSpaceDetail(
   } catch {
     return null;
   }
+}
+
+export function isUpcomingScheduledSpace(room: Space): boolean {
+  if (room.status !== "scheduled" || !room.scheduled_at) return false;
+  const scheduledAtMs = new Date(room.scheduled_at).getTime();
+  return Number.isFinite(scheduledAtMs) && scheduledAtMs > Date.now();
+}
+
+function escapeICalText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,");
+}
+
+function formatICalDate(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function foldICalLine(line: string): string {
+  const maxLength = 75;
+  if (line.length <= maxLength) return line;
+
+  const chunks: string[] = [];
+  let remaining = line;
+  chunks.push(remaining.slice(0, maxLength));
+  remaining = remaining.slice(maxLength);
+
+  while (remaining.length > 0) {
+    chunks.push(` ${remaining.slice(0, maxLength - 1)}`);
+    remaining = remaining.slice(maxLength - 1);
+  }
+
+  return chunks.join("\r\n");
+}
+
+export function buildSpaceCalendarEvent(room: Space): string | null {
+  if (!isUpcomingScheduledSpace(room)) return null;
+
+  const startsAt = new Date(room.scheduled_at as string);
+  const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
+  const encodedRoomId = encodeURIComponent(room.id);
+  const spaceUrl = `${PUBLIC_BASE_URL}/space/${encodedRoomId}`;
+  const description = `Hosted by ${room.host.display_name} on Juke. Open the space: ${spaceUrl}`;
+  const uidRoomId = room.id.replace(/[^a-zA-Z0-9_-]/g, "-");
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Juke//Scheduled Spaces//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:juke-space-${uidRoomId || "scheduled-space"}@juke.audio`,
+    `DTSTAMP:${formatICalDate(new Date())}`,
+    `DTSTART:${formatICalDate(startsAt)}`,
+    `DTEND:${formatICalDate(endsAt)}`,
+    `SUMMARY:${escapeICalText(room.title)}`,
+    `DESCRIPTION:${escapeICalText(description)}`,
+    `URL:${spaceUrl}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+
+  return `${lines.map(foldICalLine).join("\r\n")}\r\n`;
+}
+
+export function getSpaceCalendarFilename(id: string): string {
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
+  return `juke-space-${safeId || "scheduled-space"}.ics`;
 }
 
 /**

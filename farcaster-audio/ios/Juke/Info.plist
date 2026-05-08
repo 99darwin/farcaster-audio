@@ -48,12 +48,22 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Not used in this app</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Add scheduled Juke spaces to your calendar</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Add scheduled Juke spaces to your calendar</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>Add scheduled Juke spaces to your calendar</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Required to speak in audio spaces and record voice notes</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach photos to your casts</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Allow Juke to check reminders permissions required by the calendar module</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Allow Juke to check reminders permissions required by the calendar module</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

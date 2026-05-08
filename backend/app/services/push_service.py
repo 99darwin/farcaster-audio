@@ -5,19 +5,24 @@ and Expo push delivery.
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
+from typing import Literal
 from urllib.parse import urlparse
 
 import httpx
 import redis.asyncio as aioredis
-from sqlalchemy import select, update
+from sqlalchemy import distinct, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.device_token import DeviceToken
+from app.models.miniapp_notification import MiniAppNotification
 from app.models.notification_preference import NotificationPreference
-from app.schemas.push import NotificationPreferencesResponse
+from app.models.room import Room
+from app.models.room_rsvp import RoomRsvp
+from app.schemas.push import NotificationPreferencesResponse, RoomLiveNotifyResponse
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +44,14 @@ def _preview(text: str, max_len: int = 140) -> str:
 
 PFP_CACHE_PREFIX = "push:pfp:"
 PFP_CACHE_TTL = 86400  # 24h, including null sentinel for users without a PFP
+SPACE_LIVE_IDEMPOTENCY_PREFIX = "push:space_live:"
+SPACE_LIVE_IDEMPOTENCY_TTL = 60 * 60 * 24 * 30
+JUKE_WEB_BASE_URL = "https://juke.audio"
+MINIAPP_NOTIFICATION_HOSTS = {
+    "api.warpcast.com",
+    "api.warpcast.xyz",
+    "notifs.warpcast.com",
+}
 
 
 def _is_safe_image_url(url: str | None) -> bool:
@@ -76,6 +89,18 @@ def _is_safe_image_url(url: str | None) -> bool:
         if len(parts) >= 2 and parts[1].isdigit() and 16 <= int(parts[1]) <= 31:
             return False
     return True
+
+
+def _is_safe_miniapp_notification_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and parsed.hostname in MINIAPP_NOTIFICATION_HOSTS
+
+
+def _redis_bool(value) -> bool:
+    return value in (True, 1, b"1", "1")
 
 
 class PushService:
@@ -308,6 +333,7 @@ class PushService:
             "space_started": prefs.space_started_enabled,
             "space_invited": prefs.space_invited_enabled,
             "hand_raised": prefs.hand_raised_enabled,
+            "miniapp": prefs.miniapp_enabled,
         }
         return field_map.get(notification_type, False)
 
@@ -386,6 +412,279 @@ class PushService:
 
         except Exception as e:
             logger.error("Failed to send push notification to fid=%s: %s", fid, e)
+
+    async def _send_miniapp_notification(
+        self,
+        fid: int,
+        title: str,
+        body: str,
+        target_url: str,
+        notification_id: str,
+    ) -> bool:
+        result = await self.db.execute(
+            select(MiniAppNotification).where(
+                MiniAppNotification.fid == fid,
+                MiniAppNotification.is_active.is_(True),
+            )
+        )
+        registration = result.scalar_one_or_none()
+        if not registration:
+            return False
+        if not _is_safe_miniapp_notification_url(registration.notification_url):
+            logger.warning(
+                "Deactivating unsafe miniapp notification URL for fid=%s", fid
+            )
+            registration.is_active = False
+            await self.db.commit()
+            return False
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    registration.notification_url,
+                    json={
+                        "notificationId": notification_id,
+                        "title": title,
+                        "body": body,
+                        "targetUrl": target_url,
+                        "tokens": [registration.notification_token],
+                    },
+                    headers={
+                        "Authorization": f"Bearer {registration.notification_token}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=10.0,
+                )
+                if resp.status_code in (400, 404, 410):
+                    logger.info(
+                        "Deactivating invalid miniapp notification for fid=%s status=%s",
+                        fid,
+                        resp.status_code,
+                    )
+                    registration.is_active = False
+                    await self.db.commit()
+                    return False
+                resp.raise_for_status()
+                return True
+        except Exception as e:
+            logger.error("Failed to send miniapp notification to fid=%s: %s", fid, e)
+            return False
+
+    async def _has_native_target(self, fid: int) -> bool:
+        result = await self.db.execute(
+            select(DeviceToken.id)
+            .where(DeviceToken.fid == fid, DeviceToken.is_active.is_(True))
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def _has_miniapp_target(self, fid: int) -> bool:
+        result = await self.db.execute(
+            select(MiniAppNotification.id)
+            .where(
+                MiniAppNotification.fid == fid,
+                MiniAppNotification.is_active.is_(True),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def _mark_delivery_once(
+        self, room_id: str, campaign: str, fid: int
+    ) -> bool:
+        key = f"{SPACE_LIVE_IDEMPOTENCY_PREFIX}{campaign}:{room_id}"
+        try:
+            added = _redis_bool(await self.redis.sadd(key, str(fid)))
+            if added:
+                await self.redis.expire(key, SPACE_LIVE_IDEMPOTENCY_TTL)
+            return added
+        except Exception as e:
+            logger.warning(
+                "Space live idempotency check failed room_id=%s campaign=%s fid=%s: %s",
+                room_id,
+                campaign,
+                fid,
+                e,
+            )
+            return True
+
+    async def _active_reachable_fids(self) -> list[int]:
+        native_result = await self.db.execute(
+            select(distinct(DeviceToken.fid)).where(DeviceToken.is_active.is_(True))
+        )
+        miniapp_result = await self.db.execute(
+            select(distinct(MiniAppNotification.fid)).where(
+                MiniAppNotification.is_active.is_(True)
+            )
+        )
+        fids = {int(row[0]) for row in native_result.all()}
+        fids.update(int(row[0]) for row in miniapp_result.all())
+        return sorted(fids)
+
+    async def _rsvp_fids(self, room_uuid) -> list[int]:
+        result = await self.db.execute(
+            select(RoomRsvp.fid).where(RoomRsvp.room_id == room_uuid)
+        )
+        return [int(row[0]) for row in result.all()]
+
+    async def notify_space_started_rsvps(
+        self,
+        room_id: str,
+        room_uuid,
+        title: str,
+        host_fid: int,
+    ) -> RoomLiveNotifyResponse:
+        """Send regular go-live notifications to RSVP'd users.
+
+        This path respects ``space_started_enabled`` and skips the host. It sends
+        both native and miniapp channels when the user has active registrations.
+        """
+        return await self._notify_room_live(
+            room_id=room_id,
+            room_uuid=room_uuid,
+            title=title,
+            host_fid=host_fid,
+            target="rsvps",
+            dry_run=False,
+            campaign="space_started_rsvp",
+            bypass_preferences=False,
+        )
+
+    async def admin_notify_room_live(
+        self,
+        room_id: str,
+        target: Literal["rsvps", "all_active"],
+        dry_run: bool,
+    ) -> RoomLiveNotifyResponse:
+        """Admin-triggered live-room broadcast.
+
+        ``all_active`` intentionally bypasses ``space_started_enabled`` for the
+        current low-user-count phase and sends to every active native/miniapp
+        notification target.
+        """
+        try:
+            room_uuid = uuid.UUID(room_id)
+        except ValueError:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Room not found")
+
+        result = await self.db.execute(select(Room).where(Room.id == room_uuid))
+        room = result.scalar_one_or_none()
+        if room is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Room not found")
+        if room.status != "active":
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=400, detail="Room must be active")
+
+        campaign = f"admin_live_{target}"
+        bypass_preferences = target == "all_active"
+        if bypass_preferences:
+            logger.info(
+                "Admin live-room broadcast bypassing space_started_enabled "
+                "room_id=%s target=%s dry_run=%s",
+                room_id,
+                target,
+                dry_run,
+            )
+
+        return await self._notify_room_live(
+            room_id=room_id,
+            room_uuid=room.id,
+            title=room.title,
+            host_fid=room.host_fid,
+            target=target,
+            dry_run=dry_run,
+            campaign=campaign,
+            bypass_preferences=bypass_preferences,
+        )
+
+    async def _notify_room_live(
+        self,
+        room_id: str,
+        room_uuid,
+        title: str,
+        host_fid: int,
+        target: Literal["rsvps", "all_active"],
+        dry_run: bool,
+        campaign: str,
+        bypass_preferences: bool,
+    ) -> RoomLiveNotifyResponse:
+        if target == "all_active":
+            candidate_fids = await self._active_reachable_fids()
+        else:
+            candidate_fids = await self._rsvp_fids(room_uuid)
+
+        summary = RoomLiveNotifyResponse(
+            room_id=room_id,
+            target=target,
+            dry_run=dry_run,
+            campaign=campaign,
+            users_considered=len(candidate_fids),
+            users_eligible=0,
+            users_sent=0,
+            preference_bypass=bypass_preferences,
+        )
+        message_title = "Space is Live"
+        message_body = f'"{title}" is now live — join now!'
+        data = {"type": "space_live", "url": f"/space/{room_id}"}
+
+        for target_fid in candidate_fids:
+            if target != "all_active" and target_fid == host_fid:
+                summary.users_skipped_self += 1
+                continue
+            if not bypass_preferences and not await self.is_enabled(
+                target_fid, "space_started"
+            ):
+                summary.users_skipped_preferences += 1
+                continue
+
+            has_native = await self._has_native_target(target_fid)
+            has_miniapp = await self._has_miniapp_target(target_fid)
+            if (
+                has_miniapp
+                and not bypass_preferences
+                and not await self.is_enabled(target_fid, "miniapp")
+            ):
+                has_miniapp = False
+            if not has_native and not has_miniapp:
+                continue
+
+            summary.users_eligible += 1
+            if dry_run:
+                summary.native_targets += 1 if has_native else 0
+                summary.miniapp_targets += 1 if has_miniapp else 0
+                continue
+            if not await self._mark_delivery_once(room_id, campaign, target_fid):
+                summary.users_skipped_idempotent += 1
+                continue
+
+            sent_any = False
+            if has_native:
+                await self.send_push(
+                    fid=target_fid,
+                    title=message_title,
+                    body=message_body,
+                    data=data,
+                )
+                summary.native_targets += 1
+                sent_any = True
+            if has_miniapp:
+                sent_any = await self._send_miniapp_notification(
+                    fid=target_fid,
+                    title=message_title,
+                    body=message_body,
+                    target_url=f"{JUKE_WEB_BASE_URL}/space/{room_id}",
+                    notification_id=f"{campaign}:{room_id}:{target_fid}",
+                ) or sent_any
+                summary.miniapp_targets += 1
+            if sent_any:
+                summary.users_sent += 1
+
+        return summary
 
     # ------------------------------------------------------------------
     # Neynar webhook event handling

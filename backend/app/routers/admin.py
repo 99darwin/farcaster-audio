@@ -20,8 +20,10 @@ from app.config import settings
 from app.dependencies import get_db, get_redis
 from app.middleware.auth import get_admin_user
 from app.schemas.common import StatusResponse
+from app.schemas.push import RoomLiveNotifyRequest, RoomLiveNotifyResponse
 from app.schemas.room import RoomListResponse
 from app.services.livekit_service import LiveKitService
+from app.services.push_service import PushService
 from app.services.recording_cleanup import cleanup_expired_recordings
 from app.services.redis_service import RedisService
 from app.services.room_service import RoomService
@@ -41,6 +43,13 @@ async def get_room_service(
         yield RoomService(db, redis_service, livekit_service)
     finally:
         await livekit_service.close()
+
+
+def get_push_service(
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> PushService:
+    return PushService(db, redis)
 
 
 @router.get("/rooms", response_model=RoomListResponse)
@@ -74,6 +83,21 @@ async def force_kick_participant(
     """Force-kick a participant from any room (admin only)."""
     await room_service.admin_kick_participant(room_id, fid, admin_fid)
     return StatusResponse(status="kicked")
+
+
+@router.post("/rooms/{room_id}/notify-live", response_model=RoomLiveNotifyResponse)
+async def notify_live_room(
+    room_id: str,
+    body: RoomLiveNotifyRequest,
+    _admin_fid: int = Depends(get_admin_user),
+    push_service: PushService = Depends(get_push_service),
+) -> RoomLiveNotifyResponse:
+    """Send or dry-run an admin go-live push campaign for an active room."""
+    return await push_service.admin_notify_room_live(
+        room_id=room_id,
+        target=body.target,
+        dry_run=body.dry_run,
+    )
 
 
 NEYNAR_BASE = "https://api.neynar.com/v2"

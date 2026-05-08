@@ -66,6 +66,26 @@ def _neynar_headers() -> dict[str, str]:
     }
 
 
+def _build_voice_note_cast_payload(
+    *,
+    signer_uuid: str,
+    text: str,
+    embed_url: str,
+    parent_cast_hash: str | None,
+    channel_id: str | None,
+) -> dict:
+    payload: dict = {
+        "signer_uuid": signer_uuid,
+        "text": text,
+        "embeds": [{"url": embed_url}],
+    }
+    if parent_cast_hash:
+        payload["parent"] = parent_cast_hash
+    elif channel_id:
+        payload["channel_id"] = channel_id
+    return payload
+
+
 async def _get_signer_uuid(db: AsyncSession, fid: int) -> str:
     result = await db.execute(select(User.signer_uuid).where(User.fid == fid))
     signer_uuid = result.scalar_one_or_none()
@@ -182,6 +202,9 @@ async def create_voice_note(
     if not upload_meta_raw:
         raise HTTPException(status_code=400, detail="Invalid or expired upload_id")
 
+    if body.post_to_farcaster and body.parent_cast_hash and body.channel_id:
+        raise HTTPException(status_code=400, detail="Replies cannot target a channel")
+
     upload_meta = json.loads(upload_meta_raw)
     if upload_meta["fid"] != current_user:
         raise HTTPException(status_code=403, detail="Upload does not belong to this user")
@@ -231,13 +254,13 @@ async def create_voice_note(
 
             cast_text = body.cast_text or ""
             embed_url = f"https://juke.audio/v/{vn.id}"
-            payload: dict = {
-                "signer_uuid": signer_uuid,
-                "text": cast_text,
-                "embeds": [{"url": embed_url}],
-            }
-            if body.parent_cast_hash:
-                payload["parent"] = body.parent_cast_hash
+            payload = _build_voice_note_cast_payload(
+                signer_uuid=signer_uuid,
+                text=cast_text,
+                embed_url=embed_url,
+                parent_cast_hash=body.parent_cast_hash,
+                channel_id=body.channel_id,
+            )
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     f"{NEYNAR_BASE}/farcaster/cast",
