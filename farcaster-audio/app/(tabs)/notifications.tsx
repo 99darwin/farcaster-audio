@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef, useState } from "react";
 import { View, FlatList, Text, ActivityIndicator } from "react-native";
 import { useNavigation } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { NotificationItem } from "@/components/notifications/NotificationItem";
@@ -29,6 +30,7 @@ export default function NotificationsScreen() {
   } = useNotifications();
 
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const [lastSeenTs, setLastSeenTs] = useState<string | null>(null);
   const hasFetched = useRef(false);
 
@@ -75,6 +77,19 @@ export default function NotificationsScreen() {
     });
     return unsubscribe;
   }, [navigation, markAsRead]);
+
+  // Refresh when the already-focused notifications tab is tapped again.
+  useEffect(() => {
+    const tabNavigation = navigation as typeof navigation & {
+      addListener(type: "tabPress", listener: () => void): () => void;
+    };
+    const unsubscribe = tabNavigation.addListener("tabPress", () => {
+      if (isFocused) {
+        refresh();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, isFocused, refresh]);
 
   // Also mark as read after initial data load (focus fires before fetch completes)
   const hasNotifications = notifications.length > 0;

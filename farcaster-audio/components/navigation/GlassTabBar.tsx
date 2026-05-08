@@ -6,6 +6,7 @@ import { useNotificationStore } from "@/stores/notificationStore";
 import { GlassView } from "@/components/common/GlassView";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
+import { haptic } from "@/utils/haptics";
 
 export const TAB_BAR_TOTAL_HEIGHT = 60;
 
@@ -29,6 +30,10 @@ export function GlassTabBar({
     const isHome = route.name === "index";
 
     const onPress = () => {
+      if (route.name === "index" || route.name === "notifications") {
+        haptic.selection();
+      }
+
       const event = navigation.emit({
         type: "tabPress",
         target: route.key,
