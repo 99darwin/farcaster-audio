@@ -2,7 +2,6 @@ import { useState, useCallback } from "react";
 import {
   View,
   Text,
-  StyleSheet,
   Alert,
   Pressable,
   Modal,
@@ -15,7 +14,7 @@ import * as Haptics from "expo-haptics";
 import { useAuth } from "@/hooks/useAuth";
 import * as api from "@/services/api";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 // Injected into the WebView before Neynar's page loads:
 // 1. Spoof document.referrer so Neynar's page accepts the WebView context
@@ -55,6 +54,7 @@ true;
 
 export function SignInButton() {
   const { login } = useAuth();
+  const styles = useStyles();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
@@ -186,48 +186,49 @@ export function SignInButton() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loadingContainer: {
-    padding: 20,
-    alignItems: "center",
-  },
-  button: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: 48,
-    paddingHorizontal: 24,
-    borderRadius: 20,
-    backgroundColor: colors.purple,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text.primary,
-  },
-  modalContainer: {
-    flex: 1,
-  },
-  closeButtonContainer: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
-    paddingHorizontal: 10,
-    paddingTop: 15,
-  },
-  closeButton: {
-    borderWidth: 1,
-    borderColor: colors.purple,
-    borderRadius: 10,
-    padding: 8,
-    backgroundColor: colors.background.surface,
-  },
-  closeButtonText: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: colors.purple,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    loadingContainer: {
+      padding: 20,
+      alignItems: "center",
+    },
+    button: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      height: 48,
+      paddingHorizontal: 24,
+      borderRadius: 20,
+      backgroundColor: colors.purple,
+    },
+    buttonText: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: colors.text.primary,
+    },
+    modalContainer: {
+      flex: 1,
+    },
+    closeButtonContainer: {
+      flexDirection: "row",
+      justifyContent: "flex-start",
+      paddingHorizontal: 10,
+      paddingTop: 15,
+    },
+    closeButton: {
+      borderWidth: 1,
+      borderColor: colors.purple,
+      borderRadius: 10,
+      padding: 8,
+      backgroundColor: colors.background.surface,
+    },
+    closeButtonText: {
+      fontSize: 12,
+      fontWeight: "bold",
+      color: colors.purple,
+    },
+  }));

@@ -1,9 +1,9 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import type { ReactNode } from "react";
 import type { SnapElement } from "@/types/snap";
 import { useSnapContext, MAX_RENDER_DEPTH } from "./context";
 import { isKnownElement } from "@/services/snapClient";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 import { SnapText } from "./components/Text";
 import { SnapBadge } from "./components/Badge";
@@ -23,6 +23,7 @@ import { SnapSwitch } from "./components/Switch";
 import { SnapToggleGroup } from "./components/ToggleGroup";
 
 function Placeholder({ label }: { label: string }) {
+  const styles = usePlaceholderStyles();
   return (
     <View style={styles.placeholder}>
       <Text style={styles.placeholderText}>Unsupported: {label}</Text>
@@ -115,18 +116,19 @@ export function SnapRenderer({ rootId, depth = 0 }: SnapRendererProps) {
   return <>{renderElement(element, depth, rootId)}</>;
 }
 
-const styles = StyleSheet.create({
-  placeholder: {
-    borderWidth: 1,
-    borderColor: colors.background.border,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    backgroundColor: colors.background.surface,
-  },
-  placeholderText: {
-    color: colors.text.secondary,
-    fontSize: 11,
-    fontStyle: "italic",
-  },
-});
+const usePlaceholderStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    placeholder: {
+      borderWidth: 1,
+      borderColor: colors.background.border,
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      backgroundColor: colors.background.surface,
+    },
+    placeholderText: {
+      color: colors.text.secondary,
+      fontSize: 11,
+      fontStyle: "italic" as const,
+    },
+  }));

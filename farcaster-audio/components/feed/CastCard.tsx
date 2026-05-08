@@ -16,7 +16,8 @@ import { CastText } from "@/components/feed/CastText";
 import { OgPreview } from "@/components/feed/OgPreview";
 import { MediaViewer } from "@/components/common/ImageViewer";
 import { VideoPlayer } from "@/components/feed/VideoPlayer";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { getUserByUsername } from "@/services/api";
 import type { NeynarCast, NeynarChannel, NeynarEmbed } from "@/types/neynar";
 
@@ -73,6 +74,8 @@ function EmbedImage({
   style: any;
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [hasError, setHasError] = useState(false);
 
   if (hasError) {
@@ -114,6 +117,7 @@ function CastImages({
     [embeds],
   );
   const imageUrls = useMemo(() => images.map((e) => e.url!), [images]);
+  const styles = useStyles();
   const [activeIndex, setActiveIndex] = useState(0);
   const { width: screenWidth } = useWindowDimensions();
   // Account for container padding (16) + avatar (40) + gap (12) + right padding (16)
@@ -200,6 +204,8 @@ function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
 }
 
 function ChannelAttribution({ channel }: { channel: NeynarChannel }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const router = useRouter();
   const label = `/${channel.id}`;
 
@@ -233,6 +239,7 @@ function QuoteCast({
   cast: NeynarCast;
   onPress?: () => void;
 }) {
+  const styles = useStyles();
   if (!cast?.author) return null;
   const content = (
     <View style={styles.quoteContainer}>
@@ -280,6 +287,7 @@ function CastBody({
   onMentionPress?: (username: string) => void;
   hiddenUrls?: Set<string>;
 }) {
+  const styles = useStyles();
   const [isExpanded, setIsExpanded] = useState(false);
   const shouldTruncate =
     !expanded && !isExpanded && text.length > TRUNCATE_LENGTH;
@@ -314,6 +322,8 @@ function CastCardImpl({
   threaded,
   hideThreadLine,
 }: CastCardProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const router = useRouter();
   const isLiked = useMemo(
     () =>
@@ -486,158 +496,159 @@ function CastCardImpl({
 
 export const CastCard = memo(CastCardImpl);
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-    gap: 12,
-  },
-  content: {
-    flex: 1,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 4,
-  },
-  header: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  displayName: {
-    color: colors.text.primary,
-    fontWeight: "600",
-    fontSize: 15,
-    flexShrink: 1,
-  },
-  username: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    flexShrink: 1,
-  },
-  dot: {
-    color: colors.text.secondary,
-    fontSize: 14,
-  },
-  timestamp: {
-    color: colors.text.secondary,
-    fontSize: 14,
-  },
-  channelChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    maxWidth: 112,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.purple,
-    backgroundColor: "rgba(139, 92, 246, 0.12)",
-  },
-  channelAvatar: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: colors.background.subtle,
-  },
-  channelChipText: {
-    color: colors.text.primary,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  text: {
-    color: colors.text.body,
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  readMore: {
-    color: colors.purple,
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  // Image styles
-  imageContainer: {
-    marginTop: 8,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  singleImage: {
-    width: "100%",
-    borderRadius: 12,
-  },
-  dotRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 5,
-    marginTop: 8,
-  },
-  carouselDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.text.secondary,
-    opacity: 0.4,
-  },
-  carouselDotActive: {
-    opacity: 1,
-    backgroundColor: colors.purple,
-  },
-  imageFallback: {
-    backgroundColor: colors.background.border,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  // Threaded reply styles
-  threadedContainer: {
-    paddingLeft: 52,
-  },
-  threadLine: {
-    position: "absolute",
-    left: 35,
-    top: 0,
-    bottom: 0,
-    width: 2,
-    backgroundColor: colors.background.border,
-  },
-  // Quote cast styles
-  quoteContainer: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-    borderRadius: 12,
-    padding: 12,
-  },
-  quoteHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 4,
-  },
-  quoteAvatar: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-  },
-  quoteDisplayName: {
-    color: colors.text.primary,
-    fontWeight: "600",
-    fontSize: 13,
-    flexShrink: 1,
-  },
-  quoteUsername: {
-    color: colors.text.secondary,
-    fontSize: 13,
-  },
-  quoteText: {
-    color: colors.text.body,
-    fontSize: 14,
-    lineHeight: 19,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flexDirection: "row" as const,
+      padding: 16,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+      gap: 12,
+    },
+    content: {
+      flex: 1,
+    },
+    headerRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 8,
+      marginBottom: 4,
+    },
+    header: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 4,
+    },
+    displayName: {
+      color: colors.text.primary,
+      fontWeight: "600" as const,
+      fontSize: 15,
+      flexShrink: 1,
+    },
+    username: {
+      color: colors.text.secondary,
+      fontSize: 14,
+      flexShrink: 1,
+    },
+    dot: {
+      color: colors.text.secondary,
+      fontSize: 14,
+    },
+    timestamp: {
+      color: colors.text.secondary,
+      fontSize: 14,
+    },
+    channelChip: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 4,
+      maxWidth: 112,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.purple,
+      backgroundColor: "rgba(139, 92, 246, 0.12)",
+    },
+    channelAvatar: {
+      width: 14,
+      height: 14,
+      borderRadius: 7,
+      backgroundColor: colors.background.subtle,
+    },
+    channelChipText: {
+      color: colors.text.primary,
+      fontSize: 12,
+      fontWeight: "600" as const,
+    },
+    text: {
+      color: colors.text.body,
+      fontSize: 15,
+      lineHeight: 21,
+    },
+    readMore: {
+      color: colors.purple,
+      fontSize: 15,
+      lineHeight: 21,
+    },
+    // Image styles
+    imageContainer: {
+      marginTop: 8,
+      borderRadius: 12,
+      overflow: "hidden" as const,
+    },
+    singleImage: {
+      width: "100%" as const,
+      borderRadius: 12,
+    },
+    dotRow: {
+      flexDirection: "row" as const,
+      justifyContent: "center" as const,
+      gap: 5,
+      marginTop: 8,
+    },
+    carouselDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.text.secondary,
+      opacity: 0.4,
+    },
+    carouselDotActive: {
+      opacity: 1,
+      backgroundColor: colors.purple,
+    },
+    imageFallback: {
+      backgroundColor: colors.background.border,
+      justifyContent: "center" as const,
+      alignItems: "center" as const,
+    },
+    // Threaded reply styles
+    threadedContainer: {
+      paddingLeft: 52,
+    },
+    threadLine: {
+      position: "absolute" as const,
+      left: 35,
+      top: 0,
+      bottom: 0,
+      width: 2,
+      backgroundColor: colors.background.border,
+    },
+    // Quote cast styles
+    quoteContainer: {
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+      borderRadius: 12,
+      padding: 12,
+    },
+    quoteHeader: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 6,
+      marginBottom: 4,
+    },
+    quoteAvatar: {
+      width: 16,
+      height: 16,
+      borderRadius: 8,
+    },
+    quoteDisplayName: {
+      color: colors.text.primary,
+      fontWeight: "600" as const,
+      fontSize: 13,
+      flexShrink: 1,
+    },
+    quoteUsername: {
+      color: colors.text.secondary,
+      fontSize: 13,
+    },
+    quoteText: {
+      color: colors.text.body,
+      fontSize: 14,
+      lineHeight: 19,
+    },
+  }));

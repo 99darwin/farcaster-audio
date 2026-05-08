@@ -1,12 +1,7 @@
-import {
-  View,
-  Text,
-  Pressable,
-  ActivityIndicator,
-  StyleSheet,
-} from "react-native";
+import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface UpdateBannerProps {
   isRestarting: boolean;
@@ -19,6 +14,9 @@ export function UpdateBanner({
   onUpdate,
   onDismiss,
 }: UpdateBannerProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+
   return (
     <View style={styles.container}>
       <View style={styles.content}>
@@ -51,40 +49,41 @@ export function UpdateBanner({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.purple,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  content: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
-  },
-  text: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  actions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  updateButton: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    borderRadius: 14,
-  },
-  updateText: {
-    color: colors.text.primary,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors, glass }) => ({
+    container: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: colors.purple,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    content: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      flex: 1,
+    },
+    text: {
+      color: colors.text.primary,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    actions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    updateButton: {
+      backgroundColor: glass.accentOverlay,
+      paddingHorizontal: 14,
+      paddingVertical: 5,
+      borderRadius: 14,
+    },
+    updateText: {
+      color: colors.text.primary,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+  }));

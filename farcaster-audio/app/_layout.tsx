@@ -23,7 +23,7 @@ import { UpdateBanner } from "@/components/common/UpdateBanner";
 import { useOTAUpdate } from "@/hooks/useOTAUpdate";
 import { useNotificationBadge } from "@/hooks/useNotificationBadge";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import Toast, { type ToastConfig } from "react-native-toast-message";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { ViewCastToast } from "@/components/common/ViewCastToast";
@@ -57,6 +57,7 @@ export default function RootLayout() {
     useOTAUpdate();
   const hydrateAddedMiniApps = useMiniAppStore((s) => s.hydrateAddedMiniApps);
   const loadPrefs = usePrefsStore((s) => s.loadPrefs);
+  const { scheme, colors } = useTheme();
 
   useNotificationBadge();
   usePushNotifications();
@@ -204,7 +205,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
+      <StatusBar style={scheme === "light" ? "dark" : "light"} />
       <GestureHandlerRootView style={styles.container}>
         <Stack
           screenOptions={{
@@ -223,6 +224,10 @@ export default function RootLayout() {
           <Stack.Screen
             name="notification-settings"
             options={{ title: "Notifications", presentation: "modal" }}
+          />
+          <Stack.Screen
+            name="appearance-settings"
+            options={{ title: "Appearance", presentation: "modal" }}
           />
           <Stack.Screen
             name="admin"

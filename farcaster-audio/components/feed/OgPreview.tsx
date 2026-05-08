@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, Linking, StyleSheet } from "react-native";
+import { View, Text, Pressable, Linking } from "react-native";
 import { Image } from "expo-image";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { useMiniAppStore } from "@/stores/miniappStore";
 import { resolveMiniApp } from "@/services/manifest";
 import { fetchSnap, getCachedSnap } from "@/services/snapClient";
@@ -133,7 +133,8 @@ function getDomain(url: string): string {
 }
 
 /** Match juke.audio/v/{uuid} URLs — these are our own voice note embeds */
-const JUKE_VN_PATTERN = /^https?:\/\/(?:www\.)?juke\.audio\/v\/([0-9a-f-]{36})$/i;
+const JUKE_VN_PATTERN =
+  /^https?:\/\/(?:www\.)?juke\.audio\/v\/([0-9a-f-]{36})$/i;
 
 function getJukeVoiceNoteId(url: string): string | null {
   const match = url.match(JUKE_VN_PATTERN);
@@ -186,6 +187,7 @@ interface OgPreviewProps {
 }
 
 export function OgPreview({ embed, castContext }: OgPreviewProps) {
+  const styles = useStyles();
   const url = embed.url;
   const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
 
@@ -360,113 +362,114 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  ogImage: {
-    width: "100%",
-    aspectRatio: 1.91,
-  },
-  textContainer: {
-    padding: 10,
-    gap: 2,
-  },
-  domain: {
-    color: colors.text.secondary,
-    fontSize: 12,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  description: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  // X/Twitter styles
-  twitterContainer: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-    borderRadius: 12,
-    padding: 12,
-  },
-  twitterHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  twitterHandle: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  twitterText: {
-    color: colors.text.body,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  twitterLogo: {
-    fontSize: 18,
-    color: colors.text.primary,
-    fontWeight: "700",
-  },
-  twitterDomain: {
-    color: colors.text.secondary,
-    fontSize: 12,
-    marginTop: 8,
-  },
-  // Native voice note embed
-  voiceNoteEmbed: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-    borderRadius: 12,
-    padding: 12,
-    overflow: "hidden",
-  },
-  // Mini-app styles
-  miniAppContainer: {
-    marginTop: 8,
-    borderRadius: 12,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  miniAppImage: {
-    width: "100%",
-    aspectRatio: 1.91,
-  },
-  miniAppLabel: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 10,
-  },
-  miniAppTitle: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: "600",
-    flex: 1,
-    marginRight: 8,
-  },
-  miniAppBadge: {
-    color: colors.purple,
-    fontSize: 11,
-    fontWeight: "600",
-    borderWidth: 1,
-    borderColor: colors.purple,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    overflow: "hidden",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+      borderRadius: 12,
+      overflow: "hidden" as const,
+    },
+    ogImage: {
+      width: "100%" as const,
+      aspectRatio: 1.91,
+    },
+    textContainer: {
+      padding: 10,
+      gap: 2,
+    },
+    domain: {
+      color: colors.text.secondary,
+      fontSize: 12,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: 14,
+      fontWeight: "600" as const,
+    },
+    description: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    // X/Twitter styles
+    twitterContainer: {
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+      borderRadius: 12,
+      padding: 12,
+    },
+    twitterHeader: {
+      flexDirection: "row" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "center" as const,
+      marginBottom: 4,
+    },
+    twitterHandle: {
+      color: colors.text.primary,
+      fontSize: 14,
+      fontWeight: "600" as const,
+    },
+    twitterText: {
+      color: colors.text.body,
+      fontSize: 14,
+      lineHeight: 20,
+    },
+    twitterLogo: {
+      fontSize: 18,
+      color: colors.text.primary,
+      fontWeight: "700" as const,
+    },
+    twitterDomain: {
+      color: colors.text.secondary,
+      fontSize: 12,
+      marginTop: 8,
+    },
+    // Native voice note embed
+    voiceNoteEmbed: {
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+      borderRadius: 12,
+      padding: 12,
+      overflow: "hidden" as const,
+    },
+    // Mini-app styles
+    miniAppContainer: {
+      marginTop: 8,
+      borderRadius: 12,
+      overflow: "hidden" as const,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    miniAppImage: {
+      width: "100%" as const,
+      aspectRatio: 1.91,
+    },
+    miniAppLabel: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      padding: 10,
+    },
+    miniAppTitle: {
+      color: colors.text.primary,
+      fontSize: 14,
+      fontWeight: "600" as const,
+      flex: 1,
+      marginRight: 8,
+    },
+    miniAppBadge: {
+      color: colors.purple,
+      fontSize: 11,
+      fontWeight: "600" as const,
+      borderWidth: 1,
+      borderColor: colors.purple,
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      overflow: "hidden" as const,
+    },
+  }));

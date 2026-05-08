@@ -2,7 +2,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import Toast from "react-native-toast-message";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface ViewCastToastProps {
   hash: string;
@@ -18,6 +19,8 @@ const isValidCastHash = (hash: string): boolean =>
 
 export function ViewCastToast({ props }: { props: ViewCastToastProps }) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { hash, parentHash } = props;
 
   const handleView = () => {
@@ -64,45 +67,46 @@ export function ViewCastToast({ props }: { props: ViewCastToastProps }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.background.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.background.border,
-    borderRadius: 999,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginHorizontal: 16,
-    gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  left: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 1,
-  },
-  label: {
-    color: colors.text.primary,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  viewButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.purple,
-  },
-  viewText: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: colors.background.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.background.border,
+      borderRadius: 999,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      marginHorizontal: 16,
+      gap: 12,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 12,
+      elevation: 6,
+    },
+    left: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      flexShrink: 1,
+    },
+    label: {
+      color: colors.text.primary,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    viewButton: {
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: colors.purple,
+    },
+    viewText: {
+      color: colors.text.primary,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+  }));

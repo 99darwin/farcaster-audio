@@ -1,5 +1,5 @@
 import { View, StyleSheet, type ViewStyle, type StyleProp } from "react-native";
-import { glass } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 interface GlassViewProps {
   children: React.ReactNode;
@@ -7,13 +7,11 @@ interface GlassViewProps {
   overlayColor?: string;
 }
 
-export function GlassView({
-  children,
-  style,
-  overlayColor = glass.overlayColor,
-}: GlassViewProps) {
+export function GlassView({ children, style, overlayColor }: GlassViewProps) {
+  const { glass } = useTheme();
   const flatStyle = StyleSheet.flatten(style) as ViewStyle | undefined;
   const borderRadius = flatStyle?.borderRadius;
+  const resolvedOverlay = overlayColor ?? glass.overlayColor;
 
   return (
     <View
@@ -33,7 +31,7 @@ export function GlassView({
           {
             overflow: "hidden",
             borderRadius,
-            backgroundColor: overlayColor,
+            backgroundColor: resolvedOverlay,
             borderWidth: 1,
             borderColor: glass.borderColor,
           },

@@ -1,4 +1,48 @@
-export const colors = {
+export type ColorScheme = "light" | "dark";
+
+export interface ThemeColors {
+  background: {
+    main: string;
+    surface: string;
+    border: string;
+    subtle: string;
+  };
+  text: {
+    primary: string;
+    body: string;
+    secondary: string;
+    placeholder: string;
+    light: string;
+  };
+  accent: string;
+  purple: string;
+  danger: string;
+  error: string;
+  live: string;
+  success: string;
+  warning: string;
+  info: string;
+}
+
+export interface ThemeGlass {
+  blurIntensity: number;
+  tint: "light" | "dark" | "default";
+  overlayColor: string;
+  accentOverlay: string;
+  dangerOverlay: string;
+  mutedOverlay: string;
+  borderColor: string;
+  shadow: {
+    color: string;
+    offset: { width: number; height: number };
+    opacity: number;
+    radius: number;
+  };
+  pillRadius: number;
+  capsuleRadius: number;
+}
+
+export const darkColors: ThemeColors = {
   background: {
     main: "#0f0f23",
     surface: "#1a1a2e",
@@ -20,7 +64,73 @@ export const colors = {
   success: "#22c55e",
   warning: "#fbbf24",
   info: "#3b82f6",
-} as const;
+};
+
+export const lightColors: ThemeColors = {
+  background: {
+    main: "#FFF8F0",
+    surface: "#FFFFFF",
+    border: "#E8DFD2",
+    subtle: "#F0E6D6",
+  },
+  text: {
+    primary: "#1A1F36",
+    body: "#2D3450",
+    secondary: "#6B7390",
+    placeholder: "#6B7390",
+    light: "#4A5070",
+  },
+  accent: "#B84A24",
+  purple: "#855DCD",
+  danger: "#B91C1C",
+  error: "#B91C1C",
+  live: "#DC2626",
+  success: "#15803D",
+  warning: "#B45309",
+  info: "#1D4ED8",
+};
+
+export const darkGlass: ThemeGlass = {
+  blurIntensity: 80,
+  tint: "dark",
+  overlayColor: "rgba(26, 26, 46, 0.45)",
+  accentOverlay: "rgba(133, 93, 205, 0.35)",
+  dangerOverlay: "rgba(220, 38, 38, 0.4)",
+  mutedOverlay: "rgba(216, 90, 48, 0.4)",
+  borderColor: "rgba(255, 255, 255, 0.12)",
+  shadow: {
+    color: "#000",
+    offset: { width: 0, height: 8 },
+    opacity: 0.35,
+    radius: 24,
+  },
+  pillRadius: 28,
+  capsuleRadius: 24,
+};
+
+export const lightGlass: ThemeGlass = {
+  blurIntensity: 60,
+  tint: "light",
+  overlayColor: "rgba(255, 248, 240, 0.65)",
+  accentOverlay: "rgba(133, 93, 205, 0.18)",
+  dangerOverlay: "rgba(185, 28, 28, 0.20)",
+  mutedOverlay: "rgba(216, 90, 48, 0.20)",
+  borderColor: "rgba(26, 31, 54, 0.10)",
+  shadow: {
+    color: "#1A1F36",
+    offset: { width: 0, height: 4 },
+    opacity: 0.08,
+    radius: 16,
+  },
+  pillRadius: 28,
+  capsuleRadius: 24,
+};
+
+export const getColors = (scheme: ColorScheme): ThemeColors =>
+  scheme === "light" ? lightColors : darkColors;
+
+export const getGlass = (scheme: ColorScheme): ThemeGlass =>
+  scheme === "light" ? lightGlass : darkGlass;
 
 export const spacing = {
   xs: 4,
@@ -67,29 +177,17 @@ export const touchTarget = {
   min: 44,
 } as const;
 
-export const glass = {
-  blurIntensity: 80,
-  tint: "dark" as const,
-  overlayColor: "rgba(26, 26, 46, 0.45)",
-  accentOverlay: "rgba(133, 93, 205, 0.35)",
-  dangerOverlay: "rgba(220, 38, 38, 0.4)",
-  mutedOverlay: "rgba(216, 90, 48, 0.4)",
-  borderColor: "rgba(255, 255, 255, 0.12)",
-  shadow: {
-    color: "#000",
-    offset: { width: 0, height: 8 },
-    opacity: 0.35,
-    radius: 24,
-  },
-  pillRadius: 28,
-  capsuleRadius: 24,
-} as const;
-
-export const theme = {
-  colors,
-  spacing,
-  radii,
-  typography,
-  touchTarget,
-  glass,
-} as const;
+/**
+ * Apply an alpha channel (0–1) to a hex color. Returns 8-digit hex.
+ * Throws if input isn't a 6-digit hex.
+ */
+export function withAlpha(hex: string, alpha: number): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    throw new Error(`withAlpha: expected 6-digit hex, got "${hex}"`);
+  }
+  const a = Math.max(0, Math.min(1, alpha));
+  const aHex = Math.round(a * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `${hex}${aHex}`;
+}

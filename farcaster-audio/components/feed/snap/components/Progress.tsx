@@ -1,11 +1,12 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import type { ProgressProps } from "@/types/snap";
 import { useSnapContext } from "../context";
 import { resolvePaletteColor } from "@/constants/snapPalette";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 export function SnapProgress({ props }: { props: ProgressProps }) {
   const { accent } = useSnapContext();
+  const styles = useStyles();
   const color = resolvePaletteColor("accent", accent);
   const max = props.max > 0 ? props.max : 1;
   const pct = Math.max(0, Math.min(1, props.value / max));
@@ -25,17 +26,18 @@ export function SnapProgress({ props }: { props: ProgressProps }) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: { gap: 4 },
-  label: { color: colors.text.secondary, fontSize: 12 },
-  track: {
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: colors.background.border,
-    overflow: "hidden",
-  },
-  fill: {
-    height: "100%",
-    borderRadius: 999,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    wrapper: { gap: 4 },
+    label: { color: colors.text.secondary, fontSize: 12 },
+    track: {
+      height: 6,
+      borderRadius: 999,
+      backgroundColor: colors.background.border,
+      overflow: "hidden" as const,
+    },
+    fill: {
+      height: "100%" as const,
+      borderRadius: 999,
+    },
+  }));

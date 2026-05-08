@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { CastCard } from "@/components/feed/CastCard";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
+import { withAlpha } from "@/constants/theme";
 import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
 
 const INDENT_PX = 28;
@@ -76,6 +77,8 @@ function ReplyNode({
   onCastPress: (hash: string) => void;
   focusHash?: string;
 }) {
+  const styles = useStyles();
+
   // L1: Recursion safety valve
   if (depth > MAX_RECURSION_DEPTH) return null;
 
@@ -193,6 +196,7 @@ export function ThreadedReplies({
   onCastPress,
   focusHash,
 }: ThreadedRepliesProps) {
+  const styles = useStyles();
   const [slopRevealed, setSlopRevealed] = useState(false);
 
   // Separate spam from non-spam replies
@@ -263,37 +267,38 @@ export function ThreadedReplies({
   );
 }
 
-const styles = StyleSheet.create({
-  unfurlButton: {
-    paddingVertical: 15,
-    minHeight: 44,
-  },
-  unfurlText: {
-    color: colors.purple,
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  focusHighlight: {
-    backgroundColor: colors.purple + "14",
-    borderLeftWidth: 2,
-    borderLeftColor: colors.purple,
-  },
-  slopBanner: {
-    paddingVertical: 12,
-    paddingLeft: 68,
-    minHeight: 44,
-  },
-  slopText: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    fontStyle: "italic",
-  },
-  slopSection: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-    marginTop: 4,
-  },
-  slopMuted: {
-    opacity: 0.5,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    unfurlButton: {
+      paddingVertical: 15,
+      minHeight: 44,
+    },
+    unfurlText: {
+      color: colors.purple,
+      fontSize: 14,
+      fontWeight: "500" as const,
+    },
+    focusHighlight: {
+      backgroundColor: withAlpha(colors.purple, 0.08),
+      borderLeftWidth: 2,
+      borderLeftColor: colors.purple,
+    },
+    slopBanner: {
+      paddingVertical: 12,
+      paddingLeft: 68,
+      minHeight: 44,
+    },
+    slopText: {
+      color: colors.text.secondary,
+      fontSize: 14,
+      fontStyle: "italic" as const,
+    },
+    slopSection: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+      marginTop: 4,
+    },
+    slopMuted: {
+      opacity: 0.5,
+    },
+  }));

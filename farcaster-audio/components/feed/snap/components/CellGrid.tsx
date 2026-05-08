@@ -1,11 +1,14 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import type { CellGridProps } from "@/types/snap";
 import { useSnapContext, GAP_VALUES } from "../context";
 import { resolvePaletteColor } from "@/constants/snapPalette";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 export function SnapCellGrid({ props }: { props: CellGridProps }) {
   const { accent } = useSnapContext();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const cols = Math.max(2, Math.min(32, props.cols));
   const rows = Math.max(2, Math.min(16, props.rows));
   const gap = GAP_VALUES[props.gap ?? "sm"];
@@ -58,21 +61,22 @@ export function SnapCellGrid({ props }: { props: CellGridProps }) {
   return <View style={styles.grid}>{rowElements}</View>;
 }
 
-const styles = StyleSheet.create({
-  grid: {},
-  row: {
-    flexDirection: "row",
-  },
-  cell: {
-    flex: 1,
-    borderRadius: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  cellText: {
-    color: colors.text.primary,
-    fontSize: 10,
-    fontWeight: "600",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    grid: {},
+    row: {
+      flexDirection: "row" as const,
+    },
+    cell: {
+      flex: 1,
+      borderRadius: 4,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      overflow: "hidden" as const,
+    },
+    cellText: {
+      color: colors.text.primary,
+      fontSize: 10,
+      fontWeight: "600" as const,
+    },
+  }));

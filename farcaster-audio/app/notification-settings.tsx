@@ -8,7 +8,9 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, typography } from "@/constants/theme";
+import { spacing, typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import * as api from "@/services/api";
 
 interface Preferences {
@@ -72,6 +74,8 @@ const COMING_SOON_TOGGLES: ToggleRow[] = [
 ];
 
 export default function NotificationSettingsScreen() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -150,6 +154,8 @@ function Section({
   prefs: Preferences;
   onToggle: (key: keyof Preferences, value: boolean) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -194,58 +200,59 @@ function Section({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  center: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  section: {
-    marginTop: spacing.xl,
-  },
-  sectionTitle: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-    fontWeight: typography.weight.semibold,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    paddingHorizontal: spacing["2xl"],
-    marginBottom: spacing.sm,
-  },
-  sectionBody: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-    backgroundColor: colors.background.surface,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing["2xl"],
-    paddingVertical: 14,
-  },
-  rowBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-  },
-  rowTextContainer: {
-    flex: 1,
-  },
-  rowText: {
-    color: colors.text.primary,
-    fontSize: 16,
-  },
-  rowTextDisabled: {
-    color: colors.text.placeholder,
-  },
-  rowSublabel: {
-    color: colors.text.placeholder,
-    fontSize: typography.size.sm,
-    marginTop: 2,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    center: {
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    section: {
+      marginTop: spacing.xl,
+    },
+    sectionTitle: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+      fontWeight: typography.weight.semibold,
+      textTransform: "uppercase" as const,
+      letterSpacing: 0.5,
+      paddingHorizontal: spacing["2xl"],
+      marginBottom: spacing.sm,
+    },
+    sectionBody: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+      backgroundColor: colors.background.surface,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      paddingHorizontal: spacing["2xl"],
+      paddingVertical: 14,
+    },
+    rowBorder: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    rowTextContainer: {
+      flex: 1,
+    },
+    rowText: {
+      color: colors.text.primary,
+      fontSize: 16,
+    },
+    rowTextDisabled: {
+      color: colors.text.placeholder,
+    },
+    rowSublabel: {
+      color: colors.text.placeholder,
+      fontSize: typography.size.sm,
+      marginTop: 2,
+    },
+  }));

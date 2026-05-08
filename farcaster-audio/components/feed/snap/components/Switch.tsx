@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { View, Text, Switch as RNSwitch, StyleSheet } from "react-native";
+import { View, Text, Switch as RNSwitch } from "react-native";
 import type { SwitchProps } from "@/types/snap";
 import { useSnapContext } from "../context";
 import { resolvePaletteColor } from "@/constants/snapPalette";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 export function SnapSwitch({ props }: { props: SwitchProps }) {
   const { accent, setInput } = useSnapContext();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const color = resolvePaletteColor("accent", accent);
   const [checked, setChecked] = useState(props.defaultChecked ?? false);
 
@@ -28,16 +31,17 @@ export function SnapSwitch({ props }: { props: SwitchProps }) {
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  label: {
-    color: colors.text.body,
-    fontSize: 13,
-    flex: 1,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    row: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      gap: 8,
+    },
+    label: {
+      color: colors.text.body,
+      fontSize: 13,
+      flex: 1,
+    },
+  }));

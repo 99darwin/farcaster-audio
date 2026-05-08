@@ -1,7 +1,8 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Button } from "@/components/common/Button";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface ErrorViewProps {
   message: string;
@@ -14,6 +15,9 @@ export function ErrorView({
   onRetry,
   fullScreen = false,
 }: ErrorViewProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+
   return (
     <View
       style={[styles.container, fullScreen && styles.fullScreen]}
@@ -33,21 +37,22 @@ export function ErrorView({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 32,
-    gap: 12,
-  },
-  fullScreen: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  message: {
-    color: colors.text.secondary,
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 32,
+      gap: 12,
+    },
+    fullScreen: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    message: {
+      color: colors.text.secondary,
+      fontSize: 15,
+      textAlign: "center",
+      lineHeight: 22,
+    },
+  }));

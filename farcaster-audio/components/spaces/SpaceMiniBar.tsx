@@ -1,9 +1,10 @@
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSpaceStore } from "@/stores/spaceStore";
 import { GlassView } from "@/components/common/GlassView";
-import { colors, glass } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 interface SpaceMiniBarProps {
   onToggleMute: () => void;
@@ -17,6 +18,8 @@ export function SpaceMiniBar({
   bottomOffset = 0,
 }: SpaceMiniBarProps) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const room = useSpaceStore((s) => s.room);
   const isMuted = useSpaceStore((s) => s.isMuted);
   const isConnected = useSpaceStore((s) => s.isConnected);
@@ -70,48 +73,54 @@ export function SpaceMiniBar({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    marginHorizontal: 12,
-    borderRadius: glass.capsuleRadius,
-  },
-  content: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  leftSection: { flexDirection: "row", alignItems: "center", flex: 1, gap: 8 },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.live,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: "600",
-    flexShrink: 1,
-  },
-  reconnecting: { color: colors.warning, fontSize: 12 },
-  controls: { flexDirection: "row", alignItems: "center", gap: 4 },
-  controlButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    minWidth: 44,
-    minHeight: 44,
-  },
-  divider: {
-    width: 1,
-    height: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors, glass }) => ({
+    container: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      marginHorizontal: 12,
+      borderRadius: glass.capsuleRadius,
+    },
+    content: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    leftSection: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+      gap: 8,
+    },
+    liveDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.live,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: 14,
+      fontWeight: "600",
+      flexShrink: 1,
+    },
+    reconnecting: { color: colors.warning, fontSize: 12 },
+    controls: { flexDirection: "row", alignItems: "center", gap: 4 },
+    controlButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      minWidth: 44,
+      minHeight: 44,
+    },
+    divider: {
+      width: 1,
+      height: 20,
+      backgroundColor: glass.borderColor,
+    },
+  }));

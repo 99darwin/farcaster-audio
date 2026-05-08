@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { FlatList, View, Text, RefreshControl, StyleSheet } from "react-native";
+import { FlatList, View, Text, RefreshControl } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
 import { useComposeStore } from "@/stores/composeStore";
@@ -12,7 +12,8 @@ import {
 import { ComposeModal } from "@/components/feed/ComposeModal";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { ErrorView } from "@/components/common/ErrorView";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import {
   likeCast,
   recastCast,
@@ -36,6 +37,8 @@ export default function CastThreadScreen() {
     focusHash?: string;
   }>();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const user = useAuthStore((s) => s.user);
   const myFid = user?.fid ?? 0;
   const { rootCast, replies, isLoading, error, fetch, updateCastReaction } =
@@ -259,17 +262,18 @@ export default function CastThreadScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  empty: {
-    alignItems: "center",
-    paddingTop: 40,
-  },
-  emptyText: {
-    color: colors.text.secondary,
-    fontSize: 15,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    empty: {
+      alignItems: "center",
+      paddingTop: 40,
+    },
+    emptyText: {
+      color: colors.text.secondary,
+      fontSize: 15,
+    },
+  }));

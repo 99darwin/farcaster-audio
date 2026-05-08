@@ -8,12 +8,15 @@ import { useComposeStore } from "@/stores/composeStore";
 import { useChannelFeed } from "@/hooks/useChannelFeed";
 import { FeedList } from "@/components/feed/FeedList";
 import { ComposeModal } from "@/components/feed/ComposeModal";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast } from "@/types/neynar";
 
 export default function ChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const channelId = Array.isArray(id) ? id[0] : id;
@@ -95,7 +98,7 @@ export default function ChannelScreen() {
         </Pressable>
       </View>
     ),
-    [insets.top, normalizedChannelId, router],
+    [colors.text.primary, insets.top, normalizedChannelId, router, styles],
   );
 
   return (
@@ -136,46 +139,47 @@ export default function ChannelScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerText: {
-    flex: 1,
-  },
-  eyebrow: {
-    color: colors.text.secondary,
-    fontSize: 12,
-    textTransform: "uppercase",
-    fontWeight: "700",
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: 22,
-    fontWeight: "700",
-  },
-  composeButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.purple,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    backButton: {
+      width: 36,
+      height: 36,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    headerText: {
+      flex: 1,
+    },
+    eyebrow: {
+      color: colors.text.secondary,
+      fontSize: 12,
+      textTransform: "uppercase" as const,
+      fontWeight: "700" as const,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: 22,
+      fontWeight: "700" as const,
+    },
+    composeButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: colors.purple,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+  }));

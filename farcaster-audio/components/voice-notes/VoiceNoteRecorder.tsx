@@ -11,7 +11,6 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
-  StyleSheet,
   Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,7 +19,9 @@ import { useVoiceNoteStore } from "@/stores/voiceNoteStore";
 import { useAuthStore } from "@/stores/authStore";
 import * as voiceNotesApi from "@/services/voiceNotes";
 import { Waveform } from "./Waveform";
-import { colors, radii, typography } from "@/constants/theme";
+import { radii, typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 type ModalState =
   | "pre-record"
@@ -49,6 +50,8 @@ export function VoiceNoteRecorder({
   isVisible,
   onClose,
 }: VoiceNoteRecorderProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [modalState, setModalState] = useState<ModalState>("pre-record");
   const [caption, setCaption] = useState("");
   const [postToFarcaster, setPostToFarcaster] = useState(true);
@@ -389,189 +392,190 @@ export function VoiceNoteRecorder({
   );
 }
 
-const styles = StyleSheet.create({
-  modal: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  centeredContent: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 16,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: typography.size["2xl"],
-    fontWeight: "700",
-  },
-  subtitle: {
-    color: colors.text.secondary,
-    fontSize: typography.size.md,
-  },
-  hint: {
-    color: colors.text.placeholder,
-    fontSize: typography.size.sm,
-    marginTop: 8,
-  },
-  micButton: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 24,
-  },
-  recordingIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  recordingDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.live,
-  },
-  recordingLabel: {
-    color: colors.live,
-    fontSize: typography.size.body,
-    fontWeight: "600",
-  },
-  timer: {
-    color: colors.text.primary,
-    fontSize: typography.size["3xl"],
-    fontWeight: "700",
-    fontVariant: ["tabular-nums"],
-  },
-  liveWaveformContainer: {
-    width: "100%",
-    marginVertical: 16,
-  },
-  stopButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.background.subtle,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 3,
-    borderColor: colors.live,
-  },
-  stopSquare: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    backgroundColor: colors.live,
-  },
-  reviewWaveformContainer: {
-    width: "100%",
-    marginVertical: 16,
-  },
-  reviewActions: {
-    flexDirection: "row",
-    gap: 16,
-    marginTop: 24,
-  },
-  secondaryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: radii.md,
-    backgroundColor: colors.background.surface,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  secondaryButtonText: {
-    color: colors.text.secondary,
-    fontSize: typography.size.body,
-    fontWeight: "600",
-  },
-  primaryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: radii.md,
-    backgroundColor: colors.accent,
-  },
-  primaryButtonText: {
-    color: colors.text.primary,
-    fontSize: typography.size.body,
-    fontWeight: "600",
-  },
-  composeContainer: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    gap: 12,
-  },
-  captionInput: {
-    backgroundColor: colors.background.surface,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-    color: colors.text.primary,
-    fontSize: typography.size.body,
-    padding: 16,
-    minHeight: 100,
-    maxHeight: 200,
-  },
-  charCount: {
-    color: colors.text.placeholder,
-    fontSize: typography.size.sm,
-    textAlign: "right",
-  },
-  switchRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  switchLabel: {
-    color: colors.text.primary,
-    fontSize: typography.size.body,
-    fontWeight: "600",
-  },
-  switchHint: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-    marginTop: 2,
-  },
-  errorText: {
-    color: colors.error,
-    fontSize: typography.size.sm,
-  },
-  postButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: colors.accent,
-    borderRadius: radii.md,
-    paddingVertical: 14,
-    marginTop: 8,
-  },
-  postButtonText: {
-    color: colors.text.primary,
-    fontSize: typography.size.lg,
-    fontWeight: "700",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    modal: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    header: {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+    },
+    closeButton: {
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    centeredContent: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 32,
+      gap: 16,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: typography.size["2xl"],
+      fontWeight: "700",
+    },
+    subtitle: {
+      color: colors.text.secondary,
+      fontSize: typography.size.md,
+    },
+    hint: {
+      color: colors.text.placeholder,
+      fontSize: typography.size.sm,
+      marginTop: 8,
+    },
+    micButton: {
+      width: 96,
+      height: 96,
+      borderRadius: 48,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 24,
+    },
+    recordingIndicator: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    recordingDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: colors.live,
+    },
+    recordingLabel: {
+      color: colors.live,
+      fontSize: typography.size.body,
+      fontWeight: "600",
+    },
+    timer: {
+      color: colors.text.primary,
+      fontSize: typography.size["3xl"],
+      fontWeight: "700",
+      fontVariant: ["tabular-nums"],
+    },
+    liveWaveformContainer: {
+      width: "100%",
+      marginVertical: 16,
+    },
+    stopButton: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: colors.background.subtle,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 3,
+      borderColor: colors.live,
+    },
+    stopSquare: {
+      width: 24,
+      height: 24,
+      borderRadius: 4,
+      backgroundColor: colors.live,
+    },
+    reviewWaveformContainer: {
+      width: "100%",
+      marginVertical: 16,
+    },
+    reviewActions: {
+      flexDirection: "row",
+      gap: 16,
+      marginTop: 24,
+    },
+    secondaryButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderRadius: radii.md,
+      backgroundColor: colors.background.surface,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    secondaryButtonText: {
+      color: colors.text.secondary,
+      fontSize: typography.size.body,
+      fontWeight: "600",
+    },
+    primaryButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: radii.md,
+      backgroundColor: colors.accent,
+    },
+    primaryButtonText: {
+      color: colors.text.primary,
+      fontSize: typography.size.body,
+      fontWeight: "600",
+    },
+    composeContainer: {
+      flex: 1,
+      paddingHorizontal: 24,
+      paddingTop: 16,
+      gap: 12,
+    },
+    captionInput: {
+      backgroundColor: colors.background.surface,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+      color: colors.text.primary,
+      fontSize: typography.size.body,
+      padding: 16,
+      minHeight: 100,
+      maxHeight: 200,
+    },
+    charCount: {
+      color: colors.text.placeholder,
+      fontSize: typography.size.sm,
+      textAlign: "right",
+    },
+    switchRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingVertical: 12,
+    },
+    switchLabel: {
+      color: colors.text.primary,
+      fontSize: typography.size.body,
+      fontWeight: "600",
+    },
+    switchHint: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+      marginTop: 2,
+    },
+    errorText: {
+      color: colors.error,
+      fontSize: typography.size.sm,
+    },
+    postButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      backgroundColor: colors.accent,
+      borderRadius: radii.md,
+      paddingVertical: 14,
+      marginTop: 8,
+    },
+    postButtonText: {
+      color: colors.text.primary,
+      fontSize: typography.size.lg,
+      fontWeight: "700",
+    },
+  }));

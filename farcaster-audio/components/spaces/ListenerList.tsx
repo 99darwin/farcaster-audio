@@ -1,8 +1,8 @@
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { useState, useCallback } from "react";
 import { Avatar } from "@/components/common/Avatar";
 import { useAvatarPosition } from "@/contexts/AvatarPositionContext";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { Participant } from "@/types/space";
 
 interface ListenerListProps {
@@ -16,6 +16,7 @@ export function ListenerList({
   listeners,
   onParticipantPress,
 }: ListenerListProps) {
+  const styles = useStyles();
   const [isExpanded, setIsExpanded] = useState(false);
   const { register } = useAvatarPosition();
   const visibleListeners = isExpanded
@@ -71,22 +72,23 @@ export function ListenerList({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16, paddingTop: 0 },
-  title: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    marginBottom: 12,
-  },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  listenerItem: { alignItems: "center" },
-  toggleButton: {
-    minHeight: 44,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  toggleText: { color: colors.accent, fontSize: 14, textAlign: "center" },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: { padding: 16, paddingTop: 0 },
+    title: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      fontWeight: "600",
+      textTransform: "uppercase",
+      marginBottom: 12,
+    },
+    grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    listenerItem: { alignItems: "center" },
+    toggleButton: {
+      minHeight: 44,
+      justifyContent: "center",
+      alignItems: "center",
+      marginTop: 4,
+    },
+    toggleText: { color: colors.accent, fontSize: 14, textAlign: "center" },
+  }));

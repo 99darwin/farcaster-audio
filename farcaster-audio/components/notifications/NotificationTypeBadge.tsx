@@ -1,22 +1,36 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "@/constants/theme";
+import type { ThemeColors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import type { NotificationType } from "@/types/neynar";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
-export const TYPE_META: Record<
-  NotificationType,
-  { icon: IconName; color: string }
-> = {
-  likes: { icon: "heart", color: colors.error },
-  recasts: { icon: "repeat", color: colors.success },
-  follows: { icon: "person-add", color: colors.purple },
-  reply: { icon: "chatbubble", color: colors.info },
-  mention: { icon: "at", color: colors.accent },
-  quote: { icon: "chatbox-ellipses", color: colors.warning },
-};
+export interface TypeMeta {
+  icon: IconName;
+  color: string;
+}
+
+export function getTypeMeta(
+  type: NotificationType,
+  colors: ThemeColors,
+): TypeMeta {
+  switch (type) {
+    case "likes":
+      return { icon: "heart", color: colors.error };
+    case "recasts":
+      return { icon: "repeat", color: colors.success };
+    case "follows":
+      return { icon: "person-add", color: colors.purple };
+    case "reply":
+      return { icon: "chatbubble", color: colors.info };
+    case "mention":
+      return { icon: "at", color: colors.accent };
+    case "quote":
+      return { icon: "chatbox-ellipses", color: colors.warning };
+  }
+}
 
 interface NotificationTypeBadgeProps {
   type: NotificationType;
@@ -27,7 +41,8 @@ export const NotificationTypeBadge = ({
   type,
   ringColor,
 }: NotificationTypeBadgeProps) => {
-  const meta = TYPE_META[type];
+  const { colors } = useTheme();
+  const meta = getTypeMeta(type, colors);
   return (
     <View
       accessibilityElementsHidden

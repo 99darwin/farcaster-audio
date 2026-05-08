@@ -1,8 +1,9 @@
 import { View, StyleSheet } from "react-native";
 import type { SeparatorProps } from "@/types/snap";
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 
 export function SnapSeparator({ props }: { props: SeparatorProps }) {
+  const styles = useStyles();
   const vertical = props.orientation === "vertical";
   return (
     <View
@@ -16,8 +17,9 @@ export function SnapSeparator({ props }: { props: SeparatorProps }) {
   );
 }
 
-const styles = StyleSheet.create({
-  base: {
-    backgroundColor: colors.background.border,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    base: {
+      backgroundColor: colors.background.border,
+    },
+  }));

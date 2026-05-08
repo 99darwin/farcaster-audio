@@ -8,7 +8,9 @@ import {
   StyleSheet,
 } from "react-native";
 import { Image } from "expo-image";
-import { colors, spacing, radii, typography } from "@/constants/theme";
+import { spacing, typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { searchUsers } from "@/services/api";
 
 interface MentionUser {
@@ -58,6 +60,8 @@ export function MentionSuggestions({
   cursorPosition,
   onSelect,
 }: MentionSuggestionsProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [users, setUsers] = useState<MentionUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -144,49 +148,50 @@ export function MentionSuggestions({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    maxHeight: 200,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-    backgroundColor: colors.background.surface,
-  },
-  loadingRow: {
-    paddingVertical: spacing.md,
-    alignItems: "center",
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    gap: spacing.md,
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  avatarFallback: {
-    backgroundColor: colors.background.subtle,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarInitial: {
-    color: colors.text.primary,
-    fontSize: typography.size.sm,
-    fontWeight: typography.weight.semibold,
-  },
-  userInfo: {
-    flex: 1,
-  },
-  displayName: {
-    color: colors.text.primary,
-    fontSize: typography.size.body,
-    fontWeight: typography.weight.semibold,
-  },
-  username: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      maxHeight: 200,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+      backgroundColor: colors.background.surface,
+    },
+    loadingRow: {
+      paddingVertical: spacing.md,
+      alignItems: "center",
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      gap: spacing.md,
+    },
+    avatar: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+    },
+    avatarFallback: {
+      backgroundColor: colors.background.subtle,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    avatarInitial: {
+      color: colors.text.primary,
+      fontSize: typography.size.sm,
+      fontWeight: typography.weight.semibold,
+    },
+    userInfo: {
+      flex: 1,
+    },
+    displayName: {
+      color: colors.text.primary,
+      fontSize: typography.size.body,
+      fontWeight: typography.weight.semibold,
+    },
+    username: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+    },
+  }));

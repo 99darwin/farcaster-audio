@@ -10,7 +10,8 @@ import {
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/common/Avatar";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { useAuthStore } from "@/stores/authStore";
 import * as api from "@/services/api";
 import type { NeynarUser } from "@/types/neynar";
@@ -34,6 +35,8 @@ export function ParticipantProfileCard({
   onClose,
 }: ParticipantProfileCardProps) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const currentUser = useAuthStore((s) => s.user);
   const [user, setUser] = useState<NeynarUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -211,123 +214,124 @@ export function ParticipantProfileCard({
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-  card: {
-    backgroundColor: colors.background.surface,
-    borderRadius: 16,
-    padding: 20,
-    width: "100%",
-    maxWidth: 340,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.background.border,
-  },
-  loadingContainer: {
-    paddingVertical: 40,
-    alignItems: "center",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  displayName: {
-    color: colors.text.primary,
-    fontSize: 18,
-    fontWeight: "700",
-    flexShrink: 1,
-  },
-  username: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    marginTop: 2,
-  },
-  roleBadge: {
-    backgroundColor: colors.background.subtle,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    alignSelf: "flex-start",
-    marginTop: 6,
-  },
-  roleText: {
-    color: colors.text.secondary,
-    fontSize: 11,
-    fontWeight: "600",
-    textTransform: "capitalize",
-  },
-  bio: {
-    color: colors.text.body,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 14,
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: 24,
-    marginTop: 14,
-  },
-  stat: {
-    alignItems: "center",
-  },
-  statCount: {
-    color: colors.text.primary,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  statLabel: {
-    color: colors.text.secondary,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  actions: {
-    marginTop: 18,
-    gap: 10,
-  },
-  followButton: {
-    backgroundColor: colors.purple,
-    paddingVertical: 10,
-    borderRadius: 20,
-    alignItems: "center",
-  },
-  followingButton: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  followText: {
-    color: colors.text.primary,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  followingText: {
-    color: colors.text.secondary,
-    fontWeight: "600",
-  },
-  profileButton: {
-    paddingVertical: 10,
-    borderRadius: 20,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  profileButtonText: {
-    color: colors.text.primary,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    backdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0, 0, 0, 0.6)",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 32,
+    },
+    card: {
+      backgroundColor: colors.background.surface,
+      borderRadius: 16,
+      padding: 20,
+      width: "100%",
+      maxWidth: 340,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.background.border,
+    },
+    loadingContainer: {
+      paddingVertical: 40,
+      alignItems: "center",
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 14,
+    },
+    headerInfo: {
+      flex: 1,
+    },
+    nameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+    },
+    displayName: {
+      color: colors.text.primary,
+      fontSize: 18,
+      fontWeight: "700",
+      flexShrink: 1,
+    },
+    username: {
+      color: colors.text.secondary,
+      fontSize: 14,
+      marginTop: 2,
+    },
+    roleBadge: {
+      backgroundColor: colors.background.subtle,
+      borderRadius: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      alignSelf: "flex-start",
+      marginTop: 6,
+    },
+    roleText: {
+      color: colors.text.secondary,
+      fontSize: 11,
+      fontWeight: "600",
+      textTransform: "capitalize",
+    },
+    bio: {
+      color: colors.text.body,
+      fontSize: 14,
+      lineHeight: 20,
+      marginTop: 14,
+    },
+    statsRow: {
+      flexDirection: "row",
+      gap: 24,
+      marginTop: 14,
+    },
+    stat: {
+      alignItems: "center",
+    },
+    statCount: {
+      color: colors.text.primary,
+      fontSize: 16,
+      fontWeight: "700",
+    },
+    statLabel: {
+      color: colors.text.secondary,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    actions: {
+      marginTop: 18,
+      gap: 10,
+    },
+    followButton: {
+      backgroundColor: colors.purple,
+      paddingVertical: 10,
+      borderRadius: 20,
+      alignItems: "center",
+    },
+    followingButton: {
+      backgroundColor: "transparent",
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    followText: {
+      color: colors.text.primary,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    followingText: {
+      color: colors.text.secondary,
+      fontWeight: "600",
+    },
+    profileButton: {
+      paddingVertical: 10,
+      borderRadius: 20,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    profileButtonText: {
+      color: colors.text.primary,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+  }));

@@ -1,14 +1,11 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/common/Avatar";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarUser } from "@/types/neynar";
 
-export type ProfileTab =
-  | "casts"
-  | "replies"
-  | "voice_notes"
-  | "recordings";
+export type ProfileTab = "casts" | "replies" | "voice_notes" | "recordings";
 
 interface ProfileHeaderProps {
   user: NeynarUser;
@@ -31,6 +28,8 @@ export function ProfileHeader({
   activeTab,
   onTabChange,
 }: ProfileHeaderProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const isFollowing = user.viewer_context?.following ?? false;
   const bio = user.profile?.bio?.text;
 
@@ -141,100 +140,101 @@ export function ProfileHeader({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-  },
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: 24,
-    flex: 1,
-  },
-  stat: {
-    alignItems: "center",
-  },
-  statCount: {
-    color: colors.text.primary,
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  statLabel: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  nameSection: {
-    marginTop: 12,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  displayName: {
-    color: colors.text.primary,
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  username: {
-    color: colors.text.secondary,
-    fontSize: 15,
-    marginTop: 2,
-  },
-  bio: {
-    color: colors.text.body,
-    fontSize: 15,
-    lineHeight: 21,
-    marginTop: 8,
-  },
-  followButton: {
-    marginTop: 12,
-    backgroundColor: colors.purple,
-    paddingVertical: 8,
-    borderRadius: 20,
-    alignItems: "center",
-  },
-  followingButton: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  followText: {
-    color: colors.text.primary,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  followingText: {
-    color: colors.text.secondary,
-    fontWeight: "600",
-  },
-  tabRow: {
-    flexDirection: "row",
-    marginTop: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-  },
-  tabActive: {
-    borderBottomColor: colors.purple,
-  },
-  tabText: {
-    color: colors.text.secondary,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  tabTextActive: {
-    color: colors.text.primary,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      padding: 16,
+    },
+    topRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 20,
+    },
+    statsRow: {
+      flexDirection: "row",
+      gap: 24,
+      flex: 1,
+    },
+    stat: {
+      alignItems: "center",
+    },
+    statCount: {
+      color: colors.text.primary,
+      fontSize: 18,
+      fontWeight: "700",
+    },
+    statLabel: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      marginTop: 2,
+    },
+    nameSection: {
+      marginTop: 12,
+    },
+    nameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    displayName: {
+      color: colors.text.primary,
+      fontSize: 20,
+      fontWeight: "700",
+    },
+    username: {
+      color: colors.text.secondary,
+      fontSize: 15,
+      marginTop: 2,
+    },
+    bio: {
+      color: colors.text.body,
+      fontSize: 15,
+      lineHeight: 21,
+      marginTop: 8,
+    },
+    followButton: {
+      marginTop: 12,
+      backgroundColor: colors.purple,
+      paddingVertical: 8,
+      borderRadius: 20,
+      alignItems: "center",
+    },
+    followingButton: {
+      backgroundColor: "transparent",
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    followText: {
+      color: colors.text.primary,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    followingText: {
+      color: colors.text.secondary,
+      fontWeight: "600",
+    },
+    tabRow: {
+      flexDirection: "row",
+      marginTop: 16,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    tab: {
+      flex: 1,
+      alignItems: "center",
+      paddingVertical: 12,
+      borderBottomWidth: 2,
+      borderBottomColor: "transparent",
+    },
+    tabActive: {
+      borderBottomColor: colors.purple,
+    },
+    tabText: {
+      color: colors.text.secondary,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    tabTextActive: {
+      color: colors.text.primary,
+    },
+  }));

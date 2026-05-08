@@ -1,6 +1,6 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
-import { colors } from "@/constants/theme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast } from "@/types/neynar";
 
 interface QuotedCastInlineProps {
@@ -8,6 +8,7 @@ interface QuotedCastInlineProps {
 }
 
 export function QuotedCastInline({ cast }: QuotedCastInlineProps) {
+  const styles = useStyles();
   if (!cast?.author?.username) return null;
 
   return (
@@ -20,27 +21,28 @@ export function QuotedCastInline({ cast }: QuotedCastInlineProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.background.surface,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.warning,
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginTop: 6,
-  },
-  text: {
-    flex: 1,
-  },
-  username: {
-    color: colors.text.secondary,
-    fontWeight: "600",
-  },
-  body: {
-    color: colors.text.placeholder,
-    fontWeight: "400",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.background.surface,
+      borderLeftWidth: 3,
+      borderLeftColor: colors.warning,
+      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      marginTop: 6,
+    },
+    text: {
+      flex: 1,
+    },
+    username: {
+      color: colors.text.secondary,
+      fontWeight: "600",
+    },
+    body: {
+      color: colors.text.placeholder,
+      fontWeight: "400",
+    },
+  }));

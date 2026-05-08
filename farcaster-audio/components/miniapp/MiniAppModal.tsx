@@ -24,7 +24,9 @@ import { useMiniAppHost } from "@/hooks/useMiniAppHost";
 import { useMiniAppStore } from "@/stores/miniappStore";
 import { AuthAddressSetup } from "@/components/miniapp/AuthAddressSetup";
 import { GlassView } from "@/components/common/GlassView";
-import { colors, glass, typography } from "@/constants/theme";
+import { typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { MiniAppConfig } from "@/types/miniapp";
 
 const SLIDE_DURATION = 300;
@@ -37,6 +39,7 @@ const SLIDE_EASING = Easing.bezier(0.25, 0.1, 0.25, 1);
 export function MiniAppModal() {
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
+  const styles = useStyles();
   const activeMiniApp = useMiniAppStore((s) => s.activeMiniApp);
   const isMinimized = useMiniAppStore((s) => s.isMinimized);
   const isSplashVisible = useMiniAppStore((s) => s.isSplashVisible);
@@ -109,6 +112,8 @@ export function MiniAppMiniBar({
 }: {
   bottomOffset?: number;
 }) {
+  const { colors } = useTheme();
+  const miniBarStyles = useMiniBarStyles();
   const activeMiniApp = useMiniAppStore((s) => s.activeMiniApp);
   const isMinimized = useMiniAppStore((s) => s.isMinimized);
   const maximizeMiniApp = useMiniAppStore((s) => s.maximizeMiniApp);
@@ -188,6 +193,8 @@ function MiniAppContent({
   onMinimize,
   insets,
 }: MiniAppContentProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [isWebViewLoading, setIsWebViewLoading] = useState(true);
 
   const handleComposeCast = useCallback(
@@ -339,139 +346,141 @@ function MiniAppContent({
   );
 }
 
-const styles = StyleSheet.create({
-  fullScreenOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 100,
-    backgroundColor: colors.background.main,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.background.border,
-    backgroundColor: colors.background.surface,
-  },
-  headerButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 18,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: "center",
-    color: colors.text.primary,
-    fontSize: typography.size.md,
-    fontWeight: typography.weight.semibold,
-    marginHorizontal: 8,
-  },
-  headerRight: {
-    minWidth: 36,
-    alignItems: "flex-end",
-  },
-  primaryButton: {
-    backgroundColor: colors.purple,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
-    minWidth: 60,
-    alignItems: "center",
-  },
-  primaryButtonDisabled: {
-    opacity: 0.5,
-  },
-  primaryButtonText: {
-    color: colors.text.primary,
-    fontSize: typography.size.sm,
-    fontWeight: typography.weight.semibold,
-  },
-  webViewContainer: {
-    flex: 1,
-  },
-  webView: {
-    flex: 1,
-    backgroundColor: "transparent",
-  },
-  splashOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  splashImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 16,
-    marginBottom: 16,
-  },
-  splashTitle: {
-    color: colors.text.primary,
-    fontSize: typography.size.lg,
-    fontWeight: typography.weight.semibold,
-  },
-  splashSpinner: {
-    marginTop: 24,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    fullScreenOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 100,
+      backgroundColor: colors.background.main,
+    },
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.background.border,
+      backgroundColor: colors.background.surface,
+    },
+    headerButton: {
+      width: 36,
+      height: 36,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 18,
+    },
+    headerTitle: {
+      flex: 1,
+      textAlign: "center",
+      color: colors.text.primary,
+      fontSize: typography.size.md,
+      fontWeight: typography.weight.semibold,
+      marginHorizontal: 8,
+    },
+    headerRight: {
+      minWidth: 36,
+      alignItems: "flex-end",
+    },
+    primaryButton: {
+      backgroundColor: colors.purple,
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      borderRadius: 16,
+      minWidth: 60,
+      alignItems: "center",
+    },
+    primaryButtonDisabled: {
+      opacity: 0.5,
+    },
+    primaryButtonText: {
+      color: colors.text.primary,
+      fontSize: typography.size.sm,
+      fontWeight: typography.weight.semibold,
+    },
+    webViewContainer: {
+      flex: 1,
+    },
+    webView: {
+      flex: 1,
+      backgroundColor: "transparent",
+    },
+    splashOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    splashImage: {
+      width: 80,
+      height: 80,
+      borderRadius: 16,
+      marginBottom: 16,
+    },
+    splashTitle: {
+      color: colors.text.primary,
+      fontSize: typography.size.lg,
+      fontWeight: typography.weight.semibold,
+    },
+    splashSpinner: {
+      marginTop: 24,
+    },
+  }));
 
-const miniBarStyles = StyleSheet.create({
-  container: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    marginHorizontal: 12,
-    borderRadius: glass.capsuleRadius,
-  },
-  content: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  leftSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: 8,
-  },
-  appDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.purple,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: 14,
-    fontWeight: "600",
-    flexShrink: 1,
-  },
-  controls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  controlButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    minWidth: 44,
-    minHeight: 44,
-  },
-  divider: {
-    width: 1,
-    height: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
-  },
-});
+const useMiniBarStyles = () =>
+  useThemedStyles(({ colors, glass }) => ({
+    container: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      marginHorizontal: 12,
+      borderRadius: glass.capsuleRadius,
+    },
+    content: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    leftSection: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+      gap: 8,
+    },
+    appDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.purple,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: 14,
+      fontWeight: "600",
+      flexShrink: 1,
+    },
+    controls: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    controlButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      minWidth: 44,
+      minHeight: 44,
+    },
+    divider: {
+      width: 1,
+      height: 20,
+      backgroundColor: glass.borderColor,
+    },
+  }));

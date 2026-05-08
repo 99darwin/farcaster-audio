@@ -3,21 +3,32 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
 import { useSpaceStore } from "@/stores/spaceStore";
-import { usePrefsStore } from "@/stores/prefsStore";
+import { usePrefsStore, type AppearancePref } from "@/stores/prefsStore";
 import { Avatar } from "@/components/common/Avatar";
-import { colors, spacing } from "@/constants/theme";
+import { spacing } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import * as livekitService from "@/services/livekit";
 import * as api from "@/services/api";
 import { unregisterPushToken } from "@/hooks/usePushNotifications";
 
+const APPEARANCE_LABELS: Record<AppearancePref, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
+
 export default function SettingsScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const room = useSpaceStore((s) => s.room);
   const leaveSpace = useSpaceStore((s) => s.leaveSpace);
   const winampMode = usePrefsStore((s) => s.winampMode);
   const setWinampMode = usePrefsStore((s) => s.setWinampMode);
+  const appearancePref = usePrefsStore((s) => s.appearancePref);
 
   const handleLogout = async () => {
     if (room) {
@@ -79,6 +90,26 @@ export default function SettingsScreen() {
             size={16}
             color={colors.text.secondary}
             style={{ marginLeft: "auto" }}
+          />
+        </Pressable>
+      </View>
+
+      <View style={styles.section}>
+        <Pressable
+          style={styles.row}
+          onPress={() => router.push("/appearance-settings")}
+          accessibilityRole="button"
+          accessibilityLabel="Appearance settings"
+        >
+          <Ionicons name="contrast-outline" size={20} color={colors.purple} />
+          <Text style={styles.rowText}>Appearance</Text>
+          <Text style={styles.rowValue}>
+            {APPEARANCE_LABELS[appearancePref]}
+          </Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.secondary}
           />
         </Pressable>
       </View>
@@ -151,61 +182,68 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-  },
-  profile: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: spacing["2xl"],
-    gap: spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-  },
-  profileText: {
-    flex: 1,
-  },
-  displayName: {
-    color: colors.text.primary,
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  username: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    marginTop: 2,
-  },
-  section: {
-    marginTop: spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-    backgroundColor: colors.background.surface,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing["2xl"],
-    paddingVertical: 14,
-  },
-  rowLabelWrap: {
-    flex: 1,
-  },
-  rowText: {
-    color: colors.text.primary,
-    fontSize: 16,
-  },
-  rowHint: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  rowTextDanger: {
-    color: colors.danger,
-    fontSize: 16,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+    },
+    profile: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: spacing["2xl"],
+      gap: spacing.lg,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    profileText: {
+      flex: 1,
+    },
+    displayName: {
+      color: colors.text.primary,
+      fontSize: 18,
+      fontWeight: "700" as const,
+    },
+    username: {
+      color: colors.text.secondary,
+      fontSize: 14,
+      marginTop: 2,
+    },
+    section: {
+      marginTop: spacing.lg,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+      backgroundColor: colors.background.surface,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      paddingHorizontal: spacing["2xl"],
+      paddingVertical: 14,
+    },
+    rowLabelWrap: {
+      flex: 1,
+    },
+    rowText: {
+      color: colors.text.primary,
+      fontSize: 16,
+      flex: 1,
+    },
+    rowValue: {
+      color: colors.text.secondary,
+      fontSize: 15,
+      marginRight: spacing.xs,
+    },
+    rowHint: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      marginTop: 2,
+    },
+    rowTextDanger: {
+      color: colors.danger,
+      fontSize: 16,
+    },
+  }));

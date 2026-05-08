@@ -4,14 +4,15 @@ import {
   Pressable,
   Modal,
   ScrollView,
-  StyleSheet,
   TextInput,
 } from "react-native";
 import { useState } from "react";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, glass, typography } from "@/constants/theme";
+import { typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { AddedMiniApp } from "@/stores/miniappStore";
 
 interface MiniAppPickerProps {
@@ -28,6 +29,8 @@ export function MiniAppPicker({
   onSelectMiniApp,
 }: MiniAppPickerProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [urlInput, setUrlInput] = useState("");
 
   const handleOpenUrl = () => {
@@ -185,104 +188,105 @@ function getDomain(url: string): string {
   }
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: colors.background.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 16,
-    maxHeight: "70%",
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.background.subtle,
-    alignSelf: "center",
-    marginBottom: 16,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: typography.size.xl,
-    fontWeight: typography.weight.bold,
-    marginBottom: 16,
-  },
-  urlRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-  },
-  urlInput: {
-    flex: 1,
-    backgroundColor: colors.background.main,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    color: colors.text.primary,
-    fontSize: typography.size.body,
-    borderWidth: 1,
-    borderColor: colors.background.border,
-  },
-  goButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: colors.purple,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  goButtonDisabled: {
-    opacity: 0.4,
-  },
-  list: {
-    maxHeight: 300,
-  },
-  appRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    gap: 12,
-  },
-  appIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-  },
-  appIconPlaceholder: {
-    backgroundColor: colors.background.main,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  appInfo: {
-    flex: 1,
-  },
-  appName: {
-    color: colors.text.primary,
-    fontSize: typography.size.body,
-    fontWeight: typography.weight.semibold,
-  },
-  appDomain: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-  },
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: 32,
-    gap: 8,
-  },
-  emptyText: {
-    color: colors.text.secondary,
-    fontSize: typography.size.body,
-    fontWeight: typography.weight.semibold,
-  },
-  emptySubtext: {
-    color: colors.text.placeholder,
-    fontSize: typography.size.sm,
-    textAlign: "center",
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    backdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0, 0, 0, 0.5)",
+      justifyContent: "flex-end",
+    },
+    sheet: {
+      backgroundColor: colors.background.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      padding: 16,
+      maxHeight: "70%",
+    },
+    handle: {
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.background.subtle,
+      alignSelf: "center",
+      marginBottom: 16,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: typography.size.xl,
+      fontWeight: typography.weight.bold,
+      marginBottom: 16,
+    },
+    urlRow: {
+      flexDirection: "row",
+      gap: 8,
+      marginBottom: 16,
+    },
+    urlInput: {
+      flex: 1,
+      backgroundColor: colors.background.main,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      color: colors.text.primary,
+      fontSize: typography.size.body,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    goButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      backgroundColor: colors.purple,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    goButtonDisabled: {
+      opacity: 0.4,
+    },
+    list: {
+      maxHeight: 300,
+    },
+    appRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 10,
+      gap: 12,
+    },
+    appIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+    },
+    appIconPlaceholder: {
+      backgroundColor: colors.background.main,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    appInfo: {
+      flex: 1,
+    },
+    appName: {
+      color: colors.text.primary,
+      fontSize: typography.size.body,
+      fontWeight: typography.weight.semibold,
+    },
+    appDomain: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+    },
+    emptyState: {
+      alignItems: "center",
+      paddingVertical: 32,
+      gap: 8,
+    },
+    emptyText: {
+      color: colors.text.secondary,
+      fontSize: typography.size.body,
+      fontWeight: typography.weight.semibold,
+    },
+    emptySubtext: {
+      color: colors.text.placeholder,
+      fontSize: typography.size.sm,
+      textAlign: "center",
+    },
+  }));

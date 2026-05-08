@@ -12,7 +12,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/common/Avatar";
 import { Button } from "@/components/common/Button";
 import { useSpaceStore } from "@/stores/spaceStore";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import * as api from "@/services/api";
 import type { Participant } from "@/types/space";
 
@@ -49,6 +50,9 @@ export function HostControls({
   isRecording,
   hostFid,
 }: HostControlsProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+
   // Refresh participants and hand queue from backend when modal opens
   useEffect(() => {
     if (!visible) return;
@@ -320,94 +324,95 @@ export function HostControls({
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: colors.background.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "80%",
-    paddingBottom: 40,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    backgroundColor: colors.background.subtle,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginTop: 12,
-  },
-  title: {
-    color: colors.text.primary,
-    fontSize: 20,
-    fontWeight: "700",
-    textAlign: "center",
-    marginVertical: 16,
-  },
-  scrollContent: { paddingHorizontal: 16 },
-  section: { marginBottom: 24 },
-  sectionTitle: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    marginBottom: 12,
-  },
-  participantRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 8,
-    minHeight: 44,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.background.border,
-  },
-  participantName: { color: colors.text.primary, fontSize: 15, flex: 1 },
-  actions: { flexDirection: "row", gap: 4 },
-  iconButton: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 22,
-  },
-  dangerSection: {
-    paddingTop: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.background.border,
-  },
-  recordingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    minHeight: 56,
-  },
-  recordingIconWrap: {
-    width: 28,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  recordingDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: colors.error,
-  },
-  recordingText: { flex: 1 },
-  recordingTitle: {
-    color: colors.text.primary,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  recordingSubtitle: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    marginTop: 2,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    overlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "flex-end",
+    },
+    sheet: {
+      backgroundColor: colors.background.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      maxHeight: "80%",
+      paddingBottom: 40,
+    },
+    handle: {
+      width: 40,
+      height: 4,
+      backgroundColor: colors.background.subtle,
+      borderRadius: 2,
+      alignSelf: "center",
+      marginTop: 12,
+    },
+    title: {
+      color: colors.text.primary,
+      fontSize: 20,
+      fontWeight: "700",
+      textAlign: "center",
+      marginVertical: 16,
+    },
+    scrollContent: { paddingHorizontal: 16 },
+    section: { marginBottom: 24 },
+    sectionTitle: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      fontWeight: "600",
+      textTransform: "uppercase",
+      marginBottom: 12,
+    },
+    participantRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 8,
+      minHeight: 44,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    participantName: { color: colors.text.primary, fontSize: 15, flex: 1 },
+    actions: { flexDirection: "row", gap: 4 },
+    iconButton: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 22,
+    },
+    dangerSection: {
+      paddingTop: 16,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+    },
+    recordingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 12,
+      minHeight: 56,
+    },
+    recordingIconWrap: {
+      width: 28,
+      height: 28,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    recordingDot: {
+      width: 14,
+      height: 14,
+      borderRadius: 7,
+      backgroundColor: colors.error,
+    },
+    recordingText: { flex: 1 },
+    recordingTitle: {
+      color: colors.text.primary,
+      fontSize: 16,
+      fontWeight: "600",
+    },
+    recordingSubtitle: {
+      color: colors.text.secondary,
+      fontSize: 13,
+      marginTop: 2,
+    },
+  }));

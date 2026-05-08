@@ -8,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
-  StyleSheet,
   type NativeSyntheticEvent,
   type TextInputSelectionChangeEventData,
 } from "react-native";
@@ -26,7 +25,8 @@ import {
   recastCast,
   removeRecast,
 } from "@/services/neynar";
-import { colors, glass } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
 
 interface SpaceChatProps {
@@ -43,6 +43,8 @@ export function SpaceChat({
   bottomInset = 0,
 }: SpaceChatProps) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { rootCast, replies, isLoading, refreshThread } = useSpaceChat(
     castHash,
     viewerFid,
@@ -249,62 +251,63 @@ export function SpaceChat({
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  listContent: { flexGrow: 1 },
-  threadHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: glass.borderColor,
-    backgroundColor: glass.overlayColor,
-  },
-  threadHeaderText: {
-    flex: 1,
-    color: colors.text.secondary,
-    fontSize: 13,
-  },
-  empty: {
-    alignItems: "center",
-    paddingTop: 40,
-  },
-  emptyText: {
-    color: colors.text.secondary,
-    fontSize: 15,
-  },
-  composeBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: glass.borderColor,
-    backgroundColor: glass.overlayColor,
-    gap: 8,
-  },
-  input: {
-    flex: 1,
-    color: colors.text.primary,
-    fontSize: 15,
-    maxHeight: 100,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: glass.borderColor,
-  },
-  sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendButtonDisabled: {
-    opacity: 0.5,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors, glass }) => ({
+    flex: { flex: 1 },
+    listContent: { flexGrow: 1 },
+    threadHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: glass.borderColor,
+      backgroundColor: glass.overlayColor,
+    },
+    threadHeaderText: {
+      flex: 1,
+      color: colors.text.secondary,
+      fontSize: 13,
+    },
+    empty: {
+      alignItems: "center",
+      paddingTop: 40,
+    },
+    emptyText: {
+      color: colors.text.secondary,
+      fontSize: 15,
+    },
+    composeBar: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderTopWidth: 1,
+      borderTopColor: glass.borderColor,
+      backgroundColor: glass.overlayColor,
+      gap: 8,
+    },
+    input: {
+      flex: 1,
+      color: colors.text.primary,
+      fontSize: 15,
+      maxHeight: 100,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      backgroundColor: glass.overlayColor,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: glass.borderColor,
+    },
+    sendButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sendButtonDisabled: {
+      opacity: 0.5,
+    },
+  }));

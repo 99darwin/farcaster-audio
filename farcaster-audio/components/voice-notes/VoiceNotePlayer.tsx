@@ -1,9 +1,11 @@
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useVoiceNotePlayback } from "@/hooks/useVoiceNotePlayback";
 import { Waveform } from "./Waveform";
 import { Transcript } from "./Transcript";
-import { colors, radii, typography } from "@/constants/theme";
+import { radii, typography } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { VoiceNote } from "@/types/voiceNote";
 
 const DEFAULT_PEAK_COUNT = 200;
@@ -25,6 +27,8 @@ export function VoiceNotePlayer({
   voiceNote,
   variant = "feed",
 }: VoiceNotePlayerProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const {
     isPlaying,
     positionMs,
@@ -97,54 +101,55 @@ export function VoiceNotePlayer({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: 8,
-  },
-  playerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  playButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.background.subtle,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  waveformContainer: {
-    flex: 1,
-  },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  time: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-    fontVariant: ["tabular-nums"],
-  },
-  speedButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radii.xs,
-    backgroundColor: colors.background.subtle,
-  },
-  speedText: {
-    color: colors.text.secondary,
-    fontSize: typography.size.sm,
-    fontWeight: "600",
-  },
-  caption: {
-    color: colors.text.body,
-    fontSize: typography.size.body,
-    lineHeight: 20,
-  },
-});
+const useStyles = () =>
+  useThemedStyles(({ colors }) => ({
+    container: {
+      gap: 8,
+    },
+    playerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    playButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.background.subtle,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    waveformContainer: {
+      flex: 1,
+    },
+    infoRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    time: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+      fontVariant: ["tabular-nums"],
+    },
+    speedButton: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      minWidth: 44,
+      minHeight: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radii.xs,
+      backgroundColor: colors.background.subtle,
+    },
+    speedText: {
+      color: colors.text.secondary,
+      fontSize: typography.size.sm,
+      fontWeight: "600",
+    },
+    caption: {
+      color: colors.text.body,
+      fontSize: typography.size.body,
+      lineHeight: 20,
+    },
+  }));

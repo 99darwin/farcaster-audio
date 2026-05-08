@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { Text, type TextStyle, Linking } from "react-native";
-import { colors } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 const MENTION_PATTERN = /(?<!\w)@[\w][\w.]*[\w]|(?<!\w)@[\w]/;
 const URL_PATTERN = /https?:\/\/[^\s<)}\]]+/;
@@ -79,6 +79,7 @@ function CastTextImpl({
   onMentionPress,
   hiddenUrls,
 }: CastTextProps) {
+  const { colors } = useTheme();
   const segments = useMemo(
     () => filterHiddenUrls(tokenize(text), hiddenUrls),
     [text, hiddenUrls],
