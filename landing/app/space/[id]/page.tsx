@@ -115,8 +115,8 @@ export default async function SpacePage({
   const showAddToCalendar = isUpcomingScheduledSpace(room);
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-juke-navy px-6">
-      <div className="w-full max-w-md text-center">
+    <main className="min-h-screen flex items-center justify-center bg-juke-navy px-6 py-16">
+      <div className="w-full max-w-md text-center sm:max-w-2xl">
         {/* Host avatar */}
         {room.host.pfp_url && (
           <Image
@@ -124,7 +124,7 @@ export default async function SpacePage({
             alt={room.host.display_name}
             width={72}
             height={72}
-            className="mx-auto mb-6 rounded-full ring-2 ring-juke-border"
+            className="mx-auto mb-6 h-[72px] w-[72px] rounded-full object-cover ring-2 ring-juke-border"
             unoptimized
           />
         )}
@@ -164,7 +164,7 @@ export default async function SpacePage({
         </h1>
 
         {/* Host + listeners / scheduled time */}
-        <p className="text-juke-text-on-dark-secondary mb-10">
+        <p className="mx-auto mb-10 max-w-xl text-balance text-juke-text-on-dark-secondary">
           Hosted by{" "}
           <span className="font-semibold text-juke-text-on-dark">
             {room.host.display_name}
@@ -210,31 +210,33 @@ export default async function SpacePage({
         )}
 
         {/* CTAs */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <div className="mx-auto flex w-full max-w-sm flex-col items-stretch gap-3 sm:max-w-none sm:items-center">
           <a
             href={`juke://space/${id}`}
-            className="inline-block rounded-full bg-juke-purple px-8 py-3.5 text-lg font-bold text-white transition-colors hover:bg-juke-purple-hover"
+            className="inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-full bg-juke-purple px-8 text-base font-bold text-white transition-colors hover:bg-juke-purple-hover sm:px-10"
           >
             Open in Juke
           </a>
-          {showAddToCalendar && (
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+            {showAddToCalendar && (
+              <a
+                href={`/space/${id}/calendar.ics`}
+                download={`juke-space-${id}.ics`}
+                type="text/calendar"
+                className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-juke-purple/70 px-6 text-sm font-bold text-juke-text-on-dark transition-colors hover:bg-juke-purple/15 sm:text-base"
+              >
+                Add to Calendar
+              </a>
+            )}
             <a
-              href={`/space/${id}/calendar.ics`}
-              download={`juke-space-${id}.ics`}
-              type="text/calendar"
-              className="inline-block rounded-full border border-juke-purple/70 px-8 py-3.5 text-lg font-bold text-juke-text-on-dark transition-colors hover:bg-juke-purple/15"
+              href={TESTFLIGHT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-juke-border px-6 text-sm font-bold text-juke-text-on-dark-secondary transition-colors hover:bg-juke-surface hover:text-juke-text-on-dark sm:text-base"
             >
-              Add to Calendar
+              Get Juke on TestFlight
             </a>
-          )}
-          <a
-            href={TESTFLIGHT_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block rounded-full border border-juke-border px-8 py-3.5 text-lg font-bold text-juke-text-on-dark transition-colors hover:bg-juke-surface"
-          >
-            Get Juke on TestFlight
-          </a>
+          </div>
         </div>
 
         {/* Branding */}
