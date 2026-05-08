@@ -181,6 +181,24 @@ export function buildSpaceCalendarEvent(room: Space): string | null {
   return `${lines.map(foldICalLine).join("\r\n")}\r\n`;
 }
 
+export function buildGoogleCalendarUrl(room: Space): string | null {
+  if (!isUpcomingScheduledSpace(room)) return null;
+
+  const startsAt = new Date(room.scheduled_at as string);
+  const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
+  const encodedRoomId = encodeURIComponent(room.id);
+  const spaceUrl = `${PUBLIC_BASE_URL}/space/${encodedRoomId}`;
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: room.title,
+    dates: `${formatICalDate(startsAt)}/${formatICalDate(endsAt)}`,
+    details: `Hosted by ${room.host.display_name} on Juke. Open the space: ${spaceUrl}`,
+    location: spaceUrl,
+  });
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 export function getSpaceCalendarFilename(id: string): string {
   const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
   return `juke-space-${safeId || "scheduled-space"}.ics`;

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import {
+  buildGoogleCalendarUrl,
   getSpaceDetail,
   isUpcomingScheduledSpace,
   type SpaceDetailResponse,
@@ -113,6 +114,9 @@ export default async function SpacePage({
   const isLive = room.status === "active";
   const isScheduled = room.status === "scheduled";
   const showAddToCalendar = isUpcomingScheduledSpace(room);
+  const googleCalendarUrl = showAddToCalendar
+    ? buildGoogleCalendarUrl(room)
+    : null;
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-juke-navy px-6 py-16">
@@ -219,14 +223,26 @@ export default async function SpacePage({
           </a>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
             {showAddToCalendar && (
-              <a
-                href={`/space/${id}/calendar.ics`}
-                download={`juke-space-${id}.ics`}
-                type="text/calendar"
-                className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-juke-purple/70 px-6 text-sm font-bold text-juke-text-on-dark transition-colors hover:bg-juke-purple/15 sm:text-base"
-              >
-                Add to Calendar
-              </a>
+              <>
+                <a
+                  href={`/space/${id}/calendar.ics`}
+                  download={`juke-space-${id}.ics`}
+                  type="text/calendar"
+                  className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-juke-purple/70 px-6 text-sm font-bold text-juke-text-on-dark transition-colors hover:bg-juke-purple/15 sm:text-base"
+                >
+                  Apple/Outlook
+                </a>
+                {googleCalendarUrl && (
+                  <a
+                    href={googleCalendarUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-juke-purple/70 px-6 text-sm font-bold text-juke-text-on-dark transition-colors hover:bg-juke-purple/15 sm:text-base"
+                  >
+                    Google Calendar
+                  </a>
+                )}
+              </>
             )}
             <a
               href={TESTFLIGHT_URL}
