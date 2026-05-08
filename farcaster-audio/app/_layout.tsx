@@ -239,6 +239,7 @@ export default function RootLayout() {
             name="voice-note/[id]"
             options={{ headerShown: false }}
           />
+          <Stack.Screen name="channel/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="space/[id]" options={{ headerShown: false }} />
           <Stack.Screen
             name="space/create"
