@@ -336,6 +336,13 @@ export const fetchOgMetadata = (url: string) =>
     .then((r) => r.data);
 
 // --- Media ---
+type MediaUploadResponse = {
+  url: string;
+  asset_url?: string;
+  embed_url?: string;
+  media_type?: "image" | "video";
+};
+
 export async function uploadImage(uri: string): Promise<string> {
   const ext = uri.split(".").pop()?.toLowerCase() ?? "jpg";
   const mimeType =
@@ -353,7 +360,7 @@ export async function uploadImage(uri: string): Promise<string> {
     name: `upload.${ext}`,
   } as any);
 
-  const { data } = await apiClient.post<{ url: string }>(
+  const { data } = await apiClient.post<MediaUploadResponse>(
     "/v1/media/upload",
     formData,
     {
@@ -379,7 +386,7 @@ export async function uploadVideo(uri: string): Promise<string> {
     name: `upload.${ext}`,
   } as any);
 
-  const { data } = await apiClient.post<{ url: string }>(
+  const { data } = await apiClient.post<MediaUploadResponse>(
     "/v1/media/upload",
     formData,
     {
@@ -387,7 +394,7 @@ export async function uploadVideo(uri: string): Promise<string> {
       timeout: 120000,
     },
   );
-  return data.url;
+  return data.embed_url ?? data.url;
 }
 
 // --- Auth Address ---

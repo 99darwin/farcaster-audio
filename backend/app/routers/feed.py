@@ -28,6 +28,7 @@ from app.dependencies import (
     require_non_demo_user,
 )
 from app.models.user import User
+from app.services.media_embed import normalize_media_embed_url
 from app.services.spam_service import SpamService
 
 logger = logging.getLogger(__name__)
@@ -224,7 +225,9 @@ async def create_cast(
         payload["parent"] = body.parent
     embeds: list[dict] = []
     if body.embeds:
-        embeds.extend({"url": str(url)} for url in body.embeds)
+        embeds.extend(
+            {"url": normalize_media_embed_url(str(url))} for url in body.embeds
+        )
     if body.quote:
         embeds.append({"cast_id": {"fid": body.quote.fid, "hash": body.quote.hash}})
     if embeds:
