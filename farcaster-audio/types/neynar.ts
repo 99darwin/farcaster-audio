@@ -49,6 +49,13 @@ export interface NeynarViewerContext {
   recasted: boolean;
 }
 
+export interface NeynarChannel {
+  id: string;
+  name?: string | null;
+  image_url?: string | null;
+  parent_url?: string | null;
+}
+
 export interface NeynarOgMeta {
   ogTitle?: string;
   ogDescription?: string;
@@ -94,6 +101,7 @@ export interface NeynarCast {
   replies: NeynarReplies;
   viewer_context?: NeynarViewerContext;
   embeds?: NeynarEmbed[];
+  channel?: NeynarChannel | null;
   thread_hash: string | null;
   parent_hash: string | null;
 }
