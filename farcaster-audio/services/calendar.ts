@@ -1,4 +1,4 @@
-import { Share } from "react-native";
+import { Linking, Share } from "react-native";
 import * as Calendar from "expo-calendar";
 import { Config } from "@/constants/config";
 import { buildSpaceUrl } from "@/utils/shareLinks";
@@ -15,6 +15,39 @@ export class CalendarPermissionError extends Error {
 
 export const buildSpaceCalendarUrl = (roomId: string) =>
   `${Config.WEB_BASE_URL}/space/${encodeURIComponent(roomId)}/calendar.ics`;
+
+const formatGoogleCalendarDate = (date: Date) =>
+  date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+
+export const buildGoogleCalendarUrl = (room: Room, roomId: string) => {
+  if (!room.scheduled_at) {
+    throw new Error("Scheduled room is missing scheduled_at");
+  }
+
+  const startDate = new Date(room.scheduled_at);
+  if (!Number.isFinite(startDate.getTime())) {
+    throw new Error("Scheduled room has an invalid scheduled_at");
+  }
+
+  const endDate = new Date(
+    startDate.getTime() + DEFAULT_SPACE_DURATION_MINUTES * 60 * 1000,
+  );
+  const joinUrl = buildSpaceUrl(roomId);
+  const hostName = room.host.display_name || room.host.username;
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: `Juke Space: ${room.title}`,
+    dates: `${formatGoogleCalendarDate(startDate)}/${formatGoogleCalendarDate(
+      endDate,
+    )}`,
+    details: [`Hosted by ${hostName}`, "Starts on Juke", `Join: ${joinUrl}`].join(
+      "\n",
+    ),
+    location: joinUrl,
+  });
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+};
 
 export const isUpcomingScheduledRoom = (room: Room) => {
   if (room.status !== "scheduled" || !room.scheduled_at) return false;
@@ -82,3 +115,8 @@ export const shareScheduledSpaceCalendar = async (room: Room, roomId: string) =>
     )}`,
     url: buildSpaceCalendarUrl(roomId),
   });
+
+export const openScheduledSpaceInGoogleCalendar = async (
+  room: Room,
+  roomId: string,
+) => Linking.openURL(buildGoogleCalendarUrl(room, roomId));
