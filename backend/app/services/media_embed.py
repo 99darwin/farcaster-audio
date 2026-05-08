@@ -1,6 +1,12 @@
+import base64
 from urllib.parse import urlparse, urlunparse
 
 from app.config import settings
+
+
+def _encode_token(value: str) -> str:
+    token = base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii")
+    return token.rstrip("=")
 
 
 def _cloudinary_delivery_path(url: str) -> tuple[str, str, str] | None:
@@ -44,5 +50,23 @@ def build_video_hls_url(asset_url: str) -> str:
     return urlunparse(parsed._replace(path=path, query="", fragment=""))
 
 
+def build_video_embed_page_url(asset_url: str) -> str:
+    cloudinary_path = _cloudinary_delivery_path(asset_url)
+    if not cloudinary_path:
+        return asset_url
+
+    cloud_name, resource_type, delivery_path = cloudinary_path
+    if resource_type != "video":
+        return asset_url
+
+    if delivery_path.startswith("sp_auto/"):
+        delivery_path = delivery_path.removeprefix("sp_auto/")
+    if "." in delivery_path.rsplit("/", 1)[-1]:
+        delivery_path = delivery_path.rsplit(".", 1)[0]
+
+    token = _encode_token(f"{cloud_name}/{delivery_path}")
+    return f"{settings.WEB_BASE_URL.rstrip('/')}/m/video/{token}"
+
+
 def normalize_media_embed_url(url: str) -> str:
-    return build_video_hls_url(url)
+    return build_video_embed_page_url(url)

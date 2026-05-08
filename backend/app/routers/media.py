@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 
 from app.config import settings
 from app.dependencies import get_current_user
-from app.services.media_embed import build_video_hls_url
+from app.services.media_embed import build_video_embed_page_url
 
 router = APIRouter(prefix="/v1/media", tags=["media"])
 
@@ -188,7 +188,7 @@ async def upload_media(
     data = response.json()
     asset_url = data["secure_url"]
     media_kind = "video" if is_video else "image"
-    embed_url = build_video_hls_url(asset_url) if is_video else asset_url
+    embed_url = build_video_embed_page_url(asset_url) if is_video else asset_url
     return {
         "url": asset_url,
         "asset_url": asset_url,
