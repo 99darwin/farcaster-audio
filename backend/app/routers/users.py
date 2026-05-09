@@ -14,6 +14,7 @@ from app.dependencies import get_current_user, get_db, get_spam_service, require
 from app.models.room import Room
 from app.routers.feed import _neynar_headers, _raise_upstream_error, _get_signer_uuid
 from app.schemas.room import RecordingListResponse, RecordingResponse
+from app.services.cast_bookmark_service import annotate_bookmarked_casts
 from app.services.spam_service import SpamService
 from app.services.storage_service import StorageService
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -114,13 +115,14 @@ async def get_user_casts(
     fid: int = Path(..., ge=1),
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None),
-    _current_user: int = Depends(get_current_user),
+    current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Fetch a user's casts via Neynar."""
     params: dict[str, str | int] = {
         "fid": fid,
         "limit": limit,
-        "viewer_fid": _current_user,
+        "viewer_fid": current_user,
     }
     if cursor:
         params["cursor"] = cursor
@@ -136,7 +138,9 @@ async def get_user_casts(
     if resp.status_code != 200:
         _raise_upstream_error(resp)
 
-    return resp.json()
+    data = resp.json()
+    await annotate_bookmarked_casts(db, current_user, data)
+    return data
 
 
 @router.post("/{fid}/follow")

@@ -27,12 +27,10 @@ export function GlassTabBar({
 
   const tabs = state.routes.map((route, index) => {
     const isFocused = state.index === index;
-    const isHome = route.name === "index";
+    const tabConfig = getTabConfig(route.name, isFocused);
 
     const onPress = () => {
-      if (route.name === "index" || route.name === "notifications") {
-        haptic.selection();
-      }
+      haptic.selection();
 
       const event = navigation.emit({
         type: "tabPress",
@@ -47,31 +45,23 @@ export function GlassTabBar({
       }
     };
 
-    const iconName = isHome
-      ? isFocused
-        ? "home"
-        : "home-outline"
-      : isFocused
-        ? "notifications"
-        : "notifications-outline";
-
     return (
       <Pressable
         key={route.key}
         onPress={onPress}
         accessibilityRole="tab"
         accessibilityState={{ selected: isFocused }}
-        accessibilityLabel={isHome ? "Home" : "Notifications"}
+        accessibilityLabel={tabConfig.label}
         style={styles.tabButton}
       >
         {isFocused && <View style={styles.activeHighlight} />}
         <View>
           <Ionicons
-            name={iconName as any}
+            name={tabConfig.iconName as any}
             size={24}
             color={isFocused ? colors.text.primary : colors.text.secondary}
           />
-          {!isHome && unreadCount > 0 && (
+          {route.name === "notifications" && unreadCount > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
                 {unreadCount >= 20 ? "20+" : unreadCount}
@@ -106,6 +96,25 @@ export function GlassTabBar({
       </GlassView>
     </View>
   );
+}
+
+function getTabConfig(routeName: string, isFocused: boolean) {
+  if (routeName === "bookmarks") {
+    return {
+      label: "Bookmarks",
+      iconName: isFocused ? "bookmark" : "bookmark-outline",
+    };
+  }
+  if (routeName === "notifications") {
+    return {
+      label: "Notifications",
+      iconName: isFocused ? "notifications" : "notifications-outline",
+    };
+  }
+  return {
+    label: "Home",
+    iconName: isFocused ? "home" : "home-outline",
+  };
 }
 
 const useStyles = () =>

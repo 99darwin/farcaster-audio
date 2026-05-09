@@ -19,8 +19,10 @@ interface CastActionsProps {
   repliesCount: number;
   isLiked: boolean;
   isRecasted: boolean;
+  isBookmarked: boolean;
   onLike: () => void;
   onRecast: () => void;
+  onBookmark: () => void;
   onQuoteCast: () => void;
   onReply: () => void;
   authorUsername?: string;
@@ -37,8 +39,10 @@ export function CastActions({
   repliesCount,
   isLiked,
   isRecasted,
+  isBookmarked,
   onLike,
   onRecast,
+  onBookmark,
   onQuoteCast,
   onReply,
   authorUsername,
@@ -88,6 +92,11 @@ export function CastActions({
     Share.share({ url });
   };
 
+  const handleBookmarkPress = () => {
+    haptic.selection();
+    onBookmark();
+  };
+
   return (
     <View style={styles.container}>
       <Pressable
@@ -134,6 +143,19 @@ export function CastActions({
         <Text style={[styles.count, isLiked && styles.activeCount]}>
           {formatCount(likesCount)}
         </Text>
+      </Pressable>
+
+      <Pressable
+        onPress={handleBookmarkPress}
+        style={styles.action}
+        accessibilityLabel={isBookmarked ? "Remove bookmark" : "Bookmark"}
+        accessibilityRole="button"
+      >
+        <Ionicons
+          name={isBookmarked ? "bookmark" : "bookmark-outline"}
+          size={17}
+          color={isBookmarked ? colors.purple : colors.text.secondary}
+        />
       </Pressable>
 
       {authorUsername && castHash && (

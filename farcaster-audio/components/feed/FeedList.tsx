@@ -101,12 +101,15 @@ interface FeedListProps {
   onEndReached: () => void;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   onVoiceNoteLike?: (id: string, isLiked: boolean) => void;
   onVoiceNoteRecast?: (id: string, isRecasted: boolean) => void;
   onVoiceNoteDelete?: (id: string) => void;
   ListHeaderComponent?: React.ReactElement | null;
+  emptyTitle?: string;
+  emptySubtitle?: string;
   error?: string | null;
   onRetry?: () => void;
 }
@@ -122,12 +125,15 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     onEndReached,
     onLike,
     onRecast,
+    onBookmark,
     onQuoteCast,
     onReply,
     onVoiceNoteLike,
     onVoiceNoteRecast,
     onVoiceNoteDelete,
     ListHeaderComponent,
+    emptyTitle = "Nothing here yet",
+    emptySubtitle = "Follow people to see their posts here",
     error,
     onRetry,
   },
@@ -179,6 +185,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
           myFid={myFid}
           onLike={onLike}
           onRecast={onRecast}
+          onBookmark={onBookmark}
           onQuoteCast={onQuoteCast}
           onReply={onReply}
           onPress={() => handleCastPress(item.data.hash)}
@@ -189,6 +196,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
       myFid,
       onLike,
       onRecast,
+      onBookmark,
       onQuoteCast,
       onReply,
       stableVoiceNoteLike,
@@ -247,10 +255,8 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
       ListEmptyComponent={
         !isLoading ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>Nothing here yet</Text>
-            <Text style={styles.emptySubtext}>
-              Follow people to see their posts here
-            </Text>
+            <Text style={styles.emptyText}>{emptyTitle}</Text>
+            <Text style={styles.emptySubtext}>{emptySubtitle}</Text>
           </View>
         ) : null
       }

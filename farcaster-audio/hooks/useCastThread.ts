@@ -67,6 +67,40 @@ function updateReplyTree(
   });
 }
 
+function applyBookmark<T extends NeynarCast>(cast: T, bookmarked: boolean): T {
+  return {
+    ...cast,
+    viewer_context: {
+      liked: false,
+      recasted: false,
+      ...cast.viewer_context,
+      bookmarked,
+    },
+  };
+}
+
+function updateReplyTreeBookmark(
+  replies: NeynarCastWithReplies[],
+  hash: string,
+  bookmarked: boolean,
+): NeynarCastWithReplies[] {
+  return replies.map((reply) => {
+    let next: NeynarCastWithReplies =
+      reply.hash === hash ? applyBookmark(reply, bookmarked) : reply;
+    if (next.direct_replies?.length) {
+      next = {
+        ...next,
+        direct_replies: updateReplyTreeBookmark(
+          next.direct_replies,
+          hash,
+          bookmarked,
+        ),
+      };
+    }
+    return next;
+  });
+}
+
 export function useCastThread(castHash: string, viewerFid: number) {
   const [state, setState] = useState<ThreadState>({
     rootCast: null,
@@ -116,5 +150,16 @@ export function useCastThread(castHash: string, viewerFid: number) {
     [],
   );
 
-  return { ...state, fetch, updateCastReaction };
+  const updateCastBookmark = useCallback((hash: string, bookmarked: boolean) => {
+    setState((s) => ({
+      ...s,
+      rootCast:
+        s.rootCast && s.rootCast.hash === hash
+          ? applyBookmark(s.rootCast, bookmarked)
+          : s.rootCast,
+      replies: updateReplyTreeBookmark(s.replies, hash, bookmarked),
+    }));
+  }, []);
+
+  return { ...state, fetch, updateCastReaction, updateCastBookmark };
 }

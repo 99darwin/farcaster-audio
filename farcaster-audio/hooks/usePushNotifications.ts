@@ -105,7 +105,7 @@ export function usePushNotifications() {
       await api.registerPushToken({ expo_push_token: token });
       await storage.savePushToken(token);
       registeredRef.current = true;
-      if (__DEV__) console.log("[Push] Registered token:", token);
+      if (__DEV__) console.log("[Push] Registered for notifications");
     } catch (error) {
       if (__DEV__) console.error("[Push] Failed to register:", error);
     }

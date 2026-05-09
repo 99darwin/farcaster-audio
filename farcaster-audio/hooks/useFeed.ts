@@ -10,6 +10,7 @@ import {
   removeRecast,
   publishCast,
 } from "@/services/neynar";
+import { bookmarkCast, removeBookmark } from "@/services/api";
 import * as voiceNotesApi from "@/services/voiceNotes";
 import type { FeedItem } from "@/types/voiceNote";
 
@@ -56,6 +57,7 @@ export function useFeed() {
     setRefreshing,
     setError,
     updateCastReaction,
+    updateCastBookmark,
   } = useFeedStore();
   const voiceNotes = useVoiceNoteStore((s) => s.voiceNotes);
   const vnSetVoiceNotes = useVoiceNoteStore((s) => s.setVoiceNotes);
@@ -154,6 +156,22 @@ export function useFeed() {
     [user, updateCastReaction],
   );
 
+  const handleBookmark = useCallback(
+    async (castHash: string, isBookmarked: boolean) => {
+      updateCastBookmark(castHash, !isBookmarked);
+      try {
+        if (isBookmarked) {
+          await removeBookmark(castHash);
+        } else {
+          await bookmarkCast(castHash);
+        }
+      } catch {
+        updateCastBookmark(castHash, isBookmarked);
+      }
+    },
+    [updateCastBookmark],
+  );
+
   const handleVoiceNoteLike = useCallback(
     async (voiceNoteId: string, isLiked: boolean) => {
       vnUpdateReaction(voiceNoteId, "like", !isLiked);
@@ -227,6 +245,7 @@ export function useFeed() {
     refresh,
     handleLike,
     handleRecast,
+    handleBookmark,
     handleVoiceNoteLike,
     handleVoiceNoteRecast,
     handleVoiceNoteDelete,

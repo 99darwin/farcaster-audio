@@ -1,9 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import {
-  getChannelFeed,
+  getBookmarkedCasts,
   getErrorMessage,
-  publishCastToChannel,
   bookmarkCast,
   removeBookmark,
 } from "@/services/api";
@@ -12,6 +11,7 @@ import {
   recastCast,
   removeLike,
   removeRecast,
+  publishCast,
 } from "@/services/neynar";
 import type { NeynarCast } from "@/types/neynar";
 import type { FeedItem } from "@/types/voiceNote";
@@ -74,7 +74,7 @@ function updateBookmark(
   );
 }
 
-export function useChannelFeed(channelId: string) {
+export function useBookmarks() {
   const user = useAuthStore((s) => s.user);
   const [casts, setCasts] = useState<NeynarCast[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -89,11 +89,11 @@ export function useChannelFeed(channelId: string) {
   );
 
   const fetch = useCallback(async () => {
-    if (!user || !channelId) return;
+    if (!user) return;
     setIsLoading(true);
     setError(null);
     try {
-      const data = await getChannelFeed(channelId, { limit: 25 });
+      const data = await getBookmarkedCasts({ limit: 25 });
       setCasts(data.casts);
       setCursor(data.next.cursor);
     } catch (err) {
@@ -101,14 +101,14 @@ export function useChannelFeed(channelId: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [channelId, user]);
+  }, [user]);
 
   const refresh = useCallback(async () => {
-    if (!user || !channelId) return;
+    if (!user) return;
     setIsRefreshing(true);
     setError(null);
     try {
-      const data = await getChannelFeed(channelId, { limit: 25 });
+      const data = await getBookmarkedCasts({ limit: 25 });
       setCasts(data.casts);
       setCursor(data.next.cursor);
     } catch (err) {
@@ -116,13 +116,13 @@ export function useChannelFeed(channelId: string) {
     } finally {
       setIsRefreshing(false);
     }
-  }, [channelId, user]);
+  }, [user]);
 
   const fetchMore = useCallback(async () => {
-    if (!user || !channelId || isLoading || !cursor) return;
+    if (!user || isLoading || !cursor) return;
     setIsLoading(true);
     try {
-      const data = await getChannelFeed(channelId, { limit: 25, cursor });
+      const data = await getBookmarkedCasts({ limit: 25, cursor });
       setCasts((prev) => [...prev, ...data.casts]);
       setCursor(data.next.cursor);
     } catch (err) {
@@ -130,7 +130,7 @@ export function useChannelFeed(channelId: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [channelId, cursor, isLoading, user]);
+  }, [cursor, isLoading, user]);
 
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {
@@ -170,12 +170,34 @@ export function useChannelFeed(channelId: string) {
 
   const handleBookmark = useCallback(
     async (castHash: string, isBookmarked: boolean) => {
-      setCasts((prev) => updateBookmark(prev, castHash, !isBookmarked));
+      if (isBookmarked) {
+        let removedCast: NeynarCast | undefined;
+        let removedIndex = -1;
+        setCasts((prev) => {
+          removedIndex = prev.findIndex((cast) => cast.hash === castHash);
+          removedCast = removedIndex >= 0 ? prev[removedIndex] : undefined;
+          return prev.filter((cast) => cast.hash !== castHash);
+        });
+        try {
+          await removeBookmark(castHash);
+        } catch {
+          if (removedCast) {
+            const restoredCast = removedCast;
+            setCasts((prev) => {
+              const next = [...prev];
+              next.splice(Math.max(0, removedIndex), 0, restoredCast);
+              return next;
+            });
+          }
+        }
+        return;
+      }
+
+      setCasts((prev) => updateBookmark(prev, castHash, true));
       try {
-        if (isBookmarked) await removeBookmark(castHash);
-        else await bookmarkCast(castHash);
+        await bookmarkCast(castHash);
       } catch {
-        setCasts((prev) => updateBookmark(prev, castHash, isBookmarked));
+        setCasts((prev) => updateBookmark(prev, castHash, false));
       }
     },
     [],
@@ -187,17 +209,15 @@ export function useChannelFeed(channelId: string) {
       parentHash?: string,
       imageUris?: string[],
       quote?: { fid: number; hash: string },
-      selectedChannelId?: string,
     ): Promise<{ hash: string } | void> => {
-      const result = await publishCastToChannel({
+      const result = await publishCast(
         text,
-        parent: parentHash,
-        embeds: imageUris && imageUris.length > 0 ? imageUris : undefined,
+        parentHash,
+        imageUris && imageUris.length > 0 ? imageUris : undefined,
         quote,
-        channel_id: parentHash ? undefined : selectedChannelId,
-      });
+      );
       await refresh();
-      return result.hash ? { hash: result.hash } : undefined;
+      return result;
     },
     [refresh],
   );

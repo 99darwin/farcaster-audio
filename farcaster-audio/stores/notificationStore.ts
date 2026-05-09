@@ -31,6 +31,7 @@ interface NotificationStore {
     added: boolean,
     myFid: number,
   ) => void;
+  updateCastBookmark: (hash: string, bookmarked: boolean) => void;
   reset: () => void;
 }
 
@@ -101,6 +102,26 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
         return {
           ...n,
           cast: { ...cast, reactions, viewer_context: viewerContext },
+        };
+      }),
+    })),
+
+  updateCastBookmark: (hash, bookmarked) =>
+    set((state) => ({
+      notifications: state.notifications.map((n) => {
+        if (n.cast?.hash !== hash) return n;
+        const cast = n.cast;
+        return {
+          ...n,
+          cast: {
+            ...cast,
+            viewer_context: {
+              liked: false,
+              recasted: false,
+              ...cast.viewer_context,
+              bookmarked,
+            },
+          },
         };
       }),
     })),

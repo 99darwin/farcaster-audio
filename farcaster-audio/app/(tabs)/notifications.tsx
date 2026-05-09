@@ -26,6 +26,7 @@ export default function NotificationsScreen() {
     markAsRead,
     handleLike,
     handleRecast,
+    handleBookmark,
     handlePublishCast,
   } = useNotifications();
 
@@ -117,11 +118,12 @@ export default function NotificationsScreen() {
         isUnread={isUnread(item)}
         onLike={handleLike}
         onRecast={handleRecast}
+        onBookmark={handleBookmark}
         onReply={openReply}
         onQuoteCast={openQuoteCast}
       />
     ),
-    [isUnread, handleLike, handleRecast, openReply, openQuoteCast],
+    [isUnread, handleLike, handleRecast, handleBookmark, openReply, openQuoteCast],
   );
 
   const handleEndReached = useCallback(() => {

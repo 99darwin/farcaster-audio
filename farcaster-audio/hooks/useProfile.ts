@@ -106,6 +106,25 @@ export function useProfile(fid: number) {
     [],
   );
 
+  const updateCastBookmark = useCallback((hash: string, bookmarked: boolean) => {
+    setState((s) => ({
+      ...s,
+      casts: s.casts.map((cast) =>
+        cast.hash === hash
+          ? {
+              ...cast,
+              viewer_context: {
+                liked: false,
+                recasted: false,
+                ...cast.viewer_context,
+                bookmarked,
+              },
+            }
+          : cast,
+      ),
+    }));
+  }, []);
+
   const toggleFollow = useCallback(async () => {
     if (!state.user) return;
     const wasFollowing = state.user.viewer_context?.following ?? false;
@@ -160,5 +179,6 @@ export function useProfile(fid: number) {
     fetchMoreCasts,
     toggleFollow,
     updateCastReaction,
+    updateCastBookmark,
   };
 }

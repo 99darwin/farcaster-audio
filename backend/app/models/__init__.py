@@ -11,6 +11,7 @@ from app.models.trust_score import TrustScore
 from app.models.voice_note import VoiceNote, VoiceNotePlay, VoiceNoteReaction
 from app.models.miniapp_notification import MiniAppNotification
 from app.models.compose_draft import ComposeDraft
+from app.models.cast_bookmark import CastBookmark
 
 __all__ = [
     "User",
@@ -28,4 +29,5 @@ __all__ = [
     "VoiceNoteReaction",
     "MiniAppNotification",
     "ComposeDraft",
+    "CastBookmark",
 ]

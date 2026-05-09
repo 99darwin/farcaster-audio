@@ -34,6 +34,7 @@ interface CastCardProps {
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   onPress?: () => void;
@@ -341,6 +342,7 @@ function CastCardImpl({
   myFid,
   onLike,
   onRecast,
+  onBookmark,
   onQuoteCast,
   onReply,
   onPress,
@@ -363,6 +365,7 @@ function CastCardImpl({
       cast.reactions.recasts.some((r) => r.fid === myFid),
     [cast.reactions.recasts, cast.viewer_context?.recasted, myFid],
   );
+  const isBookmarked = cast.viewer_context?.bookmarked ?? false;
   const truncatedText = useMemo(
     () => (cast.text.length > 80 ? `${cast.text.slice(0, 80)}...` : cast.text),
     [cast.text],
@@ -553,8 +556,10 @@ function CastCardImpl({
           repliesCount={cast.replies.count}
           isLiked={isLiked}
           isRecasted={isRecasted}
+          isBookmarked={isBookmarked}
           onLike={() => onLike(cast.hash, isLiked)}
           onRecast={() => onRecast(cast.hash, isRecasted)}
+          onBookmark={() => onBookmark(cast.hash, isBookmarked)}
           onQuoteCast={() => onQuoteCast(cast)}
           onReply={() => onReply(cast)}
           authorUsername={cast.author.username}

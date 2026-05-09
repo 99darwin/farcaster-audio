@@ -1,24 +1,19 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { View, FlatList } from "react-native";
-import { useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FlatList, View } from "react-native";
 import { useScrollToTop } from "@react-navigation/native";
 import { useAuthStore } from "@/stores/authStore";
 import { useComposeStore } from "@/stores/composeStore";
-import { useFeed } from "@/hooks/useFeed";
-import { useLiveSpaces } from "@/hooks/useLiveSpaces";
-import { SpacesRail } from "@/components/spaces/SpacesRail";
+import { useBookmarks } from "@/hooks/useBookmarks";
 import { FeedList } from "@/components/feed/FeedList";
 import { ComposeModal } from "@/components/feed/ComposeModal";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast } from "@/types/neynar";
 
-export default function HomeScreen() {
-  const router = useRouter();
+export default function BookmarksScreen() {
   const user = useAuthStore((s) => s.user);
   const styles = useStyles();
-
   const {
-    feedItems,
+    items,
     isLoading,
     isRefreshing,
     hasMore,
@@ -29,41 +24,23 @@ export default function HomeScreen() {
     handleLike,
     handleRecast,
     handleBookmark,
-    handleVoiceNoteLike,
-    handleVoiceNoteRecast,
-    handleVoiceNoteDelete,
     handlePublishCast,
-  } = useFeed();
+  } = useBookmarks();
 
-  const feedRef = useRef<FlatList>(null);
-  useScrollToTop(feedRef);
+  const listRef = useRef<FlatList>(null);
+  useScrollToTop(listRef);
 
-  useLiveSpaces();
-
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
-
-  // Compose modal state
   const [isComposeVisible, setIsComposeVisible] = useState(false);
   const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
   const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
     null,
   );
-
-  // Listen for compose requests from the tab bar or snap compose intents
-  const composeSignal = useComposeStore((s) => s.composeSignal);
   const composeDraft = useComposeStore((s) => s.draft);
   const clearDraft = useComposeStore((s) => s.clearDraft);
-  const composeSignalRef = useRef(composeSignal);
+
   useEffect(() => {
-    if (composeSignal > composeSignalRef.current) {
-      setReplyTarget(null);
-      setQuoteCastTarget(null);
-      setIsComposeVisible(true);
-    }
-    composeSignalRef.current = composeSignal;
-  }, [composeSignal]);
+    fetch();
+  }, [fetch]);
 
   const openReply = useCallback((cast: NeynarCast) => {
     setReplyTarget(cast);
@@ -77,8 +54,6 @@ export default function HomeScreen() {
     setIsComposeVisible(true);
   }, []);
 
-  const feedHeader = useMemo(() => <SpacesRail />, []);
-
   const closeCompose = useCallback(() => {
     setIsComposeVisible(false);
     setReplyTarget(null);
@@ -89,8 +64,8 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <FeedList
-        ref={feedRef}
-        items={feedItems}
+        ref={listRef}
+        items={items}
         myFid={user?.fid ?? 0}
         isLoading={isLoading}
         isRefreshing={isRefreshing}
@@ -102,12 +77,10 @@ export default function HomeScreen() {
         onBookmark={handleBookmark}
         onQuoteCast={openQuoteCast}
         onReply={openReply}
-        onVoiceNoteLike={handleVoiceNoteLike}
-        onVoiceNoteRecast={handleVoiceNoteRecast}
-        onVoiceNoteDelete={handleVoiceNoteDelete}
-        ListHeaderComponent={feedHeader}
         error={error}
         onRetry={fetch}
+        emptyTitle="No bookmarks yet"
+        emptySubtitle="Save casts to find them here later"
       />
 
       <ComposeModal

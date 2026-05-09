@@ -25,6 +25,7 @@ import {
   recastCast,
   removeRecast,
 } from "@/services/neynar";
+import { bookmarkCast, removeBookmark } from "@/services/api";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
@@ -120,6 +121,17 @@ export function SpaceChat({
     [refreshThread],
   );
 
+  const handleBookmark = useCallback(
+    async (hash: string, isBookmarked: boolean) => {
+      try {
+        if (isBookmarked) await removeBookmark(hash);
+        else await bookmarkCast(hash);
+        await refreshThread();
+      } catch {}
+    },
+    [refreshThread],
+  );
+
   const handleReply = useCallback((_cast: NeynarCast) => {
     // Focus the compose bar — for space chat we keep replies flat to the root
   }, []);
@@ -182,6 +194,7 @@ export function SpaceChat({
             myFid={viewerFid}
             onLike={handleLike}
             onRecast={handleRecast}
+            onBookmark={handleBookmark}
             onQuoteCast={handleQuoteCast}
             onReply={handleReply}
             onCastPress={handleCastPress}

@@ -28,6 +28,7 @@ import type {
   CastCreateRequest,
   CastCreateResponse,
   ChannelFeedResponse,
+  BookmarksFeedResponse,
   ChannelSearchResponse,
 } from "@/types/api";
 
@@ -290,6 +291,14 @@ export const getChannelFeed = (
     )
     .then((r) => r.data);
 
+export const getBookmarkedCasts = (params?: {
+  limit?: number;
+  cursor?: string;
+}) =>
+  apiClient
+    .get<BookmarksFeedResponse>("/v1/feed/bookmarks", { params })
+    .then((r) => r.data);
+
 export const searchChannels = (q: string, limit = 8) =>
   apiClient
     .get<ChannelSearchResponse>("/v1/feed/channels/search", {
@@ -304,6 +313,12 @@ export const publishCastToChannel = (
     const data = r.data;
     return data.cast ?? { hash: data.hash ?? "" };
   });
+
+export const bookmarkCast = (castHash: string) =>
+  apiClient.post(`/v1/feed/bookmarks/${castHash}`).then((r) => r.data);
+
+export const removeBookmark = (castHash: string) =>
+  apiClient.delete(`/v1/feed/bookmarks/${castHash}`).then((r) => r.data);
 
 // --- Admin ---
 export const adminListRooms = () =>

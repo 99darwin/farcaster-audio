@@ -48,6 +48,7 @@ interface ThreadedRepliesProps {
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   onCastPress: (hash: string) => void;
@@ -61,6 +62,7 @@ function ReplyNode({
   myFid,
   onLike,
   onRecast,
+  onBookmark,
   onQuoteCast,
   onReply,
   onCastPress,
@@ -72,6 +74,7 @@ function ReplyNode({
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   onCastPress: (hash: string) => void;
@@ -119,6 +122,7 @@ function ReplyNode({
             myFid={myFid}
             onLike={onLike}
             onRecast={onRecast}
+            onBookmark={onBookmark}
             onQuoteCast={onQuoteCast}
             onReply={onReply}
             onPress={() => onCastPress(reply.hash)}
@@ -136,6 +140,7 @@ function ReplyNode({
           myFid={myFid}
           onLike={onLike}
           onRecast={onRecast}
+          onBookmark={onBookmark}
           onQuoteCast={onQuoteCast}
           onReply={onReply}
           onCastPress={onCastPress}
@@ -167,6 +172,7 @@ function ReplyNode({
             myFid={myFid}
             onLike={onLike}
             onRecast={onRecast}
+            onBookmark={onBookmark}
             onQuoteCast={onQuoteCast}
             onReply={onReply}
             onCastPress={onCastPress}
@@ -191,6 +197,7 @@ export function ThreadedReplies({
   myFid,
   onLike,
   onRecast,
+  onBookmark,
   onQuoteCast,
   onReply,
   onCastPress,
@@ -224,6 +231,7 @@ export function ThreadedReplies({
           myFid={myFid}
           onLike={onLike}
           onRecast={onRecast}
+          onBookmark={onBookmark}
           onQuoteCast={onQuoteCast}
           onReply={onReply}
           onCastPress={onCastPress}
@@ -254,6 +262,7 @@ export function ThreadedReplies({
                 myFid={myFid}
                 onLike={onLike}
                 onRecast={onRecast}
+                onBookmark={onBookmark}
                 onQuoteCast={onQuoteCast}
                 onReply={onReply}
                 onCastPress={onCastPress}

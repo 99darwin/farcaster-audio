@@ -21,6 +21,7 @@ import {
   removeRecast,
   publishCast,
 } from "@/services/neynar";
+import { bookmarkCast, removeBookmark } from "@/services/api";
 import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
 
 const LIST_PERF_PROPS = {
@@ -41,8 +42,15 @@ export default function CastThreadScreen() {
   const styles = useStyles();
   const user = useAuthStore((s) => s.user);
   const myFid = user?.fid ?? 0;
-  const { rootCast, replies, isLoading, error, fetch, updateCastReaction } =
-    useCastThread(hash!, myFid);
+  const {
+    rootCast,
+    replies,
+    isLoading,
+    error,
+    fetch,
+    updateCastReaction,
+    updateCastBookmark,
+  } = useCastThread(hash!, myFid);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [composeVisible, setComposeVisible] = useState(false);
   const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
@@ -145,6 +153,19 @@ export default function CastThreadScreen() {
     [myFid, updateCastReaction],
   );
 
+  const handleBookmark = useCallback(
+    async (castHash: string, isBookmarked: boolean) => {
+      updateCastBookmark(castHash, !isBookmarked);
+      try {
+        if (isBookmarked) await removeBookmark(castHash);
+        else await bookmarkCast(castHash);
+      } catch {
+        updateCastBookmark(castHash, isBookmarked);
+      }
+    },
+    [updateCastBookmark],
+  );
+
   const handleReply = useCallback((cast: NeynarCast) => {
     setReplyTo(cast);
     setQuoteCastTarget(null);
@@ -217,6 +238,7 @@ export default function CastThreadScreen() {
               myFid={myFid}
               onLike={handleLike}
               onRecast={handleRecast}
+              onBookmark={handleBookmark}
               onQuoteCast={handleQuoteCast}
               onReply={handleReply}
               expanded
@@ -229,6 +251,7 @@ export default function CastThreadScreen() {
             myFid={myFid}
             onLike={handleLike}
             onRecast={handleRecast}
+            onBookmark={handleBookmark}
             onQuoteCast={handleQuoteCast}
             onReply={handleReply}
             onCastPress={handleCastPress}
