@@ -26,13 +26,10 @@ class NotificationService: UNNotificationServiceExtension {
 
         URLSession.shared.downloadTask(with: url) { tmp, _, error in
             defer { contentHandler(content) }
-            if let error = error {
-                let msg = String(error.localizedDescription.prefix(30))
-                content.body = "[err=\(msg)] " + content.body
+            if error != nil {
                 return
             }
             guard let tmp = tmp else {
-                content.body = "[err=no-tmp] " + content.body
                 return
             }
             let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
@@ -41,8 +38,6 @@ class NotificationService: UNNotificationServiceExtension {
             try? FileManager.default.moveItem(at: tmp, to: dst)
             if let attachment = try? UNNotificationAttachment(identifier: "pfp", url: dst) {
                 content.attachments = [attachment]
-            } else {
-                content.body = "[err=attach-failed] " + content.body
             }
         }.resume()
     }
