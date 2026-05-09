@@ -1,4 +1,10 @@
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import {
+  ActionSheetIOS,
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/common/Avatar";
 import { useTheme } from "@/hooks/useTheme";
@@ -11,6 +17,7 @@ interface ProfileHeaderProps {
   user: NeynarUser;
   isOwnProfile: boolean;
   onFollowToggle: () => void;
+  onBlockToggle: () => void;
   activeTab: ProfileTab;
   onTabChange: (tab: ProfileTab) => void;
 }
@@ -25,13 +32,29 @@ export function ProfileHeader({
   user,
   isOwnProfile,
   onFollowToggle,
+  onBlockToggle,
   activeTab,
   onTabChange,
 }: ProfileHeaderProps) {
   const { colors } = useTheme();
   const styles = useStyles();
   const isFollowing = user.viewer_context?.following ?? false;
+  const isBlocked = user.viewer_context?.blocked ?? false;
   const bio = user.profile?.bio?.text;
+
+  const handleMenuPress = () => {
+    const blockLabel = isBlocked ? "Unblock user" : "Block user";
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options: ["Cancel", blockLabel],
+        cancelButtonIndex: 0,
+        destructiveButtonIndex: isBlocked ? undefined : 1,
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 1) onBlockToggle();
+      },
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -55,6 +78,20 @@ export function ProfileHeader({
             <Text style={styles.statLabel}>Followers</Text>
           </View>
         </View>
+        {!isOwnProfile && (
+          <Pressable
+            style={styles.menuButton}
+            onPress={handleMenuPress}
+            accessibilityRole="button"
+            accessibilityLabel="Profile options"
+          >
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={20}
+              color={colors.text.secondary}
+            />
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.nameSection}>
@@ -69,7 +106,7 @@ export function ProfileHeader({
 
       {bio ? <Text style={styles.bio}>{bio}</Text> : null}
 
-      {!isOwnProfile && (
+      {!isOwnProfile && !isBlocked && (
         <Pressable
           style={[styles.followButton, isFollowing && styles.followingButton]}
           onPress={onFollowToggle}
@@ -79,6 +116,12 @@ export function ProfileHeader({
           >
             {isFollowing ? "Following" : "Follow"}
           </Text>
+        </Pressable>
+      )}
+
+      {!isOwnProfile && isBlocked && (
+        <Pressable style={styles.blockedButton} onPress={onBlockToggle}>
+          <Text style={styles.blockedText}>Unblock</Text>
         </Pressable>
       )}
 
@@ -155,6 +198,13 @@ const useStyles = () =>
       gap: 24,
       flex: 1,
     },
+    menuButton: {
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: -8,
+    },
     stat: {
       alignItems: "center",
     },
@@ -212,6 +262,20 @@ const useStyles = () =>
     followingText: {
       color: colors.text.secondary,
       fontWeight: "600",
+    },
+    blockedButton: {
+      marginTop: 12,
+      backgroundColor: "transparent",
+      borderWidth: 1,
+      borderColor: colors.background.border,
+      paddingVertical: 8,
+      borderRadius: 20,
+      alignItems: "center",
+    },
+    blockedText: {
+      color: colors.text.secondary,
+      fontSize: 15,
+      fontWeight: "700",
     },
     tabRow: {
       flexDirection: "row",

@@ -21,7 +21,7 @@ import {
   removeRecast,
   publishCast,
 } from "@/services/neynar";
-import { bookmarkCast, removeBookmark } from "@/services/api";
+import { blockUser, bookmarkCast, removeBookmark } from "@/services/api";
 import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
 
 const LIST_PERF_PROPS = {
@@ -206,6 +206,15 @@ export default function CastThreadScreen() {
     [hash, router],
   );
 
+  const handleBlockAuthor = useCallback(
+    async (fid: number) => {
+      if (!myFid || fid === myFid) return;
+      await blockUser(fid);
+      await fetch();
+    },
+    [fetch, myFid],
+  );
+
   if (isLoading && !rootCast) {
     return <LoadingSpinner fullScreen />;
   }
@@ -241,6 +250,7 @@ export default function CastThreadScreen() {
               onBookmark={handleBookmark}
               onQuoteCast={handleQuoteCast}
               onReply={handleReply}
+              onBlockAuthor={handleBlockAuthor}
               expanded
             />
           ) : null
@@ -254,6 +264,7 @@ export default function CastThreadScreen() {
             onBookmark={handleBookmark}
             onQuoteCast={handleQuoteCast}
             onReply={handleReply}
+            onBlockAuthor={handleBlockAuthor}
             onCastPress={handleCastPress}
             focusHash={focusHash}
           />

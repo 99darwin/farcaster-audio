@@ -173,6 +173,33 @@ export function useProfile(fid: number) {
     }
   }, [fid, state.user]);
 
+  const setBlocked = useCallback((blocked: boolean) => {
+    setState((s) => ({
+      ...s,
+      user: s.user
+        ? {
+            ...s.user,
+            viewer_context: {
+              following: false,
+              followed_by: false,
+              ...s.user.viewer_context,
+              blocked,
+            },
+          }
+        : null,
+      casts: blocked ? [] : s.casts,
+      hasMoreCasts: blocked ? false : s.hasMoreCasts,
+      castsCursor: blocked ? null : s.castsCursor,
+    }));
+  }, []);
+
+  const removeAuthorCasts = useCallback((authorFid: number) => {
+    setState((s) => ({
+      ...s,
+      casts: s.casts.filter((cast) => cast.author.fid !== authorFid),
+    }));
+  }, []);
+
   return {
     ...state,
     fetchProfile,
@@ -180,5 +207,7 @@ export function useProfile(fid: number) {
     toggleFollow,
     updateCastReaction,
     updateCastBookmark,
+    setBlocked,
+    removeAuthorCasts,
   };
 }

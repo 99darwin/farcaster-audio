@@ -1,6 +1,7 @@
 export interface NeynarUserViewerContext {
   following: boolean;
   followed_by: boolean;
+  blocked?: boolean;
 }
 
 export interface NeynarUser {

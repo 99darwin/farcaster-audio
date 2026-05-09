@@ -32,6 +32,11 @@ from app.dependencies import (
 )
 from app.models.cast_bookmark import CastBookmark
 from app.models.user import User
+from app.services.block_service import (
+    get_blocked_fids,
+    filter_casts,
+    filter_thread_payload,
+)
 from app.services.media_embed import normalize_media_embed_url
 from app.services.cast_bookmark_service import annotate_bookmarked_casts
 from app.services.spam_service import SpamService
@@ -169,6 +174,8 @@ async def feed_following(
 
     data = resp.json()
     await spam_service.annotate_casts(data.get("casts", []))
+    blocked_fids = await get_blocked_fids(db, current_user)
+    data["casts"] = filter_casts(data.get("casts", []), blocked_fids)
     await annotate_bookmarked_casts(db, current_user, data)
     return data
 
@@ -208,6 +215,8 @@ async def feed_channel(
 
     data = resp.json()
     await spam_service.annotate_casts(data.get("casts", []))
+    blocked_fids = await get_blocked_fids(db, current_user)
+    data["casts"] = filter_casts(data.get("casts", []), blocked_fids)
     await annotate_bookmarked_casts(db, current_user, data)
     return data
 
@@ -393,6 +402,8 @@ async def get_cast_thread(
 
     data = resp.json()
     await spam_service.annotate_thread(data)
+    blocked_fids = await get_blocked_fids(db, current_user)
+    data = filter_thread_payload(data, blocked_fids)
     await annotate_bookmarked_casts(db, current_user, data)
     return data
 

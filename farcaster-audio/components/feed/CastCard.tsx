@@ -37,6 +37,7 @@ interface CastCardProps {
   onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
+  onBlockAuthor?: (fid: number) => Promise<void> | void;
   onPress?: () => void;
   expanded?: boolean;
   threaded?: boolean;
@@ -345,6 +346,7 @@ function CastCardImpl({
   onBookmark,
   onQuoteCast,
   onReply,
+  onBlockAuthor,
   onPress,
   expanded,
   threaded,
@@ -441,20 +443,49 @@ function CastCardImpl({
   const handleCastMenuPress = useCallback(() => {
     haptic.selection();
     const hasText = cast.text.trim().length > 0;
+    const canBlock = !!onBlockAuthor && cast.author.fid !== myFid;
+    const options = ["Cancel", "Copy text"];
+    if (canBlock) {
+      options.push(`Block @${cast.author.username}`);
+    }
+    const blockButtonIndex = canBlock ? options.length - 1 : undefined;
 
     ActionSheetIOS.showActionSheetWithOptions(
       {
-        options: ["Cancel", "Copy text"],
+        options,
         cancelButtonIndex: 0,
+        destructiveButtonIndex: blockButtonIndex,
         disabledButtonIndices: hasText ? [] : [1],
       },
-      (buttonIndex) => {
+      async (buttonIndex) => {
         if (buttonIndex === 1) {
           handleCopyText();
+          return;
+        }
+        if (buttonIndex === blockButtonIndex && onBlockAuthor) {
+          try {
+            await onBlockAuthor(cast.author.fid);
+            Toast.show({
+              type: "success",
+              text1: `Blocked @${cast.author.username}`,
+            });
+          } catch {
+            Toast.show({
+              type: "error",
+              text1: "Failed to block user",
+            });
+          }
         }
       },
     );
-  }, [cast.text, handleCopyText]);
+  }, [
+    cast.author.fid,
+    cast.author.username,
+    cast.text,
+    handleCopyText,
+    myFid,
+    onBlockAuthor,
+  ]);
 
   const card = (
     <View

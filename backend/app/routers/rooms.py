@@ -70,12 +70,17 @@ async def list_rooms(
     status: Literal["active", "scheduled"] = Query(default="active"),
     limit: int = Query(default=20, ge=1, le=50),
     cursor: int = Query(default=0, ge=0),
+    current_fid: int | None = Depends(get_optional_current_user),
     room_service: RoomService = Depends(get_room_service),
 ) -> RoomListResponse:
     """Return a paginated list of rooms filtered by status."""
     if status == "scheduled":
-        return await room_service.list_scheduled_rooms(limit=limit, cursor=cursor)
-    return await room_service.list_active_rooms(limit=limit, cursor=cursor)
+        return await room_service.list_scheduled_rooms(
+            limit=limit, cursor=cursor, current_fid=current_fid
+        )
+    return await room_service.list_active_rooms(
+        limit=limit, cursor=cursor, current_fid=current_fid
+    )
 
 
 @router.websocket("/events")

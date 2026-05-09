@@ -104,6 +104,7 @@ interface FeedListProps {
   onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
+  onBlockAuthor?: (fid: number) => Promise<void> | void;
   onVoiceNoteLike?: (id: string, isLiked: boolean) => void;
   onVoiceNoteRecast?: (id: string, isRecasted: boolean) => void;
   onVoiceNoteDelete?: (id: string) => void;
@@ -128,6 +129,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     onBookmark,
     onQuoteCast,
     onReply,
+    onBlockAuthor,
     onVoiceNoteLike,
     onVoiceNoteRecast,
     onVoiceNoteDelete,
@@ -188,6 +190,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
           onBookmark={onBookmark}
           onQuoteCast={onQuoteCast}
           onReply={onReply}
+          onBlockAuthor={onBlockAuthor}
           onPress={() => handleCastPress(item.data.hash)}
         />
       );
@@ -199,6 +202,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
       onBookmark,
       onQuoteCast,
       onReply,
+      onBlockAuthor,
       stableVoiceNoteLike,
       stableVoiceNoteRecast,
       onVoiceNoteDelete,

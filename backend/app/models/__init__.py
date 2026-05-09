@@ -12,6 +12,7 @@ from app.models.voice_note import VoiceNote, VoiceNotePlay, VoiceNoteReaction
 from app.models.miniapp_notification import MiniAppNotification
 from app.models.compose_draft import ComposeDraft
 from app.models.cast_bookmark import CastBookmark
+from app.models.user_block import UserBlock
 
 __all__ = [
     "User",
@@ -30,4 +31,5 @@ __all__ = [
     "MiniAppNotification",
     "ComposeDraft",
     "CastBookmark",
+    "UserBlock",
 ]

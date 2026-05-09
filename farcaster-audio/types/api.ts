@@ -109,6 +109,23 @@ export interface RsvpResponse {
   status: string;
 }
 
+export interface BlockedUser {
+  fid: number;
+  username: string | null;
+  display_name: string | null;
+  pfp_url: string | null;
+  blocked_at: string;
+}
+
+export interface BlockUserResponse {
+  status: "blocked" | "unblocked";
+  fid: number;
+}
+
+export interface BlockedUsersResponse {
+  users: BlockedUser[];
+}
+
 // Feed
 export interface CastCreateRequest {
   text: string;

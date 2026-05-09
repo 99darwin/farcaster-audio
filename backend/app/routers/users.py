@@ -7,14 +7,28 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.config import settings
-from app.dependencies import get_current_user, get_db, get_spam_service, require_non_demo_user
+from app.dependencies import (
+    get_current_user,
+    get_db,
+    get_spam_service,
+    require_non_demo_user,
+)
 from app.models.room import Room
 from app.routers.feed import _neynar_headers, _raise_upstream_error, _get_signer_uuid
 from app.schemas.room import RecordingListResponse, RecordingResponse
 from app.services.cast_bookmark_service import annotate_bookmarked_casts
+from app.services.block_service import (
+    create_block,
+    delete_block,
+    filter_casts,
+    get_blocked_fids,
+    is_blocked,
+    list_blocked_users,
+)
 from app.services.spam_service import SpamService
 from app.services.storage_service import StorageService
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +38,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/users", tags=["users"])
 
 NEYNAR_BASE = "https://api.neynar.com/v2"
+
+
+class BlockRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
 
 
 @router.get("/search")
@@ -85,16 +103,54 @@ async def get_user_by_username(
     return resp.json()
 
 
+@router.get("/blocked")
+async def get_blocked_users(
+    current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return users blocked by the current viewer."""
+    return {"users": await list_blocked_users(db, current_user)}
+
+
+@router.post("/{fid}/block", status_code=201)
+async def block_user(
+    body: BlockRequest | None = None,
+    fid: int = Path(..., ge=1),
+    current_user: int = Depends(require_non_demo_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Block a Farcaster user at the app layer."""
+    await create_block(
+        db,
+        blocker_fid=current_user,
+        blocked_fid=fid,
+        reason=body.reason if body else None,
+    )
+    return {"status": "blocked", "fid": fid}
+
+
+@router.delete("/{fid}/block")
+async def unblock_user(
+    fid: int = Path(..., ge=1),
+    current_user: int = Depends(require_non_demo_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove an app-layer block if it exists."""
+    await delete_block(db, blocker_fid=current_user, blocked_fid=fid)
+    return {"status": "unblocked", "fid": fid}
+
+
 @router.get("/{fid}")
 async def get_user(
     fid: int = Path(..., ge=1),
-    _current_user: int = Depends(get_current_user),
+    current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Fetch a user profile by FID via Neynar, with viewer context."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{NEYNAR_BASE}/farcaster/user/bulk",
-            params={"fids": str(fid), "viewer_fid": _current_user},
+            params={"fids": str(fid), "viewer_fid": current_user},
             headers=_neynar_headers(),
             timeout=15.0,
         )
@@ -107,7 +163,13 @@ async def get_user(
     if not users:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return {"user": users[0]}
+    user = users[0]
+    viewer_context = {
+        **(user.get("viewer_context") or {}),
+        "blocked": await is_blocked(db, blocker_fid=current_user, blocked_fid=fid),
+    }
+    user["viewer_context"] = viewer_context
+    return {"user": user}
 
 
 @router.get("/{fid}/casts")
@@ -139,6 +201,8 @@ async def get_user_casts(
         _raise_upstream_error(resp)
 
     data = resp.json()
+    blocked_fids = await get_blocked_fids(db, current_user)
+    data["casts"] = filter_casts(data.get("casts", []), blocked_fids)
     await annotate_bookmarked_casts(db, current_user, data)
     return data
 
@@ -208,7 +272,7 @@ async def list_user_recordings(
     fid: int = Path(..., ge=1),
     limit: int = Query(default=20, ge=1, le=50),
     cursor: int = Query(default=0, ge=0),
-    _current_user: int = Depends(get_current_user),
+    current_user: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> RecordingListResponse:
     """Return recorded spaces hosted by ``fid`` within the retention window.
@@ -218,9 +282,9 @@ async def list_user_recordings(
     ``RECORDING_RETENTION_DAYS`` are included. Older rows are filtered here
     as a safety net; the retention cleanup job removes them outright.
     """
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(
-        days=RECORDING_RETENTION_DAYS
-    )
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=RECORDING_RETENTION_DAYS)
+    if await is_blocked(db, blocker_fid=current_user, blocked_fid=fid):
+        return RecordingListResponse(recordings=[], next_cursor=None)
 
     # Recordings are public-by-design — any caller can list recordings for any
     # host fid within the retention window. A host opts into making a space
@@ -304,9 +368,7 @@ async def list_user_recordings(
                 room_id=str(room.id),
                 title=room.title,
                 recording_url=url,
-                started_at=room.started_at.isoformat()
-                if room.started_at
-                else "",
+                started_at=room.started_at.isoformat() if room.started_at else "",
                 ended_at=room.ended_at.isoformat() if room.ended_at else None,
                 duration_seconds=duration_seconds,
                 cast_hash=room.cast_hash,

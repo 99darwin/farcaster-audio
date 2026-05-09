@@ -198,4 +198,5 @@ class LiveKitService:
 
     async def close(self) -> None:
         """Cleanup API client."""
-        await self.api.aclose()
+        if self._api is not None:
+            await self._api.aclose()
