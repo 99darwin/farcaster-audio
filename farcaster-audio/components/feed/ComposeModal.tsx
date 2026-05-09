@@ -21,6 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import Toast from "react-native-toast-message";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { publishCastToChannel, uploadImage, uploadVideo } from "@/services/api";
+import * as draftsApi from "@/services/drafts";
 import { useAuthStore } from "@/stores/authStore";
 import { useVoiceNoteStore } from "@/stores/voiceNoteStore";
 import { useVoiceNoteRecorder } from "@/hooks/useVoiceNoteRecorder";
@@ -34,6 +35,14 @@ import { useOgPreview, extractUrls } from "@/hooks/useOgPreview";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { haptic } from "@/utils/haptics";
+import type {
+  ComposeDraft,
+  ComposeDraftPayload,
+  DraftCastSnapshot,
+  DraftMediaEmbed,
+  DraftQuoteCast,
+  DraftVoiceMetadata,
+} from "@/types/draft";
 import type { GiphyGif } from "@/services/giphy";
 import type { NeynarCast } from "@/types/neynar";
 
@@ -44,6 +53,11 @@ const MAX_IMAGES_PRO = 4;
 const CHANNEL_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 
 type RecordingState = "idle" | "recording" | "recorded";
+type ComposeAttachment = {
+  uri: string;
+  type: "image" | "video";
+  source?: "giphy" | "local" | "uploaded";
+};
 
 function formatTimer(ms: number): string {
   const totalSecs = Math.floor(ms / 1000);
@@ -54,6 +68,15 @@ function formatTimer(ms: number): string {
 
 function normalizeChannelInput(input: string): string {
   return input.trim().replace(/^\/+/, "");
+}
+
+function formatDraftTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 interface ComposeModalProps {
@@ -100,14 +123,19 @@ export function ComposeModal({
   const maxImages = isPro ? MAX_IMAGES_PRO : MAX_IMAGES_DEFAULT;
   const [text, setText] = useState("");
   const [cursorPosition, setCursorPosition] = useState(0);
-  const [attachments, setAttachments] = useState<
-    Array<{
-      uri: string;
-      type: "image" | "video";
-      source?: "giphy" | "local";
-    }>
-  >([]);
+  const [attachments, setAttachments] = useState<ComposeAttachment[]>([]);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [drafts, setDrafts] = useState<ComposeDraft[]>([]);
+  const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
+  const [isDraftPickerOpen, setIsDraftPickerOpen] = useState(false);
+  const [activeDraft, setActiveDraft] = useState<ComposeDraft | null>(null);
+  const [draftParentCast, setDraftParentCast] =
+    useState<DraftCastSnapshot | null>(null);
+  const [draftQuoteCast, setDraftQuoteCast] =
+    useState<DraftQuoteCast | null>(null);
+  const [restoredVoice, setRestoredVoice] =
+    useState<DraftVoiceMetadata | null>(null);
   const [postToFarcaster, setPostToFarcaster] = useState(true);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(
@@ -230,8 +258,12 @@ export function ComposeModal({
   }, [keyboardPadding]);
 
   const hasVideo = attachments.some((a) => a.type === "video");
-  const hasVoiceNote = recordingState === "recorded" && !!recorder.result;
-  const canSelectChannel = !replyTo && (!hasVoiceNote || postToFarcaster);
+  const hasRecordedVoiceNote =
+    recordingState === "recorded" && !!recorder.result;
+  const hasVoiceNote = hasRecordedVoiceNote || !!restoredVoice;
+  const activeParentHash = replyTo?.hash ?? draftParentCast?.hash;
+  const canSelectChannel =
+    !activeParentHash && (!hasVoiceNote || postToFarcaster);
   const effectiveChannelId = canSelectChannel ? selectedChannelId : null;
   const charCount = text.length;
   const isOverLimit = charCount > maxCastLength;
@@ -239,11 +271,13 @@ export function ComposeModal({
     text.trim().length > 0 ||
     attachments.length > 0 ||
     hasVoiceNote ||
-    !!quoteCast;
+    !!quoteCast ||
+    !!draftQuoteCast;
   const canPublish =
     hasContent &&
     !isOverLimit &&
     !isPublishing &&
+    !isSavingDraft &&
     recordingState !== "recording";
 
   const placeCursor = useCallback((position: number) => {
@@ -293,7 +327,7 @@ export function ComposeModal({
 
   useEffect(() => {
     if (!isVisible) return;
-    if (replyTo) {
+    if (replyTo || draftParentCast) {
       setSelectedChannelId(null);
       channelSelectorTokenStartRef.current = null;
       return;
@@ -304,14 +338,14 @@ export function ComposeModal({
     setSelectedChannelId(
       normalized && CHANNEL_ID_PATTERN.test(normalized) ? normalized : null,
     );
-  }, [initialChannelId, isVisible, replyTo]);
+  }, [draftParentCast, initialChannelId, isVisible, replyTo]);
 
   useEffect(() => {
-    if (replyTo || (hasVoiceNote && !postToFarcaster)) {
+    if (activeParentHash || (hasVoiceNote && !postToFarcaster)) {
       setSelectedChannelId(null);
       channelSelectorTokenStartRef.current = null;
     }
-  }, [hasVoiceNote, postToFarcaster, replyTo]);
+  }, [activeParentHash, hasVoiceNote, postToFarcaster]);
 
   // --- Voice recording handlers ---
 
@@ -329,6 +363,7 @@ export function ComposeModal({
     Keyboard.dismiss();
     // Clear media attachments — voice note replaces images/video
     setAttachments([]);
+    setRestoredVoice(null);
     await recorder.startRecording();
     setRecordingState("recording");
   }, [recorder]);
@@ -349,6 +384,7 @@ export function ComposeModal({
           previewPlayer.pause();
           recorder.reset();
           setRecordingState("idle");
+          setRestoredVoice(null);
         },
       },
     ]);
@@ -404,6 +440,208 @@ export function ComposeModal({
     [maxImages],
   );
 
+  const castToDraftSnapshot = useCallback(
+    (cast: NeynarCast): DraftCastSnapshot => ({
+      hash: cast.hash,
+      text: cast.text,
+      author: {
+        fid: cast.author.fid,
+        username: cast.author.username,
+        display_name: cast.author.display_name,
+        pfp_url: cast.author.pfp_url,
+      },
+    }),
+    [],
+  );
+
+  const quoteToDraftSnapshot = useCallback(
+    (cast: NeynarCast): DraftQuoteCast => ({
+      fid: cast.author.fid,
+      hash: cast.hash,
+      text: cast.text,
+      author: {
+        fid: cast.author.fid,
+        username: cast.author.username,
+        display_name: cast.author.display_name,
+        pfp_url: cast.author.pfp_url,
+      },
+    }),
+    [],
+  );
+
+  const uploadDraftMedia = useCallback(async (): Promise<DraftMediaEmbed[]> => {
+    const uploaded = await Promise.all(
+      attachments.map(async (attachment) => {
+        if (attachment.source === "giphy") {
+          return {
+            url: attachment.uri,
+            type: "gif" as const,
+            source: "giphy" as const,
+          };
+        }
+        if (attachment.source === "uploaded") {
+          return {
+            url: attachment.uri,
+            type: attachment.type,
+            source: "uploaded" as const,
+          };
+        }
+        const url =
+          attachment.type === "video"
+            ? await uploadVideo(attachment.uri)
+            : await uploadImage(attachment.uri);
+        return {
+          url,
+          type: attachment.type,
+          source: "uploaded" as const,
+        };
+      }),
+    );
+    return uploaded;
+  }, [attachments]);
+
+  const buildDraftPayload = useCallback(
+    async (): Promise<ComposeDraftPayload> => {
+      const mediaEmbeds = hasRecordedVoiceNote ? [] : await uploadDraftMedia();
+      const parentCast = replyTo
+        ? castToDraftSnapshot(replyTo)
+        : draftParentCast;
+      const quote = quoteCast
+        ? quoteToDraftSnapshot(quoteCast)
+        : draftQuoteCast;
+      const voiceMetadata = hasRecordedVoiceNote
+        ? {
+            duration_ms: recorder.result!.durationMs,
+            audio_size: 0,
+            content_type: "audio/mp4" as const,
+            waveform_peaks: recorder.result!.peaks,
+          }
+        : activeDraft && restoredVoice
+          ? undefined
+          : restoredVoice;
+      return {
+        text,
+        channel_id: effectiveChannelId,
+        parent_cast_hash: parentCast?.hash ?? null,
+        parent_cast: parentCast,
+        quote_cast: quote,
+        media_embeds: mediaEmbeds,
+        ...(voiceMetadata !== undefined
+          ? { voice_metadata: voiceMetadata }
+          : {}),
+        post_to_farcaster: postToFarcaster,
+      };
+    },
+    [
+      activeDraft,
+      castToDraftSnapshot,
+      draftParentCast,
+      draftQuoteCast,
+      effectiveChannelId,
+      hasRecordedVoiceNote,
+      postToFarcaster,
+      quoteCast,
+      quoteToDraftSnapshot,
+      recorder.result,
+      replyTo,
+      restoredVoice,
+      text,
+      uploadDraftMedia,
+    ],
+  );
+
+  const saveCurrentDraft = useCallback(async (): Promise<ComposeDraft> => {
+    const payload = await buildDraftPayload();
+    const saved = activeDraft
+      ? await draftsApi.updateDraft(activeDraft.id, payload)
+      : await draftsApi.createDraft(payload);
+    if (hasRecordedVoiceNote && recorder.result) {
+      const voiceUpload = await draftsApi.getDraftVoiceUploadUrl(saved.id, {
+        duration_ms: recorder.result.durationMs,
+        content_type: "audio/mp4",
+        waveform_peaks: recorder.result.peaks,
+      });
+      await draftsApi.uploadDraftAudioFile(
+        voiceUpload.upload_url,
+        recorder.result.filePath,
+      );
+      return {
+        ...saved,
+        voice_metadata: voiceUpload.voice_metadata,
+      };
+    }
+    return saved;
+  }, [activeDraft, buildDraftPayload, hasRecordedVoiceNote, recorder.result]);
+
+  const refreshDrafts = useCallback(async () => {
+    setIsLoadingDrafts(true);
+    try {
+      setDrafts(await draftsApi.listDrafts());
+    } catch (err: any) {
+      Toast.show({
+        type: "error",
+        text1: "Could not load drafts",
+        text2: err?.message ?? "Try again in a moment.",
+      });
+    } finally {
+      setIsLoadingDrafts(false);
+    }
+  }, []);
+
+  const openDraftPicker = useCallback(() => {
+    haptic.selection();
+    setIsDraftPickerOpen(true);
+    refreshDrafts();
+  }, [refreshDrafts]);
+
+  const restoreDraft = useCallback((draft: ComposeDraft) => {
+    haptic.selection();
+    setActiveDraft(draft);
+    setDraftParentCast(draft.parent_cast ?? null);
+    setDraftQuoteCast(draft.quote_cast ?? null);
+    setRestoredVoice(draft.voice_metadata ?? null);
+    setText(draft.text);
+    setCursorPosition(draft.text.length);
+    setSelectedChannelId(draft.channel_id ?? null);
+    setPostToFarcaster(draft.post_to_farcaster);
+    setRecordingState("idle");
+    recorder.reset();
+    setAttachments(
+      draft.media_embeds.map((embed) => ({
+        uri: embed.preview_url ?? embed.url,
+        type: embed.type === "video" ? "video" : "image",
+        source: embed.source === "giphy" ? "giphy" : "uploaded",
+      })),
+    );
+    setIsDraftPickerOpen(false);
+  }, [recorder]);
+
+  const handleDeleteDraft = useCallback(
+    (draft: ComposeDraft) => {
+      Alert.alert("Delete draft?", "This saved draft will be removed.", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await draftsApi.deleteDraft(draft.id);
+              setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+              if (activeDraft?.id === draft.id) setActiveDraft(null);
+            } catch (err: any) {
+              Toast.show({
+                type: "error",
+                text1: "Could not delete draft",
+                text2: err?.message ?? "Try again in a moment.",
+              });
+            }
+          },
+        },
+      ]);
+    },
+    [activeDraft?.id],
+  );
+
   // --- Publish ---
 
   const handlePublish = async () => {
@@ -411,6 +649,25 @@ export function ComposeModal({
     haptic.light();
     setIsPublishing(true);
     try {
+      if (activeDraft) {
+        const saved = await saveCurrentDraft();
+        const result = await draftsApi.publishDraft(saved.id);
+        const hash =
+          result?.cast?.hash ?? result?.hash ?? result?.voice_note?.cast_hash;
+        if (hash) {
+          Toast.show({
+            type: "viewCast",
+            props: { hash, parentHash: saved.parent_cast_hash ?? undefined },
+            visibilityTime: 5000,
+            position: "bottom",
+          });
+        }
+        haptic.success();
+        await onPublishComplete?.();
+        resetState();
+        onClose();
+        return;
+      }
       if (hasVoiceNote && recorder.result && user) {
         // Voice note publish flow
         const { upload_id, upload_url } = await voiceNotesApi.getUploadUrl(
@@ -426,9 +683,9 @@ export function ComposeModal({
           audio_size: 0,
           post_to_farcaster: postToFarcaster,
           cast_text: text.trim(),
-          parent_cast_hash: replyTo?.hash,
+          parent_cast_hash: activeParentHash,
           channel_id:
-            postToFarcaster && !replyTo?.hash && effectiveChannelId
+            postToFarcaster && !activeParentHash && effectiveChannelId
               ? effectiveChannelId
               : undefined,
         });
@@ -446,9 +703,9 @@ export function ComposeModal({
           play_count: 0,
         });
 
-        if (replyTo?.hash && onVoiceReplyPosted) {
+        if (activeParentHash && onVoiceReplyPosted) {
           try {
-            await onVoiceReplyPosted(replyTo.hash);
+            await onVoiceReplyPosted(activeParentHash);
           } catch {
             // Non-fatal: the voice note was already posted; refresh is best-effort.
           }
@@ -482,7 +739,7 @@ export function ComposeModal({
             })
           : await onPublish(
               text.trim(),
-              replyTo?.hash,
+              activeParentHash,
               allEmbeds.length > 0 ? allEmbeds : undefined,
               quote,
               effectiveChannelId ?? undefined,
@@ -490,7 +747,7 @@ export function ComposeModal({
         if (result?.hash) {
           Toast.show({
             type: "viewCast",
-            props: { hash: result.hash, parentHash: replyTo?.hash },
+            props: { hash: result.hash, parentHash: activeParentHash },
             visibilityTime: 5000,
             position: "bottom",
           });
@@ -522,12 +779,41 @@ export function ComposeModal({
     setRecordingState("idle");
     setPostToFarcaster(true);
     setSelectedChannelId(null);
+    setActiveDraft(null);
+    setDraftParentCast(null);
+    setDraftQuoteCast(null);
+    setRestoredVoice(null);
+    setIsDraftPickerOpen(false);
     channelSelectorTokenStartRef.current = null;
     recorder.reset();
   }, [recorder]);
 
+  const saveAndClose = useCallback(async () => {
+    if (!hasContent || isSavingDraft) return;
+    setIsSavingDraft(true);
+    try {
+      await saveCurrentDraft();
+      haptic.success();
+      Toast.show({
+        type: "success",
+        text1: "Draft saved",
+      });
+      resetState();
+      onClose();
+    } catch (err: any) {
+      haptic.error();
+      Toast.show({
+        type: "error",
+        text1: "Could not save draft",
+        text2: err?.response?.data?.detail || err?.message || "Try again.",
+      });
+    } finally {
+      setIsSavingDraft(false);
+    }
+  }, [hasContent, isSavingDraft, onClose, resetState, saveCurrentDraft]);
+
   const handleClose = () => {
-    if (isPublishing) return;
+    if (isPublishing || isSavingDraft) return;
     if (recordingState === "recording") {
       Alert.alert("Discard recording?", "Your voice note will be lost.", [
         { text: "Cancel", style: "cancel" },
@@ -543,9 +829,15 @@ export function ComposeModal({
       ]);
       return;
     }
-    if (recordingState === "recorded") {
-      Alert.alert("Discard draft?", "Your voice note and text will be lost.", [
-        { text: "Cancel", style: "cancel" },
+    if (hasContent) {
+      Alert.alert("Save draft?", "Keep this compose draft for later.", [
+        { text: "Keep editing", style: "cancel" },
+        {
+          text: "Save draft",
+          onPress: () => {
+            saveAndClose();
+          },
+        },
         {
           text: "Discard",
           style: "destructive",
@@ -563,11 +855,22 @@ export function ComposeModal({
 
   const publishLabel = hasVoiceNote
     ? "Post"
-    : replyTo
+    : activeParentHash
       ? "Reply"
-      : quoteCast
+      : quoteCast || draftQuoteCast
         ? "Quote"
         : "Cast";
+  const visibleQuoteCast = quoteCast
+    ? {
+        author: quoteCast.author,
+        text: quoteCast.text,
+      }
+    : draftQuoteCast?.author
+      ? {
+          author: draftQuoteCast.author,
+          text: draftQuoteCast.text,
+        }
+      : null;
 
   return (
     <Modal
@@ -581,16 +884,27 @@ export function ComposeModal({
       >
         {/* Header */}
         <View style={styles.header}>
-          <Pressable
-            onPress={handleClose}
-            hitSlop={12}
-            disabled={isPublishing}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel composing"
-            accessibilityState={{ disabled: isPublishing }}
-          >
-            <Text style={styles.cancelText}>Cancel</Text>
-          </Pressable>
+          <View style={styles.headerLeft}>
+            <Pressable
+              onPress={handleClose}
+              hitSlop={12}
+              disabled={isPublishing || isSavingDraft}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel composing"
+              accessibilityState={{ disabled: isPublishing || isSavingDraft }}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={openDraftPicker}
+              hitSlop={12}
+              disabled={isPublishing || isSavingDraft}
+              accessibilityRole="button"
+              accessibilityLabel="Open drafts"
+            >
+              <Text style={styles.draftsText}>Drafts</Text>
+            </Pressable>
+          </View>
           <Pressable
             onPress={handlePublish}
             style={[
@@ -621,7 +935,7 @@ export function ComposeModal({
         </View>
 
         {/* Reply context */}
-        {replyTo && (
+        {(replyTo || draftParentCast) && (
           <View style={styles.replyContext}>
             <Ionicons
               name="return-down-forward"
@@ -629,7 +943,9 @@ export function ComposeModal({
               color={colors.text.secondary}
             />
             <Text style={styles.replyText} numberOfLines={1}>
-              Replying to @{replyTo.author.username}
+              {`Replying to @${
+                replyTo?.author.username ?? draftParentCast?.author.username
+              }`}
             </Text>
           </View>
         )}
@@ -748,10 +1064,11 @@ export function ComposeModal({
                 )}
 
                 {/* Voice note attachment preview */}
-                {hasVoiceNote && recorder.result && (
+                {hasVoiceNote && (recorder.result || restoredVoice) && (
                   <View style={styles.voiceNotePreview}>
                     <Pressable
                       onPress={togglePreviewPlay}
+                      disabled={!recorder.result}
                       hitSlop={8}
                       accessibilityLabel={
                         isPreviewPlaying ? "Pause preview" : "Play preview"
@@ -767,13 +1084,21 @@ export function ComposeModal({
                     </Pressable>
                     <View style={styles.voiceNoteWaveform}>
                       <Waveform
-                        peaks={recorder.result.peaks}
+                        peaks={
+                          recorder.result?.peaks ??
+                          restoredVoice?.waveform_peaks ??
+                          []
+                        }
                         progress={previewProgress}
                         height={32}
                       />
                     </View>
                     <Text style={styles.voiceNoteDuration}>
-                      {formatTimer(recorder.result.durationMs)}
+                      {formatTimer(
+                        recorder.result?.durationMs ??
+                          restoredVoice?.duration_ms ??
+                          0,
+                      )}
                     </Text>
                     <Pressable
                       onPress={handleRemoveVoiceNote}
@@ -814,25 +1139,25 @@ export function ComposeModal({
                   </View>
                 )}
 
-                {quoteCast && (
+                {visibleQuoteCast && (
                   <View style={styles.quotePreview}>
                     <View style={styles.quotePreviewHeader}>
-                      {quoteCast.author.pfp_url ? (
+                      {visibleQuoteCast.author.pfp_url ? (
                         <Image
-                          source={{ uri: quoteCast.author.pfp_url }}
+                          source={{ uri: visibleQuoteCast.author.pfp_url }}
                           style={styles.quotePreviewAvatar}
                           contentFit="cover"
                         />
                       ) : null}
                       <Text style={styles.quotePreviewName} numberOfLines={1}>
-                        {quoteCast.author.display_name}
+                        {visibleQuoteCast.author.display_name}
                       </Text>
                       <Text style={styles.quotePreviewUsername}>
-                        @{quoteCast.author.username}
+                        @{visibleQuoteCast.author.username}
                       </Text>
                     </View>
                     <Text style={styles.quotePreviewText} numberOfLines={3}>
-                      {quoteCast.text}
+                      {visibleQuoteCast.text}
                     </Text>
                   </View>
                 )}
@@ -1022,6 +1347,106 @@ export function ComposeModal({
           </>
         )}
       </Animated.View>
+      <Modal
+        visible={isDraftPickerOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setIsDraftPickerOpen(false)}
+      >
+        <Pressable
+          style={styles.draftBackdrop}
+          onPress={() => setIsDraftPickerOpen(false)}
+        >
+          <Pressable style={styles.draftSheet}>
+            <View style={styles.draftSheetHeader}>
+              <Text style={styles.draftSheetTitle}>Drafts</Text>
+              <Pressable
+                onPress={() => setIsDraftPickerOpen(false)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Close drafts"
+              >
+                <Ionicons
+                  name="close"
+                  size={22}
+                  color={colors.text.secondary}
+                />
+              </Pressable>
+            </View>
+            {isLoadingDrafts ? (
+              <View style={styles.draftEmpty}>
+                <ActivityIndicator color={colors.accent} />
+              </View>
+            ) : drafts.length === 0 ? (
+              <View style={styles.draftEmpty}>
+                <Text style={styles.draftEmptyTitle}>No drafts yet</Text>
+                <Text style={styles.draftEmptyText}>
+                  Saved casts, replies, and voice notes will show up here.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.draftList}>
+                {drafts.map((draft) => (
+                  <Pressable
+                    key={draft.id}
+                    onPress={() => restoreDraft(draft)}
+                    style={styles.draftRow}
+                    accessibilityRole="button"
+                    accessibilityLabel="Restore draft"
+                  >
+                    <View style={styles.draftRowMain}>
+                      <Text style={styles.draftPreview} numberOfLines={2}>
+                        {draft.text.trim() ||
+                          (draft.voice_metadata
+                            ? "Voice note draft"
+                            : "Media draft")}
+                      </Text>
+                      <View style={styles.draftChips}>
+                        {draft.parent_cast_hash ? (
+                          <Text style={styles.draftChip}>Reply</Text>
+                        ) : null}
+                        {draft.quote_cast ? (
+                          <Text style={styles.draftChip}>Quote</Text>
+                        ) : null}
+                        {draft.channel_id ? (
+                          <Text style={styles.draftChip}>
+                            /{draft.channel_id}
+                          </Text>
+                        ) : null}
+                        {draft.media_embeds.length > 0 ? (
+                          <Text style={styles.draftChip}>
+                            {draft.media_embeds.length} media
+                          </Text>
+                        ) : null}
+                        {draft.voice_metadata ? (
+                          <Text style={styles.draftChip}>Voice</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                    <View style={styles.draftRowSide}>
+                      <Text style={styles.draftDate}>
+                        {formatDraftTime(draft.updated_at)}
+                      </Text>
+                      <Pressable
+                        onPress={() => handleDeleteDraft(draft)}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel="Delete draft"
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={19}
+                          color={colors.danger}
+                        />
+                      </Pressable>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
       <GifPicker
         isVisible={gifPickerOpen}
         onClose={() => setGifPickerOpen(false)}
@@ -1046,9 +1471,19 @@ const useStyles = () =>
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.background.border,
   },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 18,
+  },
   cancelText: {
     color: colors.text.secondary,
     fontSize: 16,
+  },
+  draftsText: {
+    color: colors.accent,
+    fontSize: 16,
+    fontWeight: "600",
   },
   publishButton: {
     backgroundColor: colors.purple,
@@ -1375,5 +1810,94 @@ const useStyles = () =>
     color: colors.text.secondary,
     fontSize: 13,
     lineHeight: 18,
+  },
+  draftBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.46)",
+  },
+  draftSheet: {
+    maxHeight: "70%",
+    backgroundColor: colors.background.main,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.background.border,
+    paddingBottom: 20,
+  },
+  draftSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.background.border,
+  },
+  draftSheetTitle: {
+    color: colors.text.primary,
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  draftList: {
+    maxHeight: 420,
+  },
+  draftRow: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.background.border,
+  },
+  draftRowMain: {
+    flex: 1,
+    gap: 8,
+  },
+  draftPreview: {
+    color: colors.text.body,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  draftChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  draftChip: {
+    color: colors.text.secondary,
+    fontSize: 12,
+    fontWeight: "600",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: colors.background.surface,
+  },
+  draftRowSide: {
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    minHeight: 54,
+  },
+  draftDate: {
+    color: colors.text.placeholder,
+    fontSize: 12,
+  },
+  draftEmpty: {
+    minHeight: 180,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+    gap: 8,
+  },
+  draftEmptyTitle: {
+    color: colors.text.primary,
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  draftEmptyText: {
+    color: colors.text.secondary,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
   },
   }));

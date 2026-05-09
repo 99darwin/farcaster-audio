@@ -10,6 +10,7 @@ from app.models.auth_address import AuthAddress
 from app.models.trust_score import TrustScore
 from app.models.voice_note import VoiceNote, VoiceNotePlay, VoiceNoteReaction
 from app.models.miniapp_notification import MiniAppNotification
+from app.models.compose_draft import ComposeDraft
 
 __all__ = [
     "User",
@@ -26,4 +27,5 @@ __all__ = [
     "VoiceNotePlay",
     "VoiceNoteReaction",
     "MiniAppNotification",
+    "ComposeDraft",
 ]

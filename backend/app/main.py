@@ -11,7 +11,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.config import settings
-from app.routers import admin, auth, feed, gifs, media, notifications, participants, push, recordings, rooms, snaps, users, voice_notes, webhooks
+from app.routers import admin, auth, drafts, feed, gifs, media, notifications, participants, push, recordings, rooms, snaps, users, voice_notes, webhooks
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -199,6 +199,7 @@ async def get_agent_skill():
 
 app.include_router(admin.router)
 app.include_router(auth.router)
+app.include_router(drafts.router)
 app.include_router(feed.router)
 app.include_router(gifs.router)
 app.include_router(rooms.router)
