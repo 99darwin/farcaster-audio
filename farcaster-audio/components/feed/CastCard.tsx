@@ -6,19 +6,25 @@ import {
   StyleSheet,
   FlatList,
   useWindowDimensions,
+  ActionSheetIOS,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import Toast from "react-native-toast-message";
 import { Avatar } from "@/components/common/Avatar";
 import { CastActions } from "@/components/feed/CastActions";
 import { CastText } from "@/components/feed/CastText";
+import { SelectableCastText } from "@/components/feed/SelectableCastText";
 import { OgPreview } from "@/components/feed/OgPreview";
 import { MediaViewer } from "@/components/common/ImageViewer";
 import { VideoPlayer } from "@/components/feed/VideoPlayer";
+import { touchTarget } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { getUserByUsername } from "@/services/api";
+import { haptic } from "@/utils/haptics";
 import type { NeynarCast, NeynarChannel, NeynarEmbed } from "@/types/neynar";
 
 const TRUNCATE_LENGTH = 280;
@@ -257,7 +263,12 @@ function QuoteCast({
         <Text style={styles.quoteUsername}>@{cast.author.username}</Text>
       </View>
       {cast.text ? (
-        <CastText text={cast.text} style={styles.quoteText} numberOfLines={3} />
+        <CastText
+          text={cast.text}
+          style={styles.quoteText}
+          numberOfLines={3}
+          selectable
+        />
       ) : null}
       {cast.embeds && cast.embeds.length > 0 ? (
         <CastImages
@@ -281,11 +292,13 @@ function CastBody({
   expanded,
   onMentionPress,
   hiddenUrls,
+  granularSelection,
 }: {
   text: string;
   expanded?: boolean;
   onMentionPress?: (username: string) => void;
   hiddenUrls?: Set<string>;
+  granularSelection?: boolean;
 }) {
   const styles = useStyles();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -293,8 +306,21 @@ function CastBody({
     !expanded && !isExpanded && text.length > TRUNCATE_LENGTH;
   const displayText = shouldTruncate ? text.slice(0, TRUNCATE_LENGTH) : text;
 
+  if (granularSelection) {
+    return (
+      <View style={styles.bodyContainer}>
+        <SelectableCastText
+          text={displayText}
+          style={styles.text}
+          hiddenUrls={hiddenUrls}
+          onMentionPress={onMentionPress}
+        />
+      </View>
+    );
+  }
+
   return (
-    <Text>
+    <View style={styles.bodyContainer}>
       <CastText
         text={displayText}
         style={styles.text}
@@ -306,7 +332,7 @@ function CastBody({
           {"... "}read more
         </Text>
       ) : null}
-    </Text>
+    </View>
   );
 }
 
@@ -397,6 +423,36 @@ function CastCardImpl({
     [navigateToProfile],
   );
 
+  const handleCopyText = useCallback(async () => {
+    const text = cast.text.trim();
+    if (!text) return;
+
+    haptic.selection();
+    await Clipboard.setStringAsync(text);
+    Toast.show({
+      type: "success",
+      text1: "Cast text copied",
+    });
+  }, [cast.text]);
+
+  const handleCastMenuPress = useCallback(() => {
+    haptic.selection();
+    const hasText = cast.text.trim().length > 0;
+
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options: ["Cancel", "Copy text"],
+        cancelButtonIndex: 0,
+        disabledButtonIndices: hasText ? [] : [1],
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 1) {
+          handleCopyText();
+        }
+      },
+    );
+  }, [cast.text, handleCopyText]);
+
   const card = (
     <View
       style={[styles.container, threaded && styles.threadedContainer]}
@@ -436,15 +492,38 @@ function CastCardImpl({
             </Text>
           </Pressable>
           {channel ? <ChannelAttribution channel={channel} /> : null}
+          <Pressable
+            style={styles.menuButton}
+            hitSlop={8}
+            onPress={handleCastMenuPress}
+            accessibilityRole="button"
+            accessibilityLabel="Cast options"
+          >
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={18}
+              color={colors.text.secondary}
+            />
+          </Pressable>
         </View>
-        <Pressable onPress={onPress} disabled={!onPress}>
+        {expanded ? (
           <CastBody
             text={cast.text}
             expanded={expanded}
             onMentionPress={handleMentionPress}
             hiddenUrls={renderedEmbedUrls}
+            granularSelection
           />
-        </Pressable>
+        ) : (
+          <Pressable onPress={onPress} disabled={!onPress}>
+            <CastBody
+              text={cast.text}
+              expanded={expanded}
+              onMentionPress={handleMentionPress}
+              hiddenUrls={renderedEmbedUrls}
+            />
+          </Pressable>
+        )}
         <CastImages
           embeds={embeds}
           onImagePress={(images, index) => setViewerState({ images, index })}
@@ -514,6 +593,14 @@ const useStyles = () =>
       gap: 8,
       marginBottom: 4,
     },
+    menuButton: {
+      width: 32,
+      minHeight: touchTarget.min,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      marginVertical: -8,
+      marginRight: -8,
+    },
     header: {
       flex: 1,
       minWidth: 0,
@@ -531,6 +618,9 @@ const useStyles = () =>
       color: colors.text.secondary,
       fontSize: 14,
       flexShrink: 1,
+    },
+    bodyContainer: {
+      marginTop: 0,
     },
     dot: {
       color: colors.text.secondary,

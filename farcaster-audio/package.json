@@ -26,6 +26,7 @@
     "expo-audio": "~55.0.13",
     "expo-blur": "~55.0.10",
     "expo-calendar": "~55.0.14",
+    "expo-clipboard": "~55.0.13",
     "expo-crypto": "~55.0.10",
     "expo-device": "^55.0.10",
     "expo-font": "~55.0.6",

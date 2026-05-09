@@ -15,6 +15,8 @@
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		DF1ACD0790E9D598F43C12CA /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A67A20B960EC056EC65E1B /* ExpoModulesProvider.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		F3A1C9002FA54D8E00A1B2C3 /* SelectableCastTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A1C8FE2FA54D8E00A1B2C3 /* SelectableCastTextView.swift */; };
+		F3A1C9012FA54D8E00A1B2C3 /* SelectableCastTextViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = F3A1C8FF2FA54D8E00A1B2C3 /* SelectableCastTextViewManager.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,6 +58,8 @@
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Juke/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Juke-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Juke-Bridging-Header.h"; path = "Juke/Juke-Bridging-Header.h"; sourceTree = "<group>"; };
+		F3A1C8FE2FA54D8E00A1B2C3 /* SelectableCastTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SelectableCastTextView.swift; path = Juke/SelectableCastTextView.swift; sourceTree = "<group>"; };
+		F3A1C8FF2FA54D8E00A1B2C3 /* SelectableCastTextViewManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = SelectableCastTextViewManager.m; path = Juke/SelectableCastTextViewManager.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -107,6 +111,8 @@
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
 				F11748442D0722820044C1D9 /* Juke-Bridging-Header.h */,
+				F3A1C8FE2FA54D8E00A1B2C3 /* SelectableCastTextView.swift */,
+				F3A1C8FF2FA54D8E00A1B2C3 /* SelectableCastTextViewManager.m */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -457,6 +463,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
+				F3A1C9002FA54D8E00A1B2C3 /* SelectableCastTextView.swift in Sources */,
+				F3A1C9012FA54D8E00A1B2C3 /* SelectableCastTextViewManager.m in Sources */,
 				DF1ACD0790E9D598F43C12CA /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
