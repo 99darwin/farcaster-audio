@@ -4,6 +4,8 @@ import {
   getChannelFeed,
   getErrorMessage,
   publishCastToChannel,
+  bookmarkCast,
+  removeBookmark,
 } from "@/services/api";
 import {
   likeCast,
@@ -50,6 +52,26 @@ function updateReaction(
 
     return { ...cast, reactions, viewer_context: viewerContext };
   });
+}
+
+function updateBookmark(
+  casts: NeynarCast[],
+  hash: string,
+  bookmarked: boolean,
+): NeynarCast[] {
+  return casts.map((cast) =>
+    cast.hash === hash
+      ? {
+          ...cast,
+          viewer_context: {
+            liked: false,
+            recasted: false,
+            ...cast.viewer_context,
+            bookmarked,
+          },
+        }
+      : cast,
+  );
 }
 
 export function useChannelFeed(channelId: string) {
@@ -146,6 +168,19 @@ export function useChannelFeed(channelId: string) {
     [user],
   );
 
+  const handleBookmark = useCallback(
+    async (castHash: string, isBookmarked: boolean) => {
+      setCasts((prev) => updateBookmark(prev, castHash, !isBookmarked));
+      try {
+        if (isBookmarked) await removeBookmark(castHash);
+        else await bookmarkCast(castHash);
+      } catch {
+        setCasts((prev) => updateBookmark(prev, castHash, isBookmarked));
+      }
+    },
+    [],
+  );
+
   const handlePublishCast = useCallback(
     async (
       text: string,
@@ -179,6 +214,7 @@ export function useChannelFeed(channelId: string) {
     refresh,
     handleLike,
     handleRecast,
+    handleBookmark,
     handlePublishCast,
   };
 }

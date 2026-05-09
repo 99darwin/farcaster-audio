@@ -305,6 +305,12 @@ export const publishCastToChannel = (
     return data.cast ?? { hash: data.hash ?? "" };
   });
 
+export const bookmarkCast = (castHash: string) =>
+  apiClient.post(`/v1/feed/bookmarks/${castHash}`).then((r) => r.data);
+
+export const removeBookmark = (castHash: string) =>
+  apiClient.delete(`/v1/feed/bookmarks/${castHash}`).then((r) => r.data);
+
 // --- Admin ---
 export const adminListRooms = () =>
   apiClient.get<RoomListResponse>("/v1/admin/rooms").then((r) => r.data);

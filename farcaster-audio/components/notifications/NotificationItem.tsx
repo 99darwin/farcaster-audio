@@ -77,6 +77,7 @@ interface NotificationItemProps {
   isUnread: boolean;
   onLike?: (hash: string, isLiked: boolean) => void;
   onRecast?: (hash: string, isRecasted: boolean) => void;
+  onBookmark?: (hash: string, isBookmarked: boolean) => void;
   onReply?: (cast: NeynarCast) => void;
   onQuoteCast?: (cast: NeynarCast) => void;
 }
@@ -86,6 +87,7 @@ export function NotificationItem({
   isUnread,
   onLike,
   onRecast,
+  onBookmark,
   onReply,
   onQuoteCast,
 }: NotificationItemProps) {
@@ -168,11 +170,15 @@ export function NotificationItem({
             repliesCount={cast.replies.count}
             isLiked={cast.viewer_context?.liked ?? false}
             isRecasted={cast.viewer_context?.recasted ?? false}
+            isBookmarked={cast.viewer_context?.bookmarked ?? false}
             onLike={() =>
               onLike?.(cast.hash, cast.viewer_context?.liked ?? false)
             }
             onRecast={() =>
               onRecast?.(cast.hash, cast.viewer_context?.recasted ?? false)
+            }
+            onBookmark={() =>
+              onBookmark?.(cast.hash, cast.viewer_context?.bookmarked ?? false)
             }
             onQuoteCast={() => onQuoteCast?.(cast)}
             onReply={() => onReply?.(cast)}

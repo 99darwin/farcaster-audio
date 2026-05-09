@@ -8,9 +8,11 @@ import logging
 import httpx
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_current_user, get_redis, get_spam_service
+from app.dependencies import get_current_user, get_db, get_redis, get_spam_service
+from app.services.cast_bookmark_service import annotate_bookmarked_casts
 from app.services.spam_service import SpamService
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ async def get_notifications(
     limit: int = Query(default=25, ge=1, le=50),
     cursor: str | None = Query(default=None, max_length=500, pattern=r"^[a-zA-Z0-9_\-=.%]+$"),
     current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
     spam_service: SpamService = Depends(get_spam_service),
 ):
@@ -43,7 +46,9 @@ async def get_notifications(
     try:
         cached = await redis.get(cache_key)
         if cached:
-            return json.loads(cached)
+            cached_response = json.loads(cached)
+            await annotate_bookmarked_casts(db, current_user, cached_response)
+            return cached_response
     except Exception as e:
         logger.warning("[notifications] Redis GET failed: %s", e)
 
@@ -118,4 +123,5 @@ async def get_notifications(
     except Exception as e:
         logger.warning("[notifications] Redis SETEX failed: %s", e)
 
+    await annotate_bookmarked_casts(db, current_user, response)
     return response

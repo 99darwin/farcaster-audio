@@ -14,9 +14,11 @@ import urllib.parse
 from typing import Literal
 
 import httpx
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field, HttpUrl
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -24,11 +26,14 @@ from app.dependencies import (
     _is_valid_neynar_signer,
     get_current_user,
     get_db,
+    get_redis,
     get_spam_service,
     require_non_demo_user,
 )
+from app.models.cast_bookmark import CastBookmark
 from app.models.user import User
 from app.services.media_embed import normalize_media_embed_url
+from app.services.cast_bookmark_service import annotate_bookmarked_casts
 from app.services.spam_service import SpamService
 
 logger = logging.getLogger(__name__)
@@ -36,6 +41,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/feed", tags=["feed"])
 
 NEYNAR_BASE = "https://api.neynar.com/v2"
+BOOKMARK_RATE_LIMIT_PER_MIN = 120
+BOOKMARK_RATE_LIMIT_WINDOW_SECONDS = 60
+MAX_BOOKMARKS_PER_USER = 5000
 
 
 def _neynar_headers() -> dict[str, str]:
@@ -50,6 +58,32 @@ def _raise_upstream_error(resp: httpx.Response) -> None:
     logger.error("[feed] Neynar %s → %s: %s", resp.request.url.path, resp.status_code, resp.text[:500])
     status = 502 if resp.status_code >= 500 else resp.status_code
     raise HTTPException(status_code=status, detail="Upstream service error")
+
+
+async def _enforce_bookmark_rate_limit(fid: int, redis: aioredis.Redis) -> None:
+    """Bound bookmark write churn by authenticated user."""
+    rate_key = f"cast_bookmark:rl:{fid}"
+    pipe = redis.pipeline()
+    pipe.incr(rate_key)
+    pipe.expire(rate_key, BOOKMARK_RATE_LIMIT_WINDOW_SECONDS)
+    count, _ = await pipe.execute()
+    if int(count) > BOOKMARK_RATE_LIMIT_PER_MIN:
+        raise HTTPException(
+            status_code=429,
+            detail="Bookmark rate limit exceeded. Try again later.",
+            headers={"Retry-After": str(BOOKMARK_RATE_LIMIT_WINDOW_SECONDS)},
+        )
+
+
+async def _ensure_bookmark_capacity(db: AsyncSession, fid: int) -> None:
+    result = await db.execute(
+        select(func.count()).select_from(CastBookmark).where(CastBookmark.fid == fid)
+    )
+    if result.scalar_one() >= MAX_BOOKMARKS_PER_USER:
+        raise HTTPException(
+            status_code=429,
+            detail="Bookmark limit reached.",
+        )
 
 
 async def _get_signer_uuid(db: AsyncSession, fid: int) -> str:
@@ -101,6 +135,7 @@ async def feed_following(
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=500, pattern=r"^[a-zA-Z0-9_\-=.%]+$"),
     current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     spam_service: SpamService = Depends(get_spam_service),
 ):
     """Proxy Neynar feed/following endpoint."""
@@ -121,6 +156,7 @@ async def feed_following(
 
     data = resp.json()
     await spam_service.annotate_casts(data.get("casts", []))
+    await annotate_bookmarked_casts(db, current_user, data)
     return data
 
 
@@ -134,6 +170,7 @@ async def feed_channel(
         pattern=r"^[a-zA-Z0-9_\-=.%]+$",
     ),
     current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     spam_service: SpamService = Depends(get_spam_service),
 ):
     """Proxy Neynar channel feed endpoint for a single Farcaster channel."""
@@ -158,6 +195,7 @@ async def feed_channel(
 
     data = resp.json()
     await spam_service.annotate_casts(data.get("casts", []))
+    await annotate_bookmarked_casts(db, current_user, data)
     return data
 
 
@@ -254,6 +292,7 @@ async def get_cast_thread(
     hash: str = Query(..., pattern=r"^0x[a-fA-F0-9]+$"),
     reply_depth: int = Query(default=2, ge=1, le=5),
     current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     spam_service: SpamService = Depends(get_spam_service),
 ):
     """Proxy Neynar cast conversation endpoint to fetch a thread."""
@@ -277,7 +316,55 @@ async def get_cast_thread(
 
     data = resp.json()
     await spam_service.annotate_thread(data)
+    await annotate_bookmarked_casts(db, current_user, data)
     return data
+
+
+@router.post("/bookmarks/{cast_hash}", status_code=201)
+async def create_bookmark(
+    cast_hash: str = Path(..., pattern=r"^0x[a-fA-F0-9]+$"),
+    current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Bookmark a cast locally. Only the hash is stored."""
+    await _enforce_bookmark_rate_limit(current_user, redis)
+    existing = await db.execute(
+        select(CastBookmark.cast_hash).where(
+            CastBookmark.fid == current_user,
+            CastBookmark.cast_hash == cast_hash,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return {"status": "bookmarked"}
+    await _ensure_bookmark_capacity(db, current_user)
+    stmt = (
+        pg_insert(CastBookmark)
+        .values(fid=current_user, cast_hash=cast_hash)
+        .on_conflict_do_nothing(index_elements=["fid", "cast_hash"])
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return {"status": "bookmarked"}
+
+
+@router.delete("/bookmarks/{cast_hash}")
+async def delete_bookmark(
+    cast_hash: str = Path(..., pattern=r"^0x[a-fA-F0-9]+$"),
+    current_user: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Remove a local cast bookmark if it exists."""
+    await _enforce_bookmark_rate_limit(current_user, redis)
+    await db.execute(
+        delete(CastBookmark).where(
+            CastBookmark.fid == current_user,
+            CastBookmark.cast_hash == cast_hash,
+        )
+    )
+    await db.commit()
+    return {"status": "unbookmarked"}
 
 
 @router.delete("/cast/{cast_hash}")

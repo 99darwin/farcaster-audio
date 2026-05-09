@@ -77,6 +77,7 @@ export default function ProfileScreen() {
     fetchMoreCasts,
     toggleFollow,
     updateCastReaction,
+    updateCastBookmark,
   } = useProfile(fid);
 
   // Voice notes state
@@ -179,6 +180,19 @@ export default function ProfileScreen() {
       }
     },
     [myFid, updateCastReaction],
+  );
+
+  const handleBookmark = useCallback(
+    async (castHash: string, isBookmarked: boolean) => {
+      updateCastBookmark(castHash, !isBookmarked);
+      try {
+        if (isBookmarked) await api.removeBookmark(castHash);
+        else await api.bookmarkCast(castHash);
+      } catch {
+        updateCastBookmark(castHash, isBookmarked);
+      }
+    },
+    [updateCastBookmark],
   );
 
   const handleReply = useCallback(
@@ -392,6 +406,7 @@ export default function ProfileScreen() {
               myFid={myFid}
               onLike={handleLike}
               onRecast={handleRecast}
+              onBookmark={handleBookmark}
               onQuoteCast={handleQuoteCast}
               onReply={handleReply}
               onPress={() => handleCastPress(item.hash)}

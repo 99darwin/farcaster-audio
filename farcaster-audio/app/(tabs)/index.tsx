@@ -28,6 +28,7 @@ export default function HomeScreen() {
     refresh,
     handleLike,
     handleRecast,
+    handleBookmark,
     handleVoiceNoteLike,
     handleVoiceNoteRecast,
     handleVoiceNoteDelete,
@@ -98,6 +99,7 @@ export default function HomeScreen() {
         onEndReached={fetchMore}
         onLike={handleLike}
         onRecast={handleRecast}
+        onBookmark={handleBookmark}
         onQuoteCast={openQuoteCast}
         onReply={openReply}
         onVoiceNoteLike={handleVoiceNoteLike}

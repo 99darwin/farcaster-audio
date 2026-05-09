@@ -68,8 +68,10 @@ def _mock_db_returning_signer(
 ):
     scalar_result = MagicMock()
     scalar_result.scalar_one_or_none = MagicMock(return_value=signer_uuid)
+    scalar_result.scalars.return_value.all.return_value = []
     db = MagicMock()
     db.execute = AsyncMock(return_value=scalar_result)
+    db.commit = AsyncMock()
     return db
 
 

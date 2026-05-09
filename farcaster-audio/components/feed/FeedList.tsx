@@ -101,6 +101,7 @@ interface FeedListProps {
   onEndReached: () => void;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
+  onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
   onVoiceNoteLike?: (id: string, isLiked: boolean) => void;
@@ -122,6 +123,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     onEndReached,
     onLike,
     onRecast,
+    onBookmark,
     onQuoteCast,
     onReply,
     onVoiceNoteLike,
@@ -179,6 +181,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
           myFid={myFid}
           onLike={onLike}
           onRecast={onRecast}
+          onBookmark={onBookmark}
           onQuoteCast={onQuoteCast}
           onReply={onReply}
           onPress={() => handleCastPress(item.data.hash)}
@@ -189,6 +192,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
       myFid,
       onLike,
       onRecast,
+      onBookmark,
       onQuoteCast,
       onReply,
       stableVoiceNoteLike,

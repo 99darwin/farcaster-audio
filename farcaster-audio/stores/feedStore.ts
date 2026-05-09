@@ -21,6 +21,7 @@ interface FeedStore {
     added: boolean,
     myFid: number,
   ) => void;
+  updateCastBookmark: (hash: string, bookmarked: boolean) => void;
   reset: () => void;
 }
 
@@ -84,6 +85,23 @@ export const useFeedStore = create<FeedStore>((set) => ({
         }
         return { ...cast, reactions, viewer_context: viewerContext };
       }),
+    })),
+
+  updateCastBookmark: (hash, bookmarked) =>
+    set((state) => ({
+      casts: state.casts.map((cast) =>
+        cast.hash === hash
+          ? {
+              ...cast,
+              viewer_context: {
+                liked: false,
+                recasted: false,
+                ...cast.viewer_context,
+                bookmarked,
+              },
+            }
+          : cast,
+      ),
     })),
 
   reset: () =>

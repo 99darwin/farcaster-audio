@@ -47,6 +47,7 @@ export interface NeynarReplies {
 export interface NeynarViewerContext {
   liked: boolean;
   recasted: boolean;
+  bookmarked?: boolean;
 }
 
 export interface NeynarChannel {

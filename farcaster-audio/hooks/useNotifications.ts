@@ -30,6 +30,7 @@ export function useNotifications() {
   const setError = useNotificationStore((s) => s.setError);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const updateCastReaction = useNotificationStore((s) => s.updateCastReaction);
+  const updateCastBookmark = useNotificationStore((s) => s.updateCastBookmark);
 
   const user = useAuthStore((s) => s.user);
 
@@ -120,6 +121,22 @@ export function useNotifications() {
     [user, updateCastReaction],
   );
 
+  const handleBookmark = useCallback(
+    async (castHash: string, isBookmarked: boolean) => {
+      updateCastBookmark(castHash, !isBookmarked);
+      try {
+        if (isBookmarked) {
+          await api.removeBookmark(castHash);
+        } else {
+          await api.bookmarkCast(castHash);
+        }
+      } catch {
+        updateCastBookmark(castHash, isBookmarked);
+      }
+    },
+    [updateCastBookmark],
+  );
+
   const handlePublishCast = useCallback(
     async (
       text: string,
@@ -151,6 +168,7 @@ export function useNotifications() {
     markAsRead,
     handleLike,
     handleRecast,
+    handleBookmark,
     handlePublishCast,
   };
 }
