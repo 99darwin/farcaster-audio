@@ -10,7 +10,7 @@ import {
   removeRecast,
   publishCast,
 } from "@/services/neynar";
-import { bookmarkCast, removeBookmark } from "@/services/api";
+import { blockUser, bookmarkCast, removeBookmark } from "@/services/api";
 import * as voiceNotesApi from "@/services/voiceNotes";
 import type { FeedItem } from "@/types/voiceNote";
 
@@ -58,12 +58,14 @@ export function useFeed() {
     setError,
     updateCastReaction,
     updateCastBookmark,
+    removeAuthor,
   } = useFeedStore();
   const voiceNotes = useVoiceNoteStore((s) => s.voiceNotes);
   const vnSetVoiceNotes = useVoiceNoteStore((s) => s.setVoiceNotes);
   const vnSetLoading = useVoiceNoteStore((s) => s.setLoading);
   const vnUpdateReaction = useVoiceNoteStore((s) => s.updateReaction);
   const vnRemoveVoiceNote = useVoiceNoteStore((s) => s.removeVoiceNote);
+  const vnRemoveAuthor = useVoiceNoteStore((s) => s.removeAuthor);
   const user = useAuthStore((s) => s.user);
 
   // Build merged feed items
@@ -214,6 +216,21 @@ export function useFeed() {
     [vnRemoveVoiceNote],
   );
 
+  const handleBlockAuthor = useCallback(
+    async (fid: number) => {
+      if (!user || fid === user.fid) return;
+      removeAuthor(fid);
+      vnRemoveAuthor(fid);
+      try {
+        await blockUser(fid);
+      } catch (error) {
+        await refresh();
+        throw error;
+      }
+    },
+    [user, removeAuthor, vnRemoveAuthor, refresh],
+  );
+
   const handlePublishCast = useCallback(
     async (
       text: string,
@@ -249,6 +266,7 @@ export function useFeed() {
     handleVoiceNoteLike,
     handleVoiceNoteRecast,
     handleVoiceNoteDelete,
+    handleBlockAuthor,
     handlePublishCast,
   };
 }

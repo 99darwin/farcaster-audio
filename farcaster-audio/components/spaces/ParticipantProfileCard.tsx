@@ -5,8 +5,10 @@ import {
   Modal,
   Pressable,
   ActivityIndicator,
+  Alert,
   StyleSheet,
 } from "react-native";
+import Toast from "react-native-toast-message";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/common/Avatar";
@@ -108,9 +110,94 @@ export function ParticipantProfileCard({
     router.push(`/profile/${participant.fid}`);
   }, [participant, onClose, router]);
 
+  const handleBlockToggle = useCallback(() => {
+    if (!user || isOwnProfile) return;
+    const isBlocked = user.viewer_context?.blocked ?? false;
+    const applyBlocked = async () => {
+      setUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              viewer_context: {
+                following: false,
+                followed_by: false,
+                ...prev.viewer_context,
+                blocked: true,
+              },
+            }
+          : null,
+      );
+      try {
+        await api.blockUser(user.fid);
+        Toast.show({ type: "success", text1: "User blocked" });
+      } catch {
+        Toast.show({ type: "error", text1: "Failed to block user" });
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                viewer_context: {
+                  following: false,
+                  followed_by: false,
+                  ...prev.viewer_context,
+                  blocked: false,
+                },
+              }
+            : null,
+        );
+      }
+    };
+
+    if (isBlocked) {
+      setUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              viewer_context: {
+                following: false,
+                followed_by: false,
+                ...prev.viewer_context,
+                blocked: false,
+              },
+            }
+          : null,
+      );
+      api
+        .unblockUser(user.fid)
+        .then(() => Toast.show({ type: "success", text1: "User unblocked" }))
+        .catch(() => {
+          Toast.show({ type: "error", text1: "Failed to unblock user" });
+          setUser((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  viewer_context: {
+                    following: false,
+                    followed_by: false,
+                    ...prev.viewer_context,
+                    blocked: true,
+                  },
+                }
+              : null,
+          );
+        });
+      return;
+    }
+
+    Alert.alert(
+      "Block user?",
+      "They won't be able to join spaces you host, and their content will be hidden from you.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Block", style: "destructive", onPress: applyBlocked },
+      ],
+    );
+  }, [isOwnProfile, user]);
+
   if (!participant) return null;
 
   const isFollowing = user?.viewer_context?.following ?? false;
+  const isBlocked = user?.viewer_context?.blocked ?? false;
   const bio = user?.profile?.bio?.text;
 
   return (
@@ -180,7 +267,7 @@ export function ParticipantProfileCard({
               )}
 
               <View style={styles.actions}>
-                {!isOwnProfile && user && (
+                {!isOwnProfile && user && !isBlocked && (
                   <Pressable
                     style={[
                       styles.followButton,
@@ -196,6 +283,24 @@ export function ParticipantProfileCard({
                       ]}
                     >
                       {isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  </Pressable>
+                )}
+                {!isOwnProfile && user && (
+                  <Pressable
+                    style={[
+                      styles.blockButton,
+                      isBlocked && styles.unblockButton,
+                    ]}
+                    onPress={handleBlockToggle}
+                  >
+                    <Text
+                      style={[
+                        styles.blockText,
+                        isBlocked && styles.unblockText,
+                      ]}
+                    >
+                      {isBlocked ? "Unblock" : "Block"}
                     </Text>
                   </Pressable>
                 )}
@@ -321,6 +426,24 @@ const useStyles = () =>
     followingText: {
       color: colors.text.secondary,
       fontWeight: "600",
+    },
+    blockButton: {
+      paddingVertical: 10,
+      borderRadius: 20,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
+    unblockButton: {
+      borderColor: colors.background.border,
+    },
+    blockText: {
+      color: colors.danger,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    unblockText: {
+      color: colors.text.secondary,
     },
     profileButton: {
       paddingVertical: 10,

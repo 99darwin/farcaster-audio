@@ -51,6 +51,7 @@ interface ThreadedRepliesProps {
   onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
+  onBlockAuthor?: (fid: number) => Promise<void> | void;
   onCastPress: (hash: string) => void;
   focusHash?: string;
 }
@@ -65,6 +66,7 @@ function ReplyNode({
   onBookmark,
   onQuoteCast,
   onReply,
+  onBlockAuthor,
   onCastPress,
   focusHash,
 }: {
@@ -77,6 +79,7 @@ function ReplyNode({
   onBookmark: (hash: string, isBookmarked: boolean) => void;
   onQuoteCast: (cast: NeynarCast) => void;
   onReply: (cast: NeynarCast) => void;
+  onBlockAuthor?: (fid: number) => Promise<void> | void;
   onCastPress: (hash: string) => void;
   focusHash?: string;
 }) {
@@ -125,6 +128,7 @@ function ReplyNode({
             onBookmark={onBookmark}
             onQuoteCast={onQuoteCast}
             onReply={onReply}
+            onBlockAuthor={onBlockAuthor}
             onPress={() => onCastPress(reply.hash)}
             threaded
             hideThreadLine={depth > 0}
@@ -143,6 +147,7 @@ function ReplyNode({
           onBookmark={onBookmark}
           onQuoteCast={onQuoteCast}
           onReply={onReply}
+          onBlockAuthor={onBlockAuthor}
           onCastPress={onCastPress}
           focusHash={focusHash}
         />
@@ -175,6 +180,7 @@ function ReplyNode({
             onBookmark={onBookmark}
             onQuoteCast={onQuoteCast}
             onReply={onReply}
+            onBlockAuthor={onBlockAuthor}
             onCastPress={onCastPress}
             focusHash={focusHash}
           />
@@ -200,6 +206,7 @@ export function ThreadedReplies({
   onBookmark,
   onQuoteCast,
   onReply,
+  onBlockAuthor,
   onCastPress,
   focusHash,
 }: ThreadedRepliesProps) {
@@ -234,6 +241,7 @@ export function ThreadedReplies({
           onBookmark={onBookmark}
           onQuoteCast={onQuoteCast}
           onReply={onReply}
+          onBlockAuthor={onBlockAuthor}
           onCastPress={onCastPress}
           focusHash={focusHash}
         />
@@ -265,6 +273,7 @@ export function ThreadedReplies({
                 onBookmark={onBookmark}
                 onQuoteCast={onQuoteCast}
                 onReply={onReply}
+                onBlockAuthor={onBlockAuthor}
                 onCastPress={onCastPress}
                 focusHash={focusHash}
               />

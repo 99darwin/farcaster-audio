@@ -34,6 +34,7 @@ export default function ChannelScreen() {
     handleLike,
     handleRecast,
     handleBookmark,
+    handleBlockAuthor,
     handlePublishCast,
   } = useChannelFeed(normalizedChannelId);
   const [isComposeVisible, setIsComposeVisible] = useState(false);
@@ -111,6 +112,7 @@ export default function ChannelScreen() {
         onBookmark={handleBookmark}
         onQuoteCast={openQuoteCast}
         onReply={openReply}
+        onBlockAuthor={handleBlockAuthor}
         ListHeaderComponent={header}
         error={error}
         onRetry={fetch}

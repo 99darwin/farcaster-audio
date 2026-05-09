@@ -32,6 +32,7 @@ export default function HomeScreen() {
     handleVoiceNoteLike,
     handleVoiceNoteRecast,
     handleVoiceNoteDelete,
+    handleBlockAuthor,
     handlePublishCast,
   } = useFeed();
 
@@ -102,6 +103,7 @@ export default function HomeScreen() {
         onBookmark={handleBookmark}
         onQuoteCast={openQuoteCast}
         onReply={openReply}
+        onBlockAuthor={handleBlockAuthor}
         onVoiceNoteLike={handleVoiceNoteLike}
         onVoiceNoteRecast={handleVoiceNoteRecast}
         onVoiceNoteDelete={handleVoiceNoteDelete}

@@ -22,6 +22,7 @@ interface FeedStore {
     myFid: number,
   ) => void;
   updateCastBookmark: (hash: string, bookmarked: boolean) => void;
+  removeAuthor: (fid: number) => void;
   reset: () => void;
 }
 
@@ -102,6 +103,11 @@ export const useFeedStore = create<FeedStore>((set) => ({
             }
           : cast,
       ),
+    })),
+
+  removeAuthor: (fid) =>
+    set((state) => ({
+      casts: state.casts.filter((cast) => cast.author.fid !== fid),
     })),
 
   reset: () =>

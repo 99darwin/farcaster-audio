@@ -21,6 +21,7 @@ from app.schemas.voice_note import (
     VoiceNoteDetailResponse,
     VoiceNoteResponse,
 )
+from app.services.block_service import get_blocked_fids, is_blocked
 from app.services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,8 @@ async def get_voice_note(
         raise HTTPException(status_code=404, detail="Voice note not found")
 
     vn, user = row.tuple()
+    if viewer_fid and await is_blocked(db, blocker_fid=viewer_fid, blocked_fid=vn.fid):
+        raise HTTPException(status_code=404, detail="Voice note not found")
 
     # Reaction counts
     count_result = await db.execute(
@@ -213,11 +216,15 @@ async def get_feed(
 ) -> tuple[list[VoiceNoteDetailResponse], str | None]:
     """Fetch a paginated feed of voice notes from followed users + self."""
     all_fids = list(set(following_fids + [fid]))
+    blocked_fids = await get_blocked_fids(db, fid)
+    visible_fids = [
+        target_fid for target_fid in all_fids if target_fid not in blocked_fids
+    ]
 
     query = (
         select(VoiceNote, User)
         .join(User, User.fid == VoiceNote.fid)
-        .where(VoiceNote.fid.in_(all_fids), VoiceNote.deleted_at.is_(None))
+        .where(VoiceNote.fid.in_(visible_fids), VoiceNote.deleted_at.is_(None))
         .order_by(VoiceNote.created_at.desc())
         .limit(limit + 1)
     )
@@ -250,6 +257,9 @@ async def get_user_voice_notes(
     limit: int,
 ) -> tuple[list[VoiceNoteDetailResponse], str | None]:
     """Fetch voice notes by a specific user, paginated."""
+    if viewer_fid and await is_blocked(db, blocker_fid=viewer_fid, blocked_fid=fid):
+        return [], None
+
     query = (
         select(VoiceNote, User)
         .join(User, User.fid == VoiceNote.fid)

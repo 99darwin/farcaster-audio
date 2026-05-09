@@ -19,6 +19,7 @@ interface VoiceNoteStore {
   updateVoiceNote: (id: string, updates: Partial<VoiceNoteDetail>) => void;
   updateReaction: (id: string, type: "like" | "recast", added: boolean) => void;
   removeVoiceNote: (id: string) => void;
+  removeAuthor: (fid: number) => void;
   reset: () => void;
 }
 
@@ -84,6 +85,11 @@ export const useVoiceNoteStore = create<VoiceNoteStore>((set) => ({
   removeVoiceNote: (id) =>
     set((state) => ({
       voiceNotes: state.voiceNotes.filter((vn) => vn.voice_note.id !== id),
+    })),
+
+  removeAuthor: (fid) =>
+    set((state) => ({
+      voiceNotes: state.voiceNotes.filter((vn) => vn.author.fid !== fid),
     })),
 
   reset: () =>

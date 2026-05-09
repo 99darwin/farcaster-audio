@@ -6,6 +6,7 @@ import {
   publishCastToChannel,
   bookmarkCast,
   removeBookmark,
+  blockUser,
 } from "@/services/api";
 import {
   likeCast,
@@ -181,6 +182,20 @@ export function useChannelFeed(channelId: string) {
     [],
   );
 
+  const handleBlockAuthor = useCallback(
+    async (fid: number) => {
+      if (!user || fid === user.fid) return;
+      setCasts((prev) => prev.filter((cast) => cast.author.fid !== fid));
+      try {
+        await blockUser(fid);
+      } catch (err) {
+        await refresh();
+        throw err;
+      }
+    },
+    [refresh, user],
+  );
+
   const handlePublishCast = useCallback(
     async (
       text: string,
@@ -215,6 +230,7 @@ export function useChannelFeed(channelId: string) {
     handleLike,
     handleRecast,
     handleBookmark,
+    handleBlockAuthor,
     handlePublishCast,
   };
 }

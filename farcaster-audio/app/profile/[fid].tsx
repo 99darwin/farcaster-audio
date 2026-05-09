@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useMemo, useState } from "react";
-import { FlatList, View, Text, RefreshControl } from "react-native";
+import { Alert, FlatList, View, Text, RefreshControl } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRef } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -26,6 +26,7 @@ import {
 } from "@/services/neynar";
 import * as voiceNotesApi from "@/services/voiceNotes";
 import * as api from "@/services/api";
+import Toast from "react-native-toast-message";
 import type { RecordingItem } from "@/services/api";
 import type { NeynarCast } from "@/types/neynar";
 import type { VoiceNoteDetail } from "@/types/voiceNote";
@@ -78,6 +79,8 @@ export default function ProfileScreen() {
     toggleFollow,
     updateCastReaction,
     updateCastBookmark,
+    setBlocked,
+    removeAuthorCasts,
   } = useProfile(fid);
 
   // Voice notes state
@@ -233,6 +236,74 @@ export default function ProfileScreen() {
     [router],
   );
 
+  const applyBlockedState = useCallback(() => {
+    setBlocked(true);
+    setProfileVoiceNotes([]);
+    setVnCursor(null);
+    setRecordings([]);
+    setRecordingsCursor(null);
+  }, [setBlocked]);
+
+  const handleBlockUser = useCallback(async () => {
+    if (isOwnProfile) return;
+    applyBlockedState();
+    try {
+      await api.blockUser(fid);
+      Toast.show({ type: "success", text1: "User blocked" });
+    } catch {
+      Toast.show({ type: "error", text1: "Failed to block user" });
+      fetchProfile();
+      fetchVoiceNotes();
+    }
+  }, [applyBlockedState, fetchProfile, fetchVoiceNotes, fid, isOwnProfile]);
+
+  const handleUnblockUser = useCallback(async () => {
+    if (isOwnProfile) return;
+    setBlocked(false);
+    try {
+      await api.unblockUser(fid);
+      Toast.show({ type: "success", text1: "User unblocked" });
+      fetchProfile();
+      fetchVoiceNotes();
+    } catch {
+      Toast.show({ type: "error", text1: "Failed to unblock user" });
+      setBlocked(true);
+    }
+  }, [fetchProfile, fetchVoiceNotes, fid, isOwnProfile, setBlocked]);
+
+  const handleBlockToggle = useCallback(() => {
+    if (user?.viewer_context?.blocked) {
+      handleUnblockUser();
+      return;
+    }
+    Alert.alert(
+      "Block user?",
+      "You won't see their casts, voice notes, or notifications. They also won't be able to join spaces you host.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Block", style: "destructive", onPress: handleBlockUser },
+      ],
+    );
+  }, [handleBlockUser, handleUnblockUser, user?.viewer_context?.blocked]);
+
+  const handleBlockAuthor = useCallback(
+    async (authorFid: number) => {
+      if (authorFid === myFid) return;
+      removeAuthorCasts(authorFid);
+      setProfileVoiceNotes((prev) =>
+        prev.filter((vn) => vn.author.fid !== authorFid),
+      );
+      try {
+        await api.blockUser(authorFid);
+      } catch (error) {
+        fetchProfile();
+        fetchVoiceNotes();
+        throw error;
+      }
+    },
+    [fetchProfile, fetchVoiceNotes, myFid, removeAuthorCasts],
+  );
+
   const handleVoiceNoteLike = useCallback(
     async (id: string, isLiked: boolean) => {
       // Optimistic update
@@ -312,6 +383,7 @@ export default function ProfileScreen() {
       user={user}
       isOwnProfile={isOwnProfile}
       onFollowToggle={toggleFollow}
+      onBlockToggle={handleBlockToggle}
       activeTab={activeTab}
       onTabChange={setActiveTab}
     />
@@ -409,6 +481,7 @@ export default function ProfileScreen() {
               onBookmark={handleBookmark}
               onQuoteCast={handleQuoteCast}
               onReply={handleReply}
+              onBlockAuthor={handleBlockAuthor}
               onPress={() => handleCastPress(item.hash)}
             />
           )}

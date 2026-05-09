@@ -34,6 +34,7 @@ from app.models.participant import Participant
 from app.models.room import Room
 from app.models.room_rsvp import RoomRsvp
 from app.models.user import User
+from app.services.block_service import get_blocked_fids, is_blocked
 from app.schemas.auth import UserResponse
 from app.schemas.participant import (
     BanResponse,
@@ -543,9 +544,13 @@ class RoomService:
         self,
         limit: int = 20,
         cursor: int = 0,
+        current_fid: int | None = None,
     ) -> RoomListResponse:
         """Return upcoming scheduled rooms ordered by scheduled_at ASC."""
         now = _utcnow()
+        blocked_fids = (
+            await get_blocked_fids(self.db, current_fid) if current_fid else set()
+        )
         query = (
             select(Room)
             .where(Room.status == "scheduled", Room.scheduled_at >= now)
@@ -553,6 +558,8 @@ class RoomService:
             .offset(cursor)
             .limit(limit + 1)
         )
+        if blocked_fids:
+            query = query.where(Room.host_fid.not_in(blocked_fids))
         result = await self.db.execute(query)
         rows = list(result.scalars().all())
 
@@ -598,6 +605,7 @@ class RoomService:
         self,
         limit: int = 20,
         cursor: int = 0,
+        current_fid: int | None = None,
     ) -> RoomListResponse:
         """
         Return paginated active rooms sorted by recency (newest first).
@@ -611,6 +619,9 @@ class RoomService:
 
         if not page_ids:
             return RoomListResponse(rooms=[], next_cursor=None)
+        blocked_fids = (
+            await get_blocked_fids(self.db, current_fid) if current_fid else set()
+        )
 
         # Batch-fetch rooms from Postgres
         uuids = []
@@ -626,7 +637,11 @@ class RoomService:
         rooms_by_id: dict[str, Room] = {
             _room_id_str(r.id): r for r in result.scalars().all()
         }
-        ordered_rooms = [rooms_by_id[rid] for rid in page_ids if rid in rooms_by_id]
+        ordered_rooms = [
+            rooms_by_id[rid]
+            for rid in page_ids
+            if rid in rooms_by_id and rooms_by_id[rid].host_fid not in blocked_fids
+        ]
         host_fids = list({room.host_fid for room in ordered_rooms})
         host_rows = await self.db.execute(select(User).where(User.fid.in_(host_fids)))
         hosts_by_fid: dict[int, User] = {
@@ -641,6 +656,8 @@ class RoomService:
             if room is None:
                 # Stale entry — clean up asynchronously (fire-and-forget is fine here)
                 logger.warning("Room %s in Redis active set but missing from DB", rid)
+                continue
+            if room.host_fid in blocked_fids:
                 continue
             host = hosts_by_fid.get(room.host_fid)
             if host is None:
@@ -664,6 +681,8 @@ class RoomService:
             raise HTTPException(
                 status_code=400, detail="RSVPs are only available for scheduled rooms"
             )
+        if await is_blocked(self.db, blocker_fid=room.host_fid, blocked_fid=fid):
+            raise HTTPException(status_code=403, detail="You cannot RSVP to this room")
 
         stmt = (
             pg_insert(RoomRsvp)
@@ -1098,6 +1117,9 @@ class RoomService:
 
         if room.status != "active":
             raise HTTPException(status_code=400, detail="Room is not active")
+
+        if await is_blocked(self.db, blocker_fid=room.host_fid, blocked_fid=fid):
+            raise HTTPException(status_code=403, detail="You cannot join this room")
 
         # Ban check
         await self._assert_not_banned(room_id, fid)

@@ -30,6 +30,8 @@ import type {
   ChannelFeedResponse,
   BookmarksFeedResponse,
   ChannelSearchResponse,
+  BlockUserResponse,
+  BlockedUsersResponse,
 } from "@/types/api";
 
 export const apiClient: AxiosInstance = axios.create({
@@ -278,6 +280,19 @@ export const followUser = (fid: number) =>
 
 export const unfollowUser = (fid: number) =>
   apiClient.delete(`/v1/users/${fid}/follow`).then((r) => r.data);
+
+export const blockUser = (fid: number, reason?: string) =>
+  apiClient
+    .post<BlockUserResponse>(`/v1/users/${fid}/block`, reason ? { reason } : {})
+    .then((r) => r.data);
+
+export const unblockUser = (fid: number) =>
+  apiClient
+    .delete<BlockUserResponse>(`/v1/users/${fid}/block`)
+    .then((r) => r.data);
+
+export const getBlockedUsers = () =>
+  apiClient.get<BlockedUsersResponse>("/v1/users/blocked").then((r) => r.data);
 
 // --- Feed / Channels ---
 export const getChannelFeed = (
