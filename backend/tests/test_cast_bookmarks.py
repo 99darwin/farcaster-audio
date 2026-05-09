@@ -39,6 +39,20 @@ class _FakeNeynarClient:
         return None
 
     async def get(self, _url, **_kwargs):
+        if _url.endswith("/farcaster/cast"):
+            identifier = _kwargs.get("params", {}).get("identifier")
+            if identifier == "0x" + "d" * 40:
+                return _FakeResponse({}, status_code=404)
+            return _FakeResponse(
+                {
+                    "cast": {
+                        "hash": identifier,
+                        "author": {"fid": 1},
+                        "text": "hydrated bookmark",
+                        "viewer_context": {"liked": True, "recasted": False},
+                    }
+                }
+            )
         return _FakeResponse(
             {
                 "casts": [
@@ -69,6 +83,15 @@ def _mock_db(bookmarked: list[str] | None = None):
     scalar_result.scalars.return_value.all.return_value = bookmarked or []
     scalar_result.scalar_one.return_value = 0
     scalar_result.scalar_one_or_none.return_value = None
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=scalar_result)
+    db.commit = AsyncMock()
+    return db
+
+
+def _mock_bookmark_list_db(bookmarks):
+    scalar_result = MagicMock()
+    scalar_result.scalars.return_value.all.return_value = bookmarks
     db = MagicMock()
     db.execute = AsyncMock(return_value=scalar_result)
     db.commit = AsyncMock()
@@ -159,7 +182,9 @@ async def test_bookmark_capacity_limit_returns_429(client):
 
 
 @pytest.mark.asyncio
-async def test_following_feed_adds_bookmarked_viewer_context(client, bookmark_overrides):
+async def test_following_feed_adds_bookmarked_viewer_context(
+    client, bookmark_overrides
+):
     with patch("app.routers.feed.httpx.AsyncClient", return_value=_FakeNeynarClient()):
         response = await client.get("/v1/feed/following", headers=make_auth_header())
 
@@ -167,6 +192,79 @@ async def test_following_feed_adds_bookmarked_viewer_context(client, bookmark_ov
     casts = response.json()["casts"]
     assert casts[0]["viewer_context"] == {"liked": True, "bookmarked": True}
     assert casts[1]["viewer_context"] == {"bookmarked": False}
+
+
+@pytest.mark.asyncio
+async def test_bookmarks_list_returns_hydrated_bookmarked_casts(client):
+    db = _mock_bookmark_list_db(
+        [
+            SimpleNamespace(cast_hash="0x" + "a" * 40),
+            SimpleNamespace(cast_hash="0x" + "b" * 40),
+            SimpleNamespace(cast_hash="0x" + "c" * 40),
+        ]
+    )
+
+    async def _override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_spam_service] = lambda: _SpamService()
+    try:
+        with patch(
+            "app.routers.feed.httpx.AsyncClient", return_value=_FakeNeynarClient()
+        ):
+            response = await client.get(
+                "/v1/feed/bookmarks?limit=2",
+                headers=make_auth_header(),
+            )
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_spam_service, None)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [cast["hash"] for cast in data["casts"]] == [
+        "0x" + "a" * 40,
+        "0x" + "b" * 40,
+    ]
+    assert data["next"]["cursor"] == "2"
+    assert data["casts"][0]["viewer_context"] == {
+        "liked": True,
+        "recasted": False,
+        "bookmarked": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_bookmarks_list_skips_missing_casts(client):
+    db = _mock_bookmark_list_db(
+        [
+            SimpleNamespace(cast_hash="0x" + "d" * 40),
+            SimpleNamespace(cast_hash="0x" + "e" * 40),
+        ]
+    )
+
+    async def _override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_spam_service] = lambda: _SpamService()
+    try:
+        with patch(
+            "app.routers.feed.httpx.AsyncClient", return_value=_FakeNeynarClient()
+        ):
+            response = await client.get(
+                "/v1/feed/bookmarks",
+                headers=make_auth_header(),
+            )
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_spam_service, None)
+
+    assert response.status_code == 200
+    casts = response.json()["casts"]
+    assert [cast["hash"] for cast in casts] == ["0x" + "e" * 40]
+    assert casts[0]["viewer_context"]["bookmarked"] is True
 
 
 @pytest.mark.asyncio

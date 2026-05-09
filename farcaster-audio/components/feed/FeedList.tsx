@@ -108,6 +108,8 @@ interface FeedListProps {
   onVoiceNoteRecast?: (id: string, isRecasted: boolean) => void;
   onVoiceNoteDelete?: (id: string) => void;
   ListHeaderComponent?: React.ReactElement | null;
+  emptyTitle?: string;
+  emptySubtitle?: string;
   error?: string | null;
   onRetry?: () => void;
 }
@@ -130,6 +132,8 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     onVoiceNoteRecast,
     onVoiceNoteDelete,
     ListHeaderComponent,
+    emptyTitle = "Nothing here yet",
+    emptySubtitle = "Follow people to see their posts here",
     error,
     onRetry,
   },
@@ -251,10 +255,8 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
       ListEmptyComponent={
         !isLoading ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>Nothing here yet</Text>
-            <Text style={styles.emptySubtext}>
-              Follow people to see their posts here
-            </Text>
+            <Text style={styles.emptyText}>{emptyTitle}</Text>
+            <Text style={styles.emptySubtext}>{emptySubtitle}</Text>
           </View>
         ) : null
       }

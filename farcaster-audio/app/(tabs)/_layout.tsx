@@ -43,6 +43,7 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Home" }} />
+      <Tabs.Screen name="bookmarks" options={{ title: "Bookmarks" }} />
       <Tabs.Screen name="notifications" options={{ title: "Notifications" }} />
     </Tabs>
   );

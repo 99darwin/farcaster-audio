@@ -129,6 +129,7 @@ export interface CastCreateResponse {
 }
 
 export type ChannelFeedResponse = NeynarFeedResponse;
+export type BookmarksFeedResponse = NeynarFeedResponse;
 
 export interface ChannelSearchItem {
   id: string;

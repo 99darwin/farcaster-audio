@@ -28,6 +28,7 @@ import type {
   CastCreateRequest,
   CastCreateResponse,
   ChannelFeedResponse,
+  BookmarksFeedResponse,
   ChannelSearchResponse,
 } from "@/types/api";
 
@@ -288,6 +289,14 @@ export const getChannelFeed = (
       `/v1/feed/channel/${encodeURIComponent(channelId)}`,
       { params },
     )
+    .then((r) => r.data);
+
+export const getBookmarkedCasts = (params?: {
+  limit?: number;
+  cursor?: string;
+}) =>
+  apiClient
+    .get<BookmarksFeedResponse>("/v1/feed/bookmarks", { params })
     .then((r) => r.data);
 
 export const searchChannels = (q: string, limit = 8) =>
