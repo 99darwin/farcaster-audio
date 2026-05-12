@@ -254,16 +254,24 @@ export class DeveloperApiClient {
   }
 
   /**
-   * Managed-signer SIWN flow. Replaces the popup→postMessage path which
-   * Neynar's web auth page no longer reliably supports. The backend
-   * provisions a Neynar signer + signs its public_key with the app's
-   * custody key; we open the resulting `signer_approval_url` for the
-   * user to approve in their Farcaster client, then `pollSignerStatus`
-   * waits for `approved` and `completeManagedSignerLogin` finishes.
+   * Managed-signer SIWN flow. The backend provisions a Neynar signer +
+   * signs its public_key with the app's custody key; the response
+   * contains a `signer_approval_url` which is a Farcaster deeplink
+   * (`client.farcaster.xyz/deeplinks/signed-key-request?...`).
+   *
+   * On desktop: render the URL as a QR code so the user scans it with
+   * their Farcaster mobile app.
+   *
+   * On mobile: the URL can be opened directly to deeplink into the
+   * native Farcaster app.
+   *
+   * Either way, `pollSignerStatus` waits for `approved` and
+   * `completeManagedSignerLogin` finishes the session.
+   *
+   * NOTE: We do NOT open the URL in a popup here. The deeplink renders
+   * as a blank page in a desktop browser, which is confusing.
    */
-  async startManagedSignerFlow(options?: {
-    openPopup?: boolean;
-  }): Promise<StartManagedSignerResult> {
+  async startManagedSignerFlow(): Promise<StartManagedSignerResult> {
     const res = await fetch(
       `${DEVELOPER_API_BASE_URL}/v1/auth/signer/create`,
       { method: "POST" },
@@ -276,19 +284,10 @@ export class DeveloperApiClient {
       throw new DeveloperApiError("Could not start sign in", 500);
     }
 
-    const popup =
-      options?.openPopup === false
-        ? null
-        : window.open(
-            body.signerApprovalUrl,
-            "_blank",
-            "popup=yes,width=430,height=720",
-          );
-
     return {
       signerUuid: body.signerUuid,
       signerApprovalUrl: body.signerApprovalUrl,
-      popup,
+      popup: null,
     };
   }
 
