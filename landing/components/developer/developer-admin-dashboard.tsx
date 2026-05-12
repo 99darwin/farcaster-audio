@@ -8,7 +8,7 @@ import {
   type DeveloperApiClient,
   type DeveloperStatus,
 } from "@/lib/developer-api";
-import { SignerApprovalPrompt } from "./signer-approval-prompt";
+import { SignerApprovalPrompt } from "../signer-approval-prompt";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 

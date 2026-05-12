@@ -42,6 +42,24 @@ export type StartSiwnResult = {
 
 export type SiwnExpectation = { nonce: string; source: Window | null };
 
+export type StartManagedSignerResult = {
+  signerUuid: string;
+  signerApprovalUrl: string;
+};
+
+export type SignerStatus =
+  | "generated"
+  | "pending_approval"
+  | "approved"
+  | "revoked";
+
+export type ApprovedSigner = {
+  signerUuid: string;
+  fid: number;
+};
+
+export const SIGNER_POLL_INTERVAL_MS = 2000;
+
 export type TokenRefreshResponse = {
   livekit_token: string;
   expires_at: string;
@@ -134,6 +152,90 @@ export class JukeEmbedSdk {
       "Could not complete sign in",
     );
 
+    this.authSession = {
+      jwt: body.jwt,
+      refreshToken: body.refresh_token,
+      expiresAt: body.expires_at,
+      fid: body.user.fid,
+    };
+    return this.authSession;
+  }
+
+  /**
+   * Managed-signer SIWN flow for the embed. The backend mints a Neynar
+   * signer + signs its public_key; we render `signer_approval_url` as a
+   * QR (in `<SignerApprovalPrompt>`) for desktop or a tap-to-deeplink
+   * for mobile, then poll for approval and complete login.
+   *
+   * Unlike the dashboard, the embed lives in a cross-origin iframe
+   * where third-party storage partitioning makes HttpOnly cookies
+   * unreliable — so we keep the refresh_token in JS memory (same model
+   * as the legacy `completeSiwn`).
+   */
+  async startManagedSignerFlow(): Promise<StartManagedSignerResult> {
+    const res = await fetch(`${API_BASE_URL}/v1/auth/signer/create`, {
+      method: "POST",
+    });
+    const body = await parseJsonResponse<{
+      signer_uuid: string;
+      signer_approval_url: string;
+    }>(res, "Could not start sign in");
+    if (!body?.signer_uuid || !body?.signer_approval_url) {
+      throw new Error("Could not start sign in");
+    }
+    return {
+      signerUuid: body.signer_uuid,
+      signerApprovalUrl: body.signer_approval_url,
+    };
+  }
+
+  async pollSignerStatus(
+    signerUuid: string,
+    options?: { signal?: AbortSignal; intervalMs?: number },
+  ): Promise<ApprovedSigner> {
+    const interval = options?.intervalMs ?? SIGNER_POLL_INTERVAL_MS;
+    while (true) {
+      if (options?.signal?.aborted) {
+        throw new Error("Sign-in cancelled");
+      }
+      const url = `${API_BASE_URL}/v1/auth/signer/status?signer_uuid=${encodeURIComponent(signerUuid)}`;
+      const res = await fetch(url, { cache: "no-store" });
+      const body = await parseJsonResponse<{
+        status: SignerStatus;
+        fid: number | null;
+      }>(res, "Could not check signer status");
+
+      if (body.status === "approved" && typeof body.fid === "number" && body.fid > 0) {
+        return { signerUuid, fid: body.fid };
+      }
+      if (body.status === "revoked") {
+        throw new Error("Signer was revoked");
+      }
+      await new Promise<void>((resolve, reject) => {
+        const t = window.setTimeout(resolve, interval);
+        options?.signal?.addEventListener("abort", () => {
+          window.clearTimeout(t);
+          reject(new Error("Sign-in cancelled"));
+        });
+      });
+    }
+  }
+
+  async completeManagedSignerLogin(
+    payload: ApprovedSigner,
+  ): Promise<AuthSession> {
+    if (!Number.isFinite(payload.fid) || payload.fid <= 0 || !payload.signerUuid) {
+      throw new Error("Invalid sign-in response");
+    }
+    const res = await fetch(`${API_BASE_URL}/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fid: payload.fid, signer_uuid: payload.signerUuid }),
+    });
+    const body = await parseJsonResponse<LoginResponse>(
+      res,
+      "Could not complete sign in",
+    );
     this.authSession = {
       jwt: body.jwt,
       refreshToken: body.refresh_token,
