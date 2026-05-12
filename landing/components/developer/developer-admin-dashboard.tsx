@@ -4,12 +4,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   DeveloperApiError,
   createDeveloperApiClient,
-  isTrustedDeveloperSiwnMessage,
-  parseDeveloperSiwnPayload,
   type DeveloperAccessUser,
   type DeveloperApiClient,
   type DeveloperStatus,
-  type SiwnExpectation,
 } from "@/lib/developer-api";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -22,7 +19,7 @@ type DeveloperAdminDashboardProps = {
 
 export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardProps) {
   const clientRef = useRef<DeveloperApiClient | null>(null);
-  const expectedSiwn = useRef<SiwnExpectation | null>(null);
+  const signerAbortRef = useRef<AbortController | null>(null);
   const mockMode = Boolean(mockUsers);
   const [mockSourceUsers, setMockSourceUsers] = useState<DeveloperAccessUser[]>(
     mockUsers ?? [],
@@ -40,29 +37,10 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
   if (!clientRef.current) clientRef.current = createDeveloperApiClient();
 
   useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      const expected = expectedSiwn.current;
-      if (!expected) return;
-      if (!isTrustedDeveloperSiwnMessage(event, expected)) return;
-      const payload = parseDeveloperSiwnPayload(event.data);
-      if (!payload) return;
-      expectedSiwn.current = null;
-
-      setPendingAction("Completing sign in");
-      setError(null);
-      try {
-        await clientRef.current!.completeSiwn(payload);
-        await loadUsers();
-      } catch (err) {
-        setError(errorMessage(err));
-      } finally {
-        setPendingAction(null);
-      }
+    return () => {
+      signerAbortRef.current?.abort();
+      signerAbortRef.current = null;
     };
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -76,15 +54,28 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
   }, [filter]);
 
   async function signIn() {
-    setPendingAction("Opening Farcaster sign in");
+    signerAbortRef.current?.abort();
+    const abort = new AbortController();
+    signerAbortRef.current = abort;
+
+    setPendingAction("Opening Farcaster");
     setError(null);
     try {
-      const { nonce, popup } = await clientRef.current!.startSiwn();
-      expectedSiwn.current = { nonce, source: popup };
+      const { signerUuid, popup } =
+        await clientRef.current!.startManagedSignerFlow();
+      setPendingAction("Waiting for Farcaster approval");
+      const approved = await clientRef.current!.pollSignerStatus(signerUuid, {
+        signal: abort.signal,
+      });
+      setPendingAction("Completing sign in");
+      await clientRef.current!.completeManagedSignerLogin(approved);
+      popup?.close();
+      await loadUsers();
     } catch (err) {
-      expectedSiwn.current = null;
+      if (abort.signal.aborted) return;
       setError(errorMessage(err));
     } finally {
+      if (signerAbortRef.current === abort) signerAbortRef.current = null;
       setPendingAction(null);
     }
   }

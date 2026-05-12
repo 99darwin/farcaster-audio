@@ -26,6 +26,8 @@ from app.schemas.auth import (
     RegisterAuthAddressRequest,
     RegisterAuthAddressResponse,
     AuthAddressStatusResponse,
+    SignerCreateResponse,
+    SignerStatusResponse,
     UserResponse,
 )
 from app.services.auth_service import (
@@ -42,6 +44,10 @@ from app.services.auth_address_service import (
     mark_auth_address_revoked,
     register_auth_address_with_neynar,
     upsert_auth_address_from_registration,
+)
+from app.services.developer_signer_service import (
+    create_and_register_signer,
+    lookup_signer_status,
 )
 from app.dependencies import DEMO_SIGNER_UUID, get_current_user, require_non_demo_user
 
@@ -149,7 +155,12 @@ async def dev_login(
 
 @router.get("/neynar-auth-url", response_model=AuthUrlResponse)
 async def get_auth_url():
-    """Fetch the Neynar authorization URL for SIWN via the Neynar API."""
+    """Fetch the Neynar authorization URL for SIWN via the Neynar API.
+
+    Legacy popup-based flow — kept for compatibility but the web
+    dashboard now uses the managed-signer flow below
+    (/signer/create + /signer/status).
+    """
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.neynar.com/v2/farcaster/login/authorize",
@@ -162,6 +173,104 @@ async def get_auth_url():
         resp.raise_for_status()
         data = resp.json()
     return AuthUrlResponse(authorization_url=data["authorization_url"])
+
+
+@router.post("/signer/create", response_model=SignerCreateResponse)
+async def create_signer(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Create a Neynar managed signer for web SIWN.
+
+    The client opens the returned `signer_approval_url` in a popup;
+    the user approves the signer in their Farcaster client; the
+    client polls `/v1/auth/signer/status` until `approved` and then
+    calls `/v1/auth/login` with the {fid, signer_uuid} pair.
+    """
+    # Per-IP rate limit. Each call mints a fresh signer on Neynar's
+    # side, which has a cost — keep this aggressive.
+    ip = request.client.host if request.client else "unknown"
+    rate_key = f"signer_create_rate:{ip}"
+    attempts = await redis.incr(rate_key)
+    if attempts == 1:
+        await redis.expire(rate_key, 60)
+    if attempts > 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many sign-in attempts. Try again in a minute.",
+        )
+
+    try:
+        result = await create_and_register_signer()
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "Neynar createSigner/registerSignedKey failed: %s",
+            exc.response.text,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Sign-in service unavailable",
+        )
+    except ValueError as exc:
+        # FARCASTER_APP_MNEMONIC / FARCASTER_APP_FID misconfigured.
+        logger.error("Signer signing misconfigured: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Sign-in service misconfigured",
+        )
+
+    return SignerCreateResponse(
+        signer_uuid=result["signer_uuid"],
+        signer_approval_url=result["signer_approval_url"],
+    )
+
+
+@router.get("/signer/status", response_model=SignerStatusResponse)
+async def get_signer_status(
+    signer_uuid: str,
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Poll a managed signer's status.
+
+    Used by the dashboard during the SIWN flow — clients poll this
+    every ~2s until `status == "approved"`, then complete login.
+    """
+    # Cap polling at one request every ~500ms per IP. The dashboard
+    # polls at 2s intervals so this is well above normal usage.
+    ip = request.client.host if request.client else "unknown"
+    rate_key = f"signer_status_rate:{ip}"
+    attempts = await redis.incr(rate_key)
+    if attempts == 1:
+        await redis.expire(rate_key, 60)
+    if attempts > 120:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Polling too aggressively",
+        )
+
+    try:
+        result = await lookup_signer_status(signer_uuid)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Signer not found",
+            )
+        logger.error(
+            "Neynar lookupSigner failed for %s: %s",
+            signer_uuid,
+            exc.response.text,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not check signer status",
+        )
+
+    return SignerStatusResponse(
+        status=result.get("status", "generated"),
+        fid=result.get("fid"),
+    )
 
 
 @router.post("/login", response_model=LoginResponse)
