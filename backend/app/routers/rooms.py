@@ -11,6 +11,7 @@ Endpoints:
 
 import asyncio
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -19,10 +20,12 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Response,
     WebSocket,
     WebSocketDisconnect,
     status,
 )
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import (
@@ -32,11 +35,14 @@ from app.dependencies import (
     get_redis,
     require_non_demo_user,
 )
+from app.models.developer import DeveloperApp
+from app.models.room import Room
 from app.schemas.common import StatusResponse
 from app.schemas.room import (
     RoomCreate,
     RoomCreateResponse,
     RoomDetailResponse,
+    RoomEmbedPolicyResponse,
     RoomGoLiveResponse,
     RoomListResponse,
     RoomResponse,
@@ -162,6 +168,58 @@ async def get_room(
 ) -> RoomDetailResponse:
     """Get room details including the live participant list and hand-raise queue."""
     return await room_service.get_room(room_id=room_id, current_fid=current_fid)
+
+
+@router.get(
+    "/{room_id}/embed-policy",
+    response_model=RoomEmbedPolicyResponse,
+)
+async def get_room_embed_policy(
+    room_id: str,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> RoomEmbedPolicyResponse:
+    """Per-room iframe embedding policy for `landing/middleware.ts`.
+
+    Returns the owning developer app's `allowed_origins` when the room
+    was created via `POST /v1/developer/spaces` and the app is still
+    active. Returns `allowed_origins=null` otherwise — the room → app
+    linkage is immutable once set, so the caller can cache aggressively.
+    """
+    try:
+        room_uuid = uuid.UUID(room_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    row = await db.execute(
+        select(Room.created_by_app_id).where(Room.id == room_uuid)
+    )
+    app_id = row.scalar_one_or_none()
+    if app_id is None:
+        # Either room doesn't exist or has no owning app. We deliberately
+        # don't distinguish so a 404 here can't be used as an existence
+        # oracle for arbitrary UUIDs.
+        response.headers["Cache-Control"] = (
+            "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+        )
+        return RoomEmbedPolicyResponse(allowed_origins=None)
+
+    app_row = await db.execute(
+        select(DeveloperApp.allowed_origins, DeveloperApp.status).where(
+            DeveloperApp.id == app_id
+        )
+    )
+    app = app_row.first()
+    if app is None or app.status != "active":
+        response.headers["Cache-Control"] = (
+            "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+        )
+        return RoomEmbedPolicyResponse(allowed_origins=None)
+
+    response.headers["Cache-Control"] = (
+        "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+    )
+    return RoomEmbedPolicyResponse(allowed_origins=list(app.allowed_origins or []))
 
 
 @router.post("/{room_id}/chat-target", response_model=RoomResponse)

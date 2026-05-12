@@ -17,6 +17,7 @@ from app.database import Base
 from app.dependencies import get_db, require_developer_api_key
 from app.main import app
 from app.models.developer import DeveloperApiKey, DeveloperApp, DeveloperApplication
+from app.models.room import Room
 from app.models.user import User
 from app.routers.developer import get_developer_room_service
 from app.middleware.auth import get_admin_user
@@ -109,6 +110,7 @@ async def db_session():
                 DeveloperApplication.__table__,
                 DeveloperApp.__table__,
                 DeveloperApiKey.__table__,
+                Room.__table__,
             ],
         )
     session_factory = async_sessionmaker(
@@ -414,6 +416,7 @@ class _FakeDeveloperRoomService:
         announce_cast: bool = False,
         scheduled_at=None,
         allow_agents: bool = True,
+        created_by_app_id=None,
     ) -> RoomCreateResponse:
         self.calls.append(
             {
@@ -422,6 +425,7 @@ class _FakeDeveloperRoomService:
                 "announce_cast": announce_cast,
                 "scheduled_at": scheduled_at,
                 "allow_agents": allow_agents,
+                "created_by_app_id": created_by_app_id,
             }
         )
         return RoomCreateResponse(
@@ -1444,3 +1448,175 @@ async def test_create_app_does_not_require_recent_siwn(client_with_db, db_sessio
         "/v1/developer/apps", headers=bearer_only
     )
     assert list_apps.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Per-app embed policy (#148 follow-up): rooms created via /v1/developer/spaces
+# carry their owning app's id so the embed iframe's CSP can be tightened to
+# that app's allowed_origins.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_developer_spaces_passes_app_id_to_room_service(
+    client_with_db, db_session
+):
+    """The verified key's app_id must flow into RoomService.create_room."""
+    await _seed_user(db_session)
+    create_app = await client_with_db.post(
+        "/v1/developer/apps",
+        json={"name": "Test app"},
+        headers=_auth_header(OWNER_FID),
+    )
+    app_id = create_app.json()["id"]
+    create_key = await client_with_db.post(
+        f"/v1/developer/apps/{app_id}/keys",
+        json={"name": "Primary"},
+        headers=_auth_header(OWNER_FID),
+    )
+    secret_key = create_key.json()["secret_key"]
+
+    fake_service = _FakeDeveloperRoomService()
+
+    async def _room_service_override():
+        yield fake_service
+
+    app.dependency_overrides[get_developer_room_service] = _room_service_override
+
+    response = await client_with_db.post(
+        "/v1/developer/spaces",
+        json={"title": "Tagged with app_id"},
+        headers={"X-Juke-Api-Key": secret_key},
+    )
+    assert response.status_code == 201, response.text
+    last = fake_service.calls[-1]
+    assert str(last["created_by_app_id"]) == app_id
+
+
+async def _seed_room_with_app(
+    db_session, *, host_fid: int, app_id, room_id=None
+) -> Room:
+    """Insert an active room owned by host_fid and tagged with app_id."""
+    room = Room(
+        id=room_id or uuid.uuid4(),
+        title="Test room",
+        host_fid=host_fid,
+        status="active",
+        created_by_app_id=app_id,
+    )
+    db_session.add(room)
+    await db_session.commit()
+    await db_session.refresh(room)
+    return room
+
+
+@pytest.mark.asyncio
+async def test_embed_policy_returns_app_allowed_origins(
+    client_with_db, db_session
+):
+    """Rooms tagged with an app expose that app's allowed_origins."""
+    await _seed_user(db_session)
+    create_app = await client_with_db.post(
+        "/v1/developer/apps",
+        json={
+            "name": "Test app",
+            "allowed_origins": ["https://example.com", "https://app.example.com"],
+        },
+        headers=_auth_header(OWNER_FID),
+    )
+    app_id = uuid.UUID(create_app.json()["id"])
+    room = await _seed_room_with_app(db_session, host_fid=OWNER_FID, app_id=app_id)
+
+    res = await client_with_db.get(f"/v1/rooms/{room.id}/embed-policy")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["allowed_origins"] == [
+        "https://example.com",
+        "https://app.example.com",
+    ]
+    # Aggressive caching is safe: the room → app linkage is immutable.
+    assert "max-age" in res.headers.get("cache-control", "")
+
+
+@pytest.mark.asyncio
+async def test_embed_policy_returns_null_for_unlinked_room(
+    client_with_db, db_session
+):
+    """Rooms without an owning app fall back to the permissive default policy."""
+    await _seed_user(db_session)
+    room = await _seed_room_with_app(db_session, host_fid=OWNER_FID, app_id=None)
+    res = await client_with_db.get(f"/v1/rooms/{room.id}/embed-policy")
+    assert res.status_code == 200
+    assert res.json()["allowed_origins"] is None
+
+
+@pytest.mark.asyncio
+async def test_embed_policy_returns_null_for_inactive_app(
+    client_with_db, db_session
+):
+    """Soft-deleting the owning app drops back to the default policy.
+
+    Avoids surfacing stale enforcement after a developer has disabled the
+    app — and avoids breaking already-running rooms whose owning app was
+    deleted.
+    """
+    await _seed_user(db_session)
+    create_app = await client_with_db.post(
+        "/v1/developer/apps",
+        json={"name": "Doomed app", "allowed_origins": ["https://example.com"]},
+        headers=_auth_header(OWNER_FID),
+    )
+    app_id = uuid.UUID(create_app.json()["id"])
+    room = await _seed_room_with_app(db_session, host_fid=OWNER_FID, app_id=app_id)
+
+    # Soft-delete the app via the API.
+    delete_res = await client_with_db.delete(
+        f"/v1/developer/apps/{app_id}",
+        headers=_auth_header(OWNER_FID),
+    )
+    assert delete_res.status_code == 200
+
+    res = await client_with_db.get(f"/v1/rooms/{room.id}/embed-policy")
+    assert res.status_code == 200
+    assert res.json()["allowed_origins"] is None
+
+
+@pytest.mark.asyncio
+async def test_embed_policy_returns_null_for_unknown_room(client_with_db):
+    """Unknown UUIDs return null rather than 404 — avoids a room-existence oracle."""
+    random_id = uuid.uuid4()
+    res = await client_with_db.get(f"/v1/rooms/{random_id}/embed-policy")
+    assert res.status_code == 200
+    assert res.json()["allowed_origins"] is None
+
+
+@pytest.mark.asyncio
+async def test_embed_policy_returns_404_for_malformed_id(client_with_db):
+    """Non-UUID room id is rejected at the route layer."""
+    res = await client_with_db.get("/v1/rooms/not-a-uuid/embed-policy")
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_embed_policy_returns_empty_list_for_app_without_origins(
+    client_with_db, db_session
+):
+    """An app with no `allowed_origins` yields `[]`, distinct from `null`.
+
+    `[]` means \"the app is owned but the developer hasn't configured a
+    list yet\"; `null` means \"no owning app at all\". The middleware
+    treats both as permissive but the distinction is preserved for any
+    future tooling that wants to surface it.
+    """
+    await _seed_user(db_session)
+    create_app = await client_with_db.post(
+        "/v1/developer/apps",
+        json={"name": "App without origins"},
+        headers=_auth_header(OWNER_FID),
+    )
+    app_id = uuid.UUID(create_app.json()["id"])
+    room = await _seed_room_with_app(db_session, host_fid=OWNER_FID, app_id=app_id)
+
+    res = await client_with_db.get(f"/v1/rooms/{room.id}/embed-policy")
+    assert res.status_code == 200
+    assert res.json()["allowed_origins"] == []

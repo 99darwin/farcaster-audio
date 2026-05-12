@@ -131,6 +131,7 @@ class RoomService:
         announce_cast: bool = False,
         scheduled_at: datetime | None = None,
         allow_agents: bool = True,
+        created_by_app_id: uuid.UUID | None = None,
     ) -> RoomCreateResponse:
         """
         Create a new audio room (immediate or scheduled).
@@ -164,6 +165,7 @@ class RoomService:
             scheduled_at=scheduled_at,
             started_at=None if is_scheduled else _utcnow(),
             allow_agents=allow_agents,
+            created_by_app_id=created_by_app_id,
         )
         self.db.add(room)
         await self.db.flush()
