@@ -1,10 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-// Shipped in report-only mode for the first week so any broken resource
-// shows up in the browser console without blocking real users. Flip the
-// header name to `Content-Security-Policy` after monitoring confirms no
-// legitimate asset is blocked. TODO(security): enforce after 2026-04-29.
+// Shipped in report-only mode so any broken resource shows up in the
+// browser console without blocking real users. Flip the header name to
+// `Content-Security-Policy` after a monitoring window confirms no
+// legitimate asset is blocked. TODO(security): enforce.
 const CSP_HEADER = "Content-Security-Policy-Report-Only";
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
 
 const CSP_BASE = [
   "default-src 'self'",
@@ -26,21 +29,77 @@ const CSP_BASE = [
 const FRAME_ANCESTORS_DEFAULT =
   "frame-ancestors https://client.farcaster.xyz https://*.farcaster.xyz";
 
-// /embed/* is the SDK entrypoint — third-party sites embed it via iframe.
-// Backend enforces the per-app `allowed_origins` on every authenticated
-// API call from inside the iframe, so the browser-level frame-ancestors
-// is left permissive. To tighten this to a per-app dynamic policy we'd
-// need to link rooms → apps (rooms.created_by_app_id), then look up the
-// app's allowed_origins here. Tracked as a follow-up.
-const FRAME_ANCESTORS_EMBED = "frame-ancestors *";
+// Fallback for `/embed/*` when the room has no owning developer app —
+// for example iOS-created rooms, or rooms whose app was deleted. The
+// backend's anonymous-listener and authenticated APIs are still the
+// real authorization layer; this just opens the browser-level gate.
+const FRAME_ANCESTORS_EMBED_PERMISSIVE = "frame-ancestors *";
 
-export function middleware(request: NextRequest) {
+// Non-spaceId children of `/embed/*` that aren't subject to the per-app
+// policy lookup (callbacks, demo). Treated as permissive.
+const RESERVED_EMBED_SEGMENTS = new Set(["auth", "demo"]);
+
+type EmbedPolicy = { allowed_origins: string[] | null };
+
+async function fetchEmbedPolicy(spaceId: string): Promise<EmbedPolicy | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/v1/rooms/${encodeURIComponent(spaceId)}/embed-policy`,
+      {
+        // Edge runtime honors `next.revalidate`; the room → app linkage
+        // is immutable once set, so caching is safe and cheap.
+        next: { revalidate: 300 },
+      },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as EmbedPolicy;
+  } catch {
+    return null;
+  }
+}
+
+function buildEmbedFrameAncestors(origins: string[]): string {
+  // Each origin must be a valid URL origin (scheme://host[:port]). The
+  // backend `_validate_allowed_origins` already rejects paths, query,
+  // fragments, `*`, and `null`, so we trust the contents here.
+  return `frame-ancestors ${origins.join(" ")}`;
+}
+
+function extractEmbedSpaceId(pathname: string): string | null {
+  // /embed/[spaceId] or /embed/[spaceId]/anything
+  const match = pathname.match(/^\/embed\/([^/]+)/);
+  if (!match) return null;
+  const segment = decodeURIComponent(match[1]);
+  if (RESERVED_EMBED_SEGMENTS.has(segment)) return null;
+  return segment;
+}
+
+export async function middleware(request: NextRequest) {
   const response = NextResponse.next();
-  const isEmbed = request.nextUrl.pathname.startsWith("/embed/");
-  const frameAncestors = isEmbed
-    ? FRAME_ANCESTORS_EMBED
-    : FRAME_ANCESTORS_DEFAULT;
-  response.headers.set(CSP_HEADER, [...CSP_BASE, frameAncestors].join("; "));
+  const pathname = request.nextUrl.pathname;
+
+  let frameAncestors: string;
+
+  if (pathname.startsWith("/embed/")) {
+    const spaceId = extractEmbedSpaceId(pathname);
+    if (!spaceId) {
+      frameAncestors = FRAME_ANCESTORS_EMBED_PERMISSIVE;
+    } else {
+      const policy = await fetchEmbedPolicy(spaceId);
+      const origins = policy?.allowed_origins;
+      frameAncestors =
+        origins && origins.length > 0
+          ? buildEmbedFrameAncestors(origins)
+          : FRAME_ANCESTORS_EMBED_PERMISSIVE;
+    }
+  } else {
+    frameAncestors = FRAME_ANCESTORS_DEFAULT;
+  }
+
+  response.headers.set(
+    CSP_HEADER,
+    [...CSP_BASE, frameAncestors].join("; "),
+  );
   return response;
 }
 

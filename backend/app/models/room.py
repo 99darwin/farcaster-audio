@@ -1,7 +1,18 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,11 +48,25 @@ class Room(Base):
     cast_hash: Mapped[str | None] = mapped_column(String(66), index=True)
     neynar_webhook_id: Mapped[str | None] = mapped_column(String(64))
     neynar_webhook_secret: Mapped[str | None] = mapped_column(String(256))
+    # Set when the room was created via `POST /v1/developer/spaces`. Drives
+    # per-app `frame-ancestors` on the embed iframe; null for iOS-created
+    # rooms which fall back to the permissive default policy.
+    created_by_app_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("developer_apps.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     allow_agents: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
     metadata_: Mapped[dict] = mapped_column(
-        "metadata", JSONB, nullable=False, server_default="{}"
+        "metadata",
+        # JSONB on Postgres (production), generic JSON on SQLite (tests).
+        # The two are query-compatible for our usage (no jsonb_* operators).
+        JSONB().with_variant(JSON(), "sqlite"),
+        nullable=False,
+        server_default="{}",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

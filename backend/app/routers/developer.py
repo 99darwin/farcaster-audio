@@ -596,6 +596,7 @@ async def create_developer_space(
         announce_cast=body.announce_cast,
         scheduled_at=scheduled_at,
         allow_agents=body.allow_agents,
+        created_by_app_id=verified_key.app_id,
     )
 
 

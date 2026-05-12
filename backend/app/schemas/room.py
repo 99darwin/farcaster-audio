@@ -75,6 +75,19 @@ class RoomDetailResponse(BaseModel):
     hand_queue: list[int] = []
 
 
+class RoomEmbedPolicyResponse(BaseModel):
+    """Public per-room iframe policy consumed by `landing/middleware.ts`.
+
+    `allowed_origins` is the owning app's allowlist when the room was
+    created via `POST /v1/developer/spaces`; null when the room has no
+    owning app (iOS-created rooms, deleted apps). Middleware emits a
+    matching `frame-ancestors` directive, or falls back to permissive
+    when null.
+    """
+
+    allowed_origins: list[str] | None = None
+
+
 class RecordingResponse(BaseModel):
     """A single recorded space on a user's profile."""
 
