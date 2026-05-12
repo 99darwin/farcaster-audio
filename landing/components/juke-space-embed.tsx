@@ -4,11 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { safeImageUrl } from "@/lib/safe-url";
 import {
   createJukeEmbedSdk,
-  isTrustedSiwnMessage,
-  parseSiwnPayload,
   type JukeEmbedSdk,
-  type SiwnExpectation,
 } from "@/lib/juke-embed-sdk";
+import { SignerApprovalPrompt } from "@/components/signer-approval-prompt";
 import type {
   JoinSpaceResponse,
   SpaceDetailResponse,
@@ -39,9 +37,7 @@ const REACTIONS: { key: string; glyph: string; label: string }[] = [
 
 export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
   const sdkRef = useRef<JukeEmbedSdk | null>(null);
-  const popupRef = useRef<Window | null>(null);
-  const authPollRef = useRef<number | null>(null);
-  const expectedSiwn = useRef<SiwnExpectation | null>(null);
+  const signerAbortRef = useRef<AbortController | null>(null);
   const [phase, setPhase] = useState<Phase>(() =>
     initialData.room.status === "active" ? "idle" : "ended",
   );
@@ -55,6 +51,9 @@ export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
     new Set(),
   );
   const [isMicEnabled, setIsMicEnabled] = useState(false);
+  const [signerApprovalUrl, setSignerApprovalUrl] = useState<string | null>(
+    null,
+  );
 
   if (!sdkRef.current) sdkRef.current = createJukeEmbedSdk();
 
@@ -118,84 +117,61 @@ export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
   }, [connectJoin, spaceId, syncFromJoin]);
 
   const handleStartSiwn = useCallback(async () => {
+    // Cancel any previous in-flight sign-in.
+    signerAbortRef.current?.abort();
+    const abort = new AbortController();
+    signerAbortRef.current = abort;
+
     setError(null);
     setPhase("authenticating");
+    setSignerApprovalUrl(null);
+
     try {
-      const { popup, nonce } = await sdkRef.current!.startSiwn();
-      popupRef.current = popup;
-      expectedSiwn.current = { nonce, source: popup };
-      if (!popup) {
-        expectedSiwn.current = null;
-        setError("Allow pop-ups to sign in.");
+      const { signerUuid, signerApprovalUrl: approvalUrl } =
+        await sdkRef.current!.startManagedSignerFlow();
+      setSignerApprovalUrl(approvalUrl);
+
+      const approved = await sdkRef.current!.pollSignerStatus(signerUuid, {
+        signal: abort.signal,
+      });
+
+      const session = await sdkRef.current!.completeManagedSignerLogin(
+        approved,
+      );
+      setIsAuthenticated(true);
+      setAuthenticatedFid(session.fid);
+      setSignerApprovalUrl(null);
+
+      const join = await sdkRef.current!.joinAuthenticated(spaceId);
+      syncFromJoin(join);
+      await connectJoin(join, "participating");
+    } catch (err) {
+      if (abort.signal.aborted) {
+        // user cancelled — quietly return to prior state
         setPhase(isAuthenticated ? "participating" : "listening");
         return;
       }
-      if (authPollRef.current) window.clearInterval(authPollRef.current);
-      authPollRef.current = window.setInterval(() => {
-        if (!popupRef.current?.closed) return;
-        if (authPollRef.current) window.clearInterval(authPollRef.current);
-        authPollRef.current = null;
-        popupRef.current = null;
-        expectedSiwn.current = null;
-        setPhase((current) =>
-          current === "authenticating"
-            ? isAuthenticated
-              ? "participating"
-              : "listening"
-            : current,
-        );
-      }, 500);
-    } catch (err) {
-      expectedSiwn.current = null;
-      setError(err instanceof Error ? err.message : "Could not start sign in");
+      setError(err instanceof Error ? err.message : "Could not sign in");
       setPhase(isAuthenticated ? "participating" : "listening");
+    } finally {
+      if (signerAbortRef.current === abort) signerAbortRef.current = null;
     }
+  }, [connectJoin, isAuthenticated, spaceId, syncFromJoin]);
+
+  const handleCancelSignIn = useCallback(() => {
+    signerAbortRef.current?.abort();
+    signerAbortRef.current = null;
+    setSignerApprovalUrl(null);
+    setPhase(isAuthenticated ? "participating" : "listening");
   }, [isAuthenticated]);
 
-  const completeSiwn = useCallback(
-    async (payload: unknown) => {
-      const siwnPayload = parseSiwnPayload(payload);
-      if (!siwnPayload) return;
-
-      if (authPollRef.current) window.clearInterval(authPollRef.current);
-      authPollRef.current = null;
-      popupRef.current?.close();
-      popupRef.current = null;
-
-      setPhase("authenticating");
-      setError(null);
-      try {
-        const session = await sdkRef.current!.completeSiwn(siwnPayload);
-        setIsAuthenticated(true);
-        setAuthenticatedFid(session.fid);
-        const join = await sdkRef.current!.joinAuthenticated(spaceId);
-        syncFromJoin(join);
-        await connectJoin(join, "participating");
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Could not complete sign in",
-        );
-        setPhase("listening");
-      }
-    },
-    [connectJoin, spaceId, syncFromJoin],
-  );
-
   useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const expected = expectedSiwn.current;
-      if (!expected) return;
-      if (!isTrustedSiwnMessage(event, expected)) return;
-      expectedSiwn.current = null;
-      completeSiwn(event.data).catch(() => {});
-    };
-    window.addEventListener("message", onMessage);
     return () => {
-      window.removeEventListener("message", onMessage);
-      if (authPollRef.current) window.clearInterval(authPollRef.current);
+      signerAbortRef.current?.abort();
+      signerAbortRef.current = null;
       sdkRef.current?.leaveSpace().catch(() => {});
     };
-  }, [completeSiwn]);
+  }, []);
 
   const handleLeave = useCallback(async () => {
     await sdkRef.current?.leaveSpace(spaceId);
@@ -299,8 +275,10 @@ export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
             isAuthenticated={isAuthenticated}
             handRaised={handRaised}
             isMicEnabled={isMicEnabled}
+            signerApprovalUrl={signerApprovalUrl}
             onListen={handleListen}
             onSignIn={handleStartSiwn}
+            onCancelSignIn={handleCancelSignIn}
             onLeave={handleLeave}
             onReaction={handleReaction}
             onRaiseHand={handleRaiseHand}
@@ -340,8 +318,10 @@ function ActionFooter({
   isAuthenticated,
   handRaised,
   isMicEnabled,
+  signerApprovalUrl,
   onListen,
   onSignIn,
+  onCancelSignIn,
   onLeave,
   onReaction,
   onRaiseHand,
@@ -353,13 +333,27 @@ function ActionFooter({
   isAuthenticated: boolean;
   handRaised: boolean;
   isMicEnabled: boolean;
+  signerApprovalUrl: string | null;
   onListen: () => void;
   onSignIn: () => void;
+  onCancelSignIn: () => void;
   onLeave: () => void;
   onReaction: (key: string) => void;
   onRaiseHand: () => void;
   onMic: () => void;
 }) {
+  // SIWN polling: QR code + mobile deeplink button. Compact 160px QR
+  // fits inside the 420×620 embed card without scrolling.
+  if (phase === "authenticating" && signerApprovalUrl) {
+    return (
+      <SignerApprovalPrompt
+        approvalUrl={signerApprovalUrl}
+        onCancel={onCancelSignIn}
+        qrSize={160}
+      />
+    );
+  }
+
   if (phase === "joining" || phase === "connecting" || phase === "authenticating") {
     const label =
       phase === "authenticating"

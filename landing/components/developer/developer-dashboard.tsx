@@ -8,7 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { SignerApprovalPrompt } from "./signer-approval-prompt";
+import { SignerApprovalPrompt } from "../signer-approval-prompt";
 import {
   DeveloperApiError,
   ReauthRequiredError,
