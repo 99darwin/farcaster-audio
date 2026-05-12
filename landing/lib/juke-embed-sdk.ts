@@ -351,15 +351,36 @@ export function createJukeEmbedSdk(): JukeEmbedSdk {
   return new JukeEmbedSdk();
 }
 
+// Neynar's web SIWN flow posts the auth payload to `window.opener` directly
+// from the popup running on `app.neynar.com` — it does NOT redirect to the
+// `deeplink_url` we pass (that's for mobile/WebView flows). The popup is
+// captured in `expected.source`; the `event.source` check below binds the
+// message to the specific window we opened, so even though we accept
+// messages from Neynar's origin, only the popup at the auth URL we
+// constructed can be the actual sender. See developer-api.ts for the
+// fuller writeup.
+const TRUSTED_SIWN_ORIGINS = new Set([
+  "https://app.neynar.com",
+  "https://farcaster.xyz",
+  "https://client.farcaster.xyz",
+]);
+
 export function isTrustedSiwnMessage(
   event: MessageEvent,
   expected: SiwnExpectation,
 ): boolean {
   if (typeof window === "undefined") return false;
-  if (event.origin !== window.location.origin) return false;
-  if (expected.source && event.source !== expected.source) return false;
+  if (!expected.source || event.source !== expected.source) return false;
+  const ownOrigin = window.location.origin;
+  const isOwnOrigin = event.origin === ownOrigin;
+  if (!isOwnOrigin && !TRUSTED_SIWN_ORIGINS.has(event.origin)) return false;
   const payload = parseSiwnPayload(event.data);
-  return payload !== null && payload.nonce === expected.nonce;
+  if (!payload) return false;
+  // Nonce binding only applies when the message came through our own
+  // /embed/auth/callback page (mobile/WebView fallback). Neynar's direct
+  // postMessage doesn't include our URL params.
+  if (isOwnOrigin && payload.nonce !== expected.nonce) return false;
+  return true;
 }
 
 export function parseSiwnPayload(data: unknown): SiwnPayload | null {
@@ -378,11 +399,13 @@ export function parseSiwnPayload(data: unknown): SiwnPayload | null {
   };
   if (!candidate.signer_uuid || candidate.fid === undefined) return null;
   if (candidate.is_authenticated === false) return null;
-  if (typeof candidate.nonce !== "string" || !candidate.nonce) return null;
   return {
     signer_uuid: candidate.signer_uuid,
     fid: candidate.fid,
-    nonce: candidate.nonce,
+    nonce:
+      typeof candidate.nonce === "string" && candidate.nonce
+        ? candidate.nonce
+        : "",
   };
 }
 
