@@ -9,6 +9,7 @@ from app.config import settings
 # 10 speakers (host + 9 guests) + 500 listener cap. Bumping this requires a
 # corresponding check on LiveKit plan limits.
 DEFAULT_MAX_PARTICIPANTS = 510
+ANONYMOUS_LISTENER_TOKEN_TTL = timedelta(minutes=15)
 
 
 class LiveKitService:
@@ -78,6 +79,31 @@ class LiveKitService:
             can_publish=can_publish,
             can_subscribe=True,
             can_publish_data=can_publish_data,
+        )
+        token.with_grants(grant)
+        return token.to_jwt()
+
+    def generate_anonymous_listener_token(
+        self,
+        room_id: str,
+        session_id: str,
+    ) -> str:
+        """Generate a short-lived subscribe-only token for an anonymous listener."""
+        token = api.AccessToken(
+            api_key=settings.LIVEKIT_API_KEY,
+            api_secret=settings.LIVEKIT_API_SECRET,
+        )
+        token.with_identity(f"anon:{session_id}")
+        token.with_name("Anonymous listener")
+        token.with_metadata(json.dumps({"role": "listener", "anonymous": True}))
+        token.with_ttl(ANONYMOUS_LISTENER_TOKEN_TTL)
+
+        grant = api.VideoGrants(
+            room_join=True,
+            room=room_id,
+            can_publish=False,
+            can_subscribe=True,
+            can_publish_data=False,
         )
         token.with_grants(grant)
         return token.to_jwt()

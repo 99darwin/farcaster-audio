@@ -48,6 +48,53 @@ from app.dependencies import DEMO_SIGNER_UUID, get_current_user, require_non_dem
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
 
+# ---------------------------------------------------------------------------
+# Refresh-token cookie helpers
+# ---------------------------------------------------------------------------
+#
+# The dashboard at juke.audio opts into cookie-based refresh by sending
+# `use_cookie=true` on login. The cookie is scoped to `/v1/auth` so it's only
+# ever sent on auth endpoints, HttpOnly so JS can't read it, and (in prod)
+# Domain=.juke.audio so it covers your-api-host.example.com across the subdomain.
+
+REFRESH_COOKIE_NAME = "juke_refresh"
+REFRESH_COOKIE_PATH = "/v1/auth"
+
+
+def _refresh_cookie_max_age() -> int:
+    return settings.JWT_REFRESH_EXPIRY_DAYS * 86400
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    """Attach the rotating refresh token as an HttpOnly cookie."""
+    is_prod = settings.ENVIRONMENT == "production"
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=token,
+        max_age=_refresh_cookie_max_age(),
+        path=REFRESH_COOKIE_PATH,
+        domain=".juke.audio" if is_prod else None,
+        secure=is_prod,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    """Expire the refresh cookie. Attributes must match the original set."""
+    is_prod = settings.ENVIRONMENT == "production"
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value="",
+        max_age=0,
+        path=REFRESH_COOKIE_PATH,
+        domain=".juke.audio" if is_prod else None,
+        secure=is_prod,
+        httponly=True,
+        samesite="lax",
+    )
+
+
 @router.post("/dev-login", response_model=LoginResponse)
 async def dev_login(
     db: AsyncSession = Depends(get_db),
@@ -120,6 +167,7 @@ async def get_auth_url():
 @router.post("/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
@@ -151,9 +199,23 @@ async def login(
     jwt_token, expires_at = create_jwt(user.fid)
     refresh_token = await create_refresh_token(user.fid, redis)
 
+    # Record a "recent SIWN" marker so step-up-protected developer-key
+    # mutations (rotate/revoke/reveal/delete-app) accept this session for
+    # a short window. Refresh deliberately does NOT touch this marker —
+    # a long-lived session must SIWN again to perform dangerous mutations.
+    from app.services.redis_service import RedisService
+
+    await RedisService(redis).mark_siwn(user.fid)
+
+    if body.use_cookie:
+        _set_refresh_cookie(response, refresh_token)
+        body_refresh_token: str | None = None
+    else:
+        body_refresh_token = refresh_token
+
     return LoginResponse(
         jwt=jwt_token,
-        refresh_token=refresh_token,
+        refresh_token=body_refresh_token,
         expires_at=expires_at,
         user=UserResponse(
             fid=user.fid,
@@ -170,6 +232,7 @@ async def login(
 @router.post("/refresh", response_model=LoginResponse)
 async def refresh(
     request: Request,
+    response: Response,
     body: RefreshRequest,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
@@ -206,7 +269,19 @@ async def refresh(
             detail="Token missing FID claim",
         )
 
-    if not await verify_refresh_token(body.refresh_token, fid, redis):
+    # Cookie wins over body so a dashboard that's transitioned to cookie-based
+    # refresh can't accidentally keep leaking a stale body token.
+    cookie_token = request.cookies.get(REFRESH_COOKIE_NAME)
+    refresh_token_value = cookie_token or body.refresh_token
+    refresh_from_cookie = bool(cookie_token)
+
+    if not refresh_token_value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    if not await verify_refresh_token(refresh_token_value, fid, redis):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
@@ -231,9 +306,15 @@ async def refresh(
     jwt_token, expires_at = create_jwt(user.fid)
     new_refresh_token = await create_refresh_token(user.fid, redis)
 
+    if refresh_from_cookie:
+        _set_refresh_cookie(response, new_refresh_token)
+        body_refresh_token: str | None = None
+    else:
+        body_refresh_token = new_refresh_token
+
     return LoginResponse(
         jwt=jwt_token,
-        refresh_token=new_refresh_token,
+        refresh_token=body_refresh_token,
         expires_at=expires_at,
         user=UserResponse(
             fid=user.fid,
@@ -245,6 +326,30 @@ async def refresh(
             is_admin=user.is_admin,
         ),
     )
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> Response:
+    """Clear the `juke_refresh` cookie and revoke any presented refresh token.
+
+    Callable without a bearer — the primary job is clearing the cookie. If
+    a refresh token is present in the cookie, we also delete it from Redis
+    so it can't be replayed. Logout is idempotent: we never 401 here.
+    """
+    cookie_token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if cookie_token:
+        # The refresh_token Redis key is keyed by the hash of the token,
+        # not by fid, so we can revoke without parsing the JWT.
+        from app.services.auth_service import _hash_token
+
+        await redis.delete(f"refresh_token:{_hash_token(cookie_token)}")
+
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _clear_refresh_cookie(response)
+    return response
 
 
 @router.post("/auth-address", response_model=RegisterAuthAddressResponse)

@@ -318,7 +318,7 @@ export default function LandingPage() {
           <div className="mx-auto max-w-5xl flex items-center justify-between text-sm text-juke-text-on-dark-tertiary">
             <span>&copy; 2026 Juke</span>
             <a
-              href="https://warpcast.com/jukeaudio"
+              href="https://farcaster.xyz/jukeaudio"
               target="_blank"
               rel="noopener noreferrer"
               className="py-2 px-1 transition-colors hover:text-juke-text-on-dark-secondary"

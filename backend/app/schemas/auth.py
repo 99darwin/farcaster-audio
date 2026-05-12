@@ -14,17 +14,25 @@ class UserResponse(BaseModel):
 class LoginRequest(BaseModel):
     signer_uuid: str
     fid: int
+    # When true, the server returns the refresh token via an HttpOnly cookie
+    # (`juke_refresh`) and omits it from the response body. Used by the
+    # developer dashboard at juke.audio to mitigate XSS exfiltration of the
+    # 30-day refresh window. Existing miniapp/embed callers default to false
+    # and continue to receive the body-based refresh token unchanged.
+    use_cookie: bool = False
 
 
 class LoginResponse(BaseModel):
     jwt: str
-    refresh_token: str
+    refresh_token: str | None = None
     expires_at: str
     user: UserResponse
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    # Optional: the refresh token may instead arrive via the `juke_refresh`
+    # HttpOnly cookie. If both are present, the cookie wins.
+    refresh_token: str | None = None
 
 
 class AuthUrlResponse(BaseModel):

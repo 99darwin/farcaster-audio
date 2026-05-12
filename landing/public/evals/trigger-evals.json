@@ -1,0 +1,126 @@
+{
+  "skill_name": "juke-spaces-embed",
+  "description": "Trigger evals for the Juke spaces embed skill. Should-trigger queries cover varied phrasings of 'add live Farcaster audio rooms'. Should-not-trigger queries are near-misses — adjacent audio, adjacent Farcaster, adjacent embeds — that should NOT pull the Juke skill.",
+  "evals": [
+    {
+      "id": 1,
+      "query": "i'm building a music venue's landing page in next 15 and the owner wants a 'listen live' button that opens a live audio room hosted by their resident dj. the room should let visitors listen without making an account but require a wallet or fc login to clap or request the mic. what should i drop in?",
+      "should_trigger": true,
+      "rationale": "Classic Juke use case described in everything-but-the-name terms: live audio room, anonymous listen, FC auth for participation."
+    },
+    {
+      "id": 2,
+      "query": "ok so we have an existing dao governance forum on https://gov.example.eth and one of the validators keeps asking for a real-time voice room for proposal discussions. it needs to feel native to our purple/dark theme — we're not using bootstrap or anything, just tailwind. can you wire up the audio bit so listeners are anonymous but speakers are gated",
+      "should_trigger": true,
+      "rationale": "SDK path — custom UI required, gated speakers, anon listen. The 'real-time voice room' + Farcaster context should pull Juke."
+    },
+    {
+      "id": 3,
+      "query": "yo got a juke space already at uuid 7b3e4912-9c1a-4f8d-9c89-1a2b3c4d5e6f how do i show it on my page so people can listen without leaving",
+      "should_trigger": true,
+      "rationale": "Explicit Juke + spaceId. Should obviously trigger."
+    },
+    {
+      "id": 4,
+      "query": "need an audio room embed for my farcaster miniapp. quick auth is already wired up. just need the listener+speaker flow on the inside",
+      "should_trigger": true,
+      "rationale": "Farcaster miniapp + audio room + Quick Auth = directly inside the skill's miniapp section."
+    },
+    {
+      "id": 5,
+      "query": "Twitter Spaces clone but tied to Farcaster identity — host approves speakers, hand-raise queue, optional anon listeners. We're using React + Vite. What's the fastest path?",
+      "should_trigger": true,
+      "rationale": "Twitter Spaces clone w/ Farcaster identity is literally Juke. Tests that the skill triggers without the word 'Juke'."
+    },
+    {
+      "id": 6,
+      "query": "trying to render a live participant list with profile pics for an audio session — host plus speakers — and i need active-speaker borders that pulse when someone's talking. using the juke sdk apparently",
+      "should_trigger": true,
+      "rationale": "SDK-level question about onActiveSpeakersChanged + participant filtering."
+    },
+    {
+      "id": 7,
+      "query": "embedding what i think is called a juke space in our react native expo app — what livekit client should we use and does the sdk work the same way it does on web?",
+      "should_trigger": true,
+      "rationale": "RN/Expo integration of Juke — covered in 'Common task recipes'."
+    },
+    {
+      "id": 8,
+      "query": "page.tsx for /listen/[id] route — need to render a juke space. show listener_count, host, title, then a big listen button that doesn't require sign in. ship me the component",
+      "should_trigger": true,
+      "rationale": "App Router page rendering a Juke space — the hosted iframe or SDK component fits directly."
+    },
+    {
+      "id": 9,
+      "query": "got the juke iframe up on https://staging.mysite.com but the mic button isn't working on production even though it works on localhost. think it's an allow attribute thing? what should the iframe permissions be exactly",
+      "should_trigger": true,
+      "rationale": "Iframe troubleshooting — `allow=\"autoplay; microphone\"` is covered in Recipe 1."
+    },
+    {
+      "id": 10,
+      "query": "self hosting the audio backend for a private dao because legal wants the data in our own infra. what env vars do i need set up on the api server, and can i use my own livekit cluster",
+      "should_trigger": true,
+      "rationale": "Self-hosting section of the skill applies. Tests the rarer self-host branch."
+    },
+    {
+      "id": 11,
+      "query": "i want to embed a farcaster cast in my blog post. like the @dwr cast about the new feature. how do i do that with the warpcast embed url, or is there a better way",
+      "should_trigger": false,
+      "rationale": "Near-miss: Farcaster + embed, but it's a static cast embed, not live audio. Should NOT trigger Juke."
+    },
+    {
+      "id": 12,
+      "query": "trying to add a podcast player to my newsletter site — episodes are mp3s on s3, no live element. just a play/pause/scrub bar. the host wants it to autoplay but i'm worried about chrome's autoplay policy",
+      "should_trigger": false,
+      "rationale": "Audio embed, but recorded podcast not live room. Should NOT trigger."
+    },
+    {
+      "id": 13,
+      "query": "we use livekit at work for our internal product. how do i tune the bitrate config for high-fidelity music streaming, our current 32k sounds awful for the dj sets we're broadcasting",
+      "should_trigger": false,
+      "rationale": "LiveKit + audio + 'dj' — keyword density that LOOKS like Juke but the user owns their LiveKit stack, no Farcaster, no Juke. Should NOT trigger — recommend LiveKit docs instead."
+    },
+    {
+      "id": 14,
+      "query": "i need to set up sign in with farcaster on my next.js site so users can comment on posts under their fc handle. not doing anything fancy, just auth + read fid. siwn or quickauth?",
+      "should_trigger": false,
+      "rationale": "Farcaster auth but no audio. Should NOT trigger Juke."
+    },
+    {
+      "id": 15,
+      "query": "twitter api v2 — how do i pull the audience count from a Space using the bearer token, the docs are confusing me and i keep getting 401s on the /spaces/:id endpoint",
+      "should_trigger": false,
+      "rationale": "Literal Twitter Spaces, not Juke. The word 'Space' is the trap. Should NOT trigger."
+    },
+    {
+      "id": 16,
+      "query": "building a webrtc 1-on-1 voice chat for support agents talking to customers on our shopify store. no social graph involved, just two people and a mic, push to talk if possible",
+      "should_trigger": false,
+      "rationale": "Voice chat but no live room model, no Farcaster, no audience. Should NOT trigger."
+    },
+    {
+      "id": 17,
+      "query": "want a voice memo button on my pwa — user records audio for up to 60s, uploads to my backend as opus or webm. like the slack voice clip thing or how telegram does voice notes",
+      "should_trigger": false,
+      "rationale": "Recording, not live broadcasting. Should NOT trigger."
+    },
+    {
+      "id": 18,
+      "query": "what's the difference between siwn and siwe for authentication? trying to decide which one to add to my web3 dapp for connecting users. we already have wagmi set up",
+      "should_trigger": false,
+      "rationale": "SIWN is mentioned in Juke docs but the question is about pure auth comparison. Should NOT trigger."
+    },
+    {
+      "id": 19,
+      "query": "embedding a youtube video on a marketing page is killing my LCP score in pagespeed insights, can you check the lazy loading attrs on my iframe and tell me what's wrong — currently using loading='lazy' and the lite-youtube web component",
+      "should_trigger": false,
+      "rationale": "Iframe + embed but YouTube, not audio, not Farcaster. Should NOT trigger."
+    },
+    {
+      "id": 20,
+      "query": "discord embed widget — i want to show who's currently in our community voice channel on our homepage, with mic-on indicators. the widget.json endpoint gives me users but not voice state",
+      "should_trigger": false,
+      "rationale": "Voice channel presence display, but Discord-native and no Farcaster. Should NOT trigger."
+    }
+  ]
+}

@@ -11,7 +11,24 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.config import settings
-from app.routers import admin, auth, drafts, feed, gifs, media, notifications, participants, push, recordings, rooms, snaps, users, voice_notes, webhooks
+from app.routers import (
+    admin,
+    auth,
+    developer,
+    drafts,
+    feed,
+    gifs,
+    media,
+    notifications,
+    participants,
+    push,
+    recordings,
+    rooms,
+    snaps,
+    users,
+    voice_notes,
+    webhooks,
+)
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -39,7 +56,9 @@ if settings.ENVIRONMENT != "development":
 
 # Load SKILL.md once at startup
 _skill_md_path = Path(__file__).parent / "static" / "SKILL.md"
-_skill_md_content = _skill_md_path.read_text() if _skill_md_path.exists() else "# SKILL.md not found"
+_skill_md_content = (
+    _skill_md_path.read_text() if _skill_md_path.exists() else "# SKILL.md not found"
+)
 
 
 @asynccontextmanager
@@ -62,6 +81,38 @@ async def lifespan(app: FastAPI):
             "longer random value before relying on admin ops endpoints.",
             len(settings.ADMIN_SECRET),
         )
+
+    if settings.ENVIRONMENT != "development":
+        if not settings.JUKE_API_KEY_PEPPER or not settings.JUKE_API_KEY_ENCRYPTION_KEY:
+            raise RuntimeError(
+                "JUKE_API_KEY_PEPPER and JUKE_API_KEY_ENCRYPTION_KEY are required "
+                "outside development"
+            )
+        # Fail closed if the pepper is too short to provide meaningful
+        # collision resistance for HMAC-SHA256 keying.
+        if len(settings.JUKE_API_KEY_PEPPER.encode()) < 32:
+            raise RuntimeError(
+                "JUKE_API_KEY_PEPPER must be at least 32 bytes outside development"
+            )
+        # Validate the AES-256 encryption key length upfront so a misconfigured
+        # deployment fails at boot instead of at first key creation.
+        import base64 as _b64
+
+        _raw_key = settings.JUKE_API_KEY_ENCRYPTION_KEY
+        _decoded: bytes | None = None
+        for _decoder in (_b64.urlsafe_b64decode, _b64.b64decode):
+            try:
+                _decoded = _decoder(_raw_key + "=" * (-len(_raw_key) % 4))
+                break
+            except Exception:
+                continue
+        if _decoded is None or len(_decoded) != 32:
+            # Allow the raw 32-byte form (rare but valid).
+            if len(_raw_key.encode()) != 32:
+                raise RuntimeError(
+                    "JUKE_API_KEY_ENCRYPTION_KEY must decode to exactly 32 bytes "
+                    "(AES-256)"
+                )
 
     # Reject wildcard CORS origins — combined with allow_credentials=True
     # this would be a cross-site footgun if we ever move to cookie auth.
@@ -156,15 +207,23 @@ if settings.X402_ENABLED and settings.X402_PAYMENT_ADDRESS:
                 },
             },
         )
-        logger.info("x402 payment middleware enabled (network=%s, toll=%s)",
-                     settings.X402_NETWORK, settings.AGENT_JOIN_TOLL)
+        logger.info(
+            "x402 payment middleware enabled (network=%s, toll=%s)",
+            settings.X402_NETWORK,
+            settings.AGENT_JOIN_TOLL,
+        )
     except ImportError as e:
-        logger.warning("x402 import failed: %s — agent payment gate disabled.", e, exc_info=True)
+        logger.warning(
+            "x402 import failed: %s — agent payment gate disabled.", e, exc_info=True
+        )
     except Exception as e:
         logger.error("x402 middleware setup failed: %s", e, exc_info=True)
 else:
-    logger.warning("x402 middleware NOT enabled (X402_ENABLED=%s, X402_PAYMENT_ADDRESS=%s)",
-                   settings.X402_ENABLED, bool(settings.X402_PAYMENT_ADDRESS))
+    logger.warning(
+        "x402 middleware NOT enabled (X402_ENABLED=%s, X402_PAYMENT_ADDRESS=%s)",
+        settings.X402_ENABLED,
+        bool(settings.X402_PAYMENT_ADDRESS),
+    )
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -199,6 +258,7 @@ async def get_agent_skill():
 
 app.include_router(admin.router)
 app.include_router(auth.router)
+app.include_router(developer.router)
 app.include_router(drafts.router)
 app.include_router(feed.router)
 app.include_router(gifs.router)

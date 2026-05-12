@@ -72,6 +72,7 @@ export interface SpaceDetailResponse {
 export interface JoinSpaceResponse {
   livekit_token: string;
   livekit_ws_url: string;
+  expires_at?: string | null;
   role: string;
   room: Space;
   participants: SpaceParticipant[];

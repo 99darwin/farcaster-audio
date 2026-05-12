@@ -29,8 +29,8 @@ interface CastActionsProps {
   castHash?: string;
 }
 
-function buildWarpcastUrl(username: string, hash: string): string {
-  return `https://warpcast.com/${username}/${hash.slice(0, 10)}`;
+function buildFarcasterCastUrl(username: string, hash: string): string {
+  return `https://farcaster.xyz/${username}/${hash.slice(0, 10)}`;
 }
 
 export function CastActions({
@@ -88,7 +88,7 @@ export function CastActions({
   const handleSharePress = () => {
     if (!authorUsername || !castHash) return;
     haptic.selection();
-    const url = buildWarpcastUrl(authorUsername, castHash);
+    const url = buildFarcasterCastUrl(authorUsername, castHash);
     Share.share({ url });
   };
 

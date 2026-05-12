@@ -2,13 +2,18 @@ import uuid
 from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session
-from app.middleware.auth import get_admin_user, get_agent_or_user, get_current_user, get_optional_current_user  # re-export
+from app.middleware.auth import (
+    get_admin_user,
+    get_agent_or_user,
+    get_current_user,
+    get_optional_current_user,
+)  # re-export
 from app.models.user import User
 from app.services.spam_service import SpamService
 
@@ -44,6 +49,65 @@ async def get_spam_service(
 ) -> SpamService:
     """Provide a SpamService instance with DB and Redis dependencies."""
     return SpamService(db, redis)
+
+
+async def require_developer_api_key(
+    request: Request,
+    x_juke_api_key: str | None = Header(None, alias="X-Juke-Api-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Require an active Juke developer API key.
+
+    The key is a true machine credential — no user JWT is consulted. The
+    owning fid is derived from the key's app row by verify_developer_api_key.
+    All authentication failures collapse into the same opaque 401 string
+    ("Invalid Juke API key.") to avoid leaking which check tripped.
+    """
+    from app.services.developer_key_service import (
+        INVALID_API_KEY_DETAIL,
+        verify_developer_api_key,
+    )
+
+    if not x_juke_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=INVALID_API_KEY_DETAIL,
+        )
+    # Pass the Origin header through so verify_developer_api_key can enforce
+    # the app's allowed_origins list for browser-originated requests.
+    origin_header = request.headers.get("origin")
+    verified = await verify_developer_api_key(
+        db,
+        raw_secret_key=x_juke_api_key,
+        method=request.method,
+        path=request.url.path,
+        origin=origin_header,
+    )
+    request.state.developer_api_key = verified
+    return verified
+
+
+async def require_recent_siwn(
+    fid: int = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> int:
+    """Require a recent SIWN re-authentication for dangerous mutations.
+
+    Step-up protection for routes that, if invoked from a hijacked refresh
+    cookie or stolen long-lived JWT, would let an attacker pivot to credential
+    theft (rotate/reveal a secret) or denial of service (revoke a key, delete
+    an app). The client surfaces the 401 + WWW-Authenticate header by
+    re-running the Neynar SIWN flow rather than the silent refresh path.
+    """
+    from app.services.redis_service import RedisService
+
+    if not await RedisService(redis).has_recent_siwn(fid):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Recent sign-in required.",
+            headers={"WWW-Authenticate": "ReAuth"},
+        )
+    return fid
 
 
 DEMO_USER_FID = 1  # dev_login() issues JWTs scoped to this fid only
@@ -92,7 +156,9 @@ __all__ = [
     "get_agent_or_user",
     "get_optional_current_user",
     "get_spam_service",
+    "require_developer_api_key",
     "require_non_demo_user",
+    "require_recent_siwn",
     "DEMO_SIGNER_UUID",
     "DEMO_USER_FID",
     "_is_valid_neynar_signer",

@@ -81,6 +81,12 @@ async def _handle_participant_left(
     room_name = event.room.name  # UUID string used as room_id
     identity = event.participant.identity  # FID as string for humans
 
+    if isinstance(identity, str) and identity.startswith("anon:"):
+        await redis_service.remove_anonymous_listener(
+            room_name, identity.removeprefix("anon:")
+        )
+        return
+
     # Egress workers and other LiveKit virtual participants join with
     # non-numeric identities (e.g. "EG_iKSbVaXFu383"). Skip those — they
     # have no Participant row, no fid-keyed Redis state, and trigger no

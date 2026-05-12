@@ -1,0 +1,286 @@
+# Juke Audio
+
+> Juke is live participatory audio for Farcaster. Developers can embed live
+> Juke spaces on any website, let visitors listen anonymously, and optionally
+> upgrade listeners into authenticated Farcaster participants.
+
+Primary site: https://juke.audio
+API base URL: https://your-api-host.example.com
+Hosted embed base URL: https://juke.audio/embed/{spaceId}
+Developer dashboard: https://juke.audio/developers
+LLM implementation guide: https://juke.audio/SKILL.md
+
+## What To Build
+
+Use Juke when a user asks for:
+- embedding a live Juke audio space
+- adding anonymous live listening to a webpage
+- adding "sign in to participate" for Farcaster users
+- adding reactions, replies, hand raise, or host-approved speaking to a space
+- creating custom Juke apps or server integrations with developer API keys
+- sharing a canonical Juke space URL
+
+Do not treat MCP or agent participation as part of the normal embed path. Agent
+access is a separate future surface.
+
+## Key Rule: When Keys Are Required
+
+Hosted iframe embeds do not need API keys. They are the default path for public
+websites, landing pages, blogs, community dashboards, and fast MVP embeds.
+
+Juke developer keys are only for custom SDK or server integrations that call
+protected Juke developer endpoints, such as creating apps, minting rooms from a
+server, or managing custom integration state. Never ask developers for Neynar
+API keys, LiveKit keys, or Juke backend credentials for ordinary embeds.
+
+Developers manage Juke apps and keys at:
+
+```txt
+https://juke.audio/developers
+```
+
+Developer access states:
+- signed out: prompt Farcaster SIWN before loading developer apps
+- pending: no keys yet; hosted iframe still works without keys
+- approved: create apps, create keys, rotate keys, revoke keys
+- suspended: custom API key calls are disabled; hosted public embeds can remain
+  available
+
+## Fastest Integration: Hosted Iframe
+
+Use this when the developer wants spaces live quickly and accepts Juke-owned UI.
+
+```html
+<iframe
+  src="https://juke.audio/embed/{spaceId}?mode=compact&participation=speak-request"
+  title="Juke live audio space"
+  allow="autoplay; microphone"
+  style="width: 100%; max-width: 420px; height: 620px; border: 0; border-radius: 24px;"
+></iframe>
+```
+
+Parameters:
+- `mode`: `full` or `compact`
+- `participation`: `listen`, `social`, or `speak-request`
+
+Behavior:
+- no auth is required to render public metadata
+- visitors can listen anonymously
+- visitors sign in with Farcaster/Neynar only when they want to participate
+- speaking always requires host/co-host promotion inside the Juke permission model
+- "Powered by Juke" attribution must remain visible
+
+Third-party iframe integrations do not need a Neynar API key, LiveKit key, or
+Juke backend credentials. Juke hosts the auth, audio token issuance, and UI.
+
+## Custom Integration: SDK Shape
+
+Use this when the developer wants custom UI.
+
+```ts
+import { createJukeEmbedSdk } from "@juke/audio-sdk";
+
+const juke = createJukeEmbedSdk();
+const space = await juke.getSpace(spaceId);
+
+const anonymousJoin = await juke.joinAnonymousListener(spaceId);
+await juke.connectAudio(anonymousJoin);
+
+// Later, only if the visitor wants to participate:
+await juke.startSiwn();
+// completeSiwn is called from the popup callback payload.
+await juke.joinAuthenticated(spaceId);
+await juke.raiseHand(spaceId, true);
+await juke.sendReaction("clap");
+```
+
+SDK capabilities:
+- `getSpace(id)`
+- `joinAnonymousListener(id)`
+- `startSiwn()`
+- `completeSiwn(callbackPayload)`
+- `joinAuthenticated(id, token?)`
+- `leaveSpace(id)`
+- `refreshToken(id)`
+- `sendReaction(id, reaction)`
+- `raiseHand(id, raised)`
+- `connectAudio(joinResponse)`
+- `enableMicrophone()` only after host approval
+
+If building custom UI, keep visible Juke attribution and link to the canonical
+space page: `https://juke.audio/space/{spaceId}`.
+
+## Custom Server Integration: Developer Keys
+
+Use Juke developer keys only from a trusted server environment. Do not place a
+developer key in browser JavaScript, mobile app bundles, iframe params, public
+environment variables, public repos, logs, analytics events, crash reports, or
+client-side error monitoring.
+
+End-to-end flow:
+
+1. Open `https://juke.audio/developers`.
+2. Sign in with Farcaster using SIWN.
+3. Request developer access with the app/use-case details.
+4. Wait for Juke admin approval.
+5. Create an app with the production origins where the integration runs.
+6. Create a key and copy the one-time secret immediately.
+7. Store the secret in a private server environment variable such as
+   `JUKE_API_KEY`.
+8. Embed hosted spaces without a key when you only need public listening.
+9. Call protected developer APIs from your backend only.
+
+Protected developer API calls require both credentials:
+- `Authorization: Bearer <juke_jwt>` identifies the signed-in Juke/Farcaster
+  user making the request
+- `X-Juke-Api-Key: <juke_api_key>` identifies the approved developer app
+
+Example server-side call:
+
+```ts
+const response = await fetch("https://your-api-host.example.com/v1/developer/spaces", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.JUKE_USER_TOKEN}`,
+    "X-Juke-Api-Key": process.env.JUKE_API_KEY!,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    title: "Weekly builder room",
+    scheduled_at: null,
+    announce_cast: false,
+    allow_agents: true,
+  }),
+});
+
+if (!response.ok) {
+  throw new Error("Juke developer API request failed");
+}
+```
+
+The room host is always derived from the bearer token. Do not send any host
+identifier or host override in developer API requests.
+
+Secret handling:
+- Juke shows a key secret only once at creation or rotation time
+- lost secrets cannot be revealed again; rotate the key instead
+- rotate keys from the dashboard before replacing production env vars
+- revoke keys immediately if they are exposed or no longer used
+- never expose Juke API keys in browser JS, mobile bundles, iframe URLs,
+  `NEXT_PUBLIC_*`/`EXPO_PUBLIC_*` variables, logs, analytics, or screenshots
+
+Developer API wrapper contract:
+
+```http
+GET  /v1/developer/status
+POST /v1/developer/application
+GET  /v1/developer/apps
+POST /v1/developer/apps
+GET  /v1/developer/apps/{appId}/keys
+POST /v1/developer/apps/{appId}/keys
+POST /v1/developer/apps/{appId}/keys/{keyId}/reveal
+POST /v1/developer/apps/{appId}/keys/{keyId}/rotate
+POST /v1/developer/apps/{appId}/keys/{keyId}/revoke
+POST /v1/developer/spaces
+```
+
+## Auth Ladder
+
+1. Public metadata: no auth.
+2. Anonymous listen: `POST /v1/rooms/{spaceId}/anonymous-join`.
+3. Human participation on ordinary web: optional SIWN via Neynar.
+4. Farcaster miniapps: Quick Auth.
+5. Native Juke app: existing Neynar SIWN.
+6. Speaking: only after host/co-host promotion grants LiveKit publish permission.
+
+Anonymous listener tokens are short-lived and subscribe-only:
+- `can_subscribe=true`
+- `can_publish=false`
+- `can_publish_data=false`
+
+## Public API Reference
+
+Read space metadata:
+
+```http
+GET https://your-api-host.example.com/v1/rooms/{spaceId}
+```
+
+Anonymous listen-only join:
+
+```http
+POST https://your-api-host.example.com/v1/rooms/{spaceId}/anonymous-join
+```
+
+Authenticated listener join:
+
+```http
+POST https://your-api-host.example.com/v1/rooms/{spaceId}/join
+Authorization: Bearer {jukeJwt}
+```
+
+Raise/lower hand:
+
+```http
+POST https://your-api-host.example.com/v1/rooms/{spaceId}/raise-hand
+Authorization: Bearer {jukeJwt}
+Content-Type: application/json
+
+{"raised": true}
+```
+
+Refresh LiveKit token:
+
+```http
+POST https://your-api-host.example.com/v1/rooms/{spaceId}/token
+Authorization: Bearer {jukeJwt}
+```
+
+## Self-Hosting Or Local Development
+
+Only self-hosters or Juke-compatible backend developers need provider keys.
+
+Backend env keys:
+- `DATABASE_URL`
+- `REDIS_URL`
+- `JWT_SECRET`
+- `JWT_ALGORITHM`
+- `JWT_EXPIRY_HOURS`
+- `JWT_REFRESH_EXPIRY_DAYS`
+- `NEYNAR_API_KEY`
+- `NEYNAR_CLIENT_ID`
+- `LIVEKIT_API_KEY`
+- `LIVEKIT_API_SECRET`
+- `LIVEKIT_WS_URL`
+- `QUICKAUTH_ALLOWED_AUDIENCES`
+- `CORS_ORIGINS`
+
+Landing env keys:
+- `NEXT_PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_SITE_URL`
+
+Native app env keys:
+- `EXPO_PUBLIC_NEYNAR_CLIENT_ID`
+- `EXPO_PUBLIC_NEYNAR_API_KEY`
+- `EXPO_PUBLIC_API_BASE_URL`
+- `EXPO_PUBLIC_LIVEKIT_WS_URL`
+
+Local dev commands:
+
+```bash
+cd backend && docker-compose up
+cd landing && npm run dev
+```
+
+## Design Rules
+
+Juke embeds should feel like a small live listening bar:
+- dark navy base `#0f0f23`
+- terracotta live/action accent `#D85A30`
+- purple secondary/action accent `#855DCD`
+- warm, social copy
+- rounded, polished controls
+- visible "Powered by Juke"
+
+Never remove attribution, bypass auth for participation, bypass host permission
+for speaking, or hide the canonical Juke space/source identity.

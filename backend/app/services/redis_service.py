@@ -5,6 +5,7 @@ import redis.asyncio as aioredis
 
 class RedisService:
     ROOM_DISCOVERY_CHANNEL = "rooms:events"
+    ANONYMOUS_LISTENER_TTL_SECONDS = 20 * 60
 
     def __init__(self, redis: aioredis.Redis):
         self.redis = redis
@@ -51,6 +52,22 @@ class RedisService:
     async def get_listener_count(self, room_id: str) -> int:
         participants = await self.get_all_participants(room_id)
         return sum(1 for p in participants if p.get("role") == "listener")
+
+    def anonymous_listener_key(self, room_id: str) -> str:
+        return f"room:{room_id}:anonymous_listeners"
+
+    async def remove_anonymous_listener(self, room_id: str, session_id: str) -> None:
+        await self.redis.zrem(self.anonymous_listener_key(room_id), session_id)
+
+    async def get_anonymous_listener_count(self, room_id: str, now: float) -> int:
+        key = self.anonymous_listener_key(room_id)
+        cutoff = now - self.ANONYMOUS_LISTENER_TTL_SECONDS
+        pipe = self.redis.pipeline()
+        pipe.zremrangebyscore(key, 0, cutoff)
+        pipe.zcard(key)
+        results = await pipe.execute()
+        count = results[1] if len(results) > 1 else 0
+        return count if isinstance(count, int) and not isinstance(count, bool) else 0
 
     async def get_room_participant_counts(
         self, room_ids: list[str]
@@ -124,6 +141,64 @@ class RedisService:
     async def publish_room_discovery_event(self, event: dict[str, Any]) -> None:
         await self.redis.publish(self.ROOM_DISCOVERY_CHANNEL, json.dumps(event))
 
+    # --- Recent SIWN Step-Up ---
+    #
+    # Set a short-lived marker after a successful SIWN login so dangerous
+    # developer-key mutations (rotate, revoke, reveal, delete-app) can
+    # require a recent re-authentication. The marker is NOT touched on
+    # refresh — a stale, long-lived session must SIWN again to mutate.
+
+    SIWN_RECENT_TTL_SECONDS = 5 * 60
+
+    @staticmethod
+    def _siwn_key(fid: int) -> str:
+        return f"siwn:{fid}"
+
+    async def mark_siwn(
+        self, fid: int, ttl_seconds: int = SIWN_RECENT_TTL_SECONDS
+    ) -> None:
+        """Record that `fid` just completed SIWN. TTL bounds the step-up window."""
+        await self.redis.set(self._siwn_key(fid), "1", ex=ttl_seconds)
+
+    async def has_recent_siwn(self, fid: int) -> bool:
+        """True iff `fid` has SIWN'd within the configured window."""
+        exists = await self.redis.exists(self._siwn_key(fid))
+        try:
+            return int(exists) > 0
+        except (TypeError, ValueError):
+            return bool(exists)
+
+    # --- Rate Limiting ---
+
+    async def check_rate_limit(
+        self, key: str, limit: int, window_seconds: int
+    ) -> tuple[bool, int]:
+        """Atomically increment a counter and return (allowed, retry_after_seconds).
+
+        Returns `(True, 0)` if the request is within `limit` for the window,
+        otherwise `(False, retry_after)` where retry_after is the remaining TTL
+        of the window in seconds (always >= 1).
+        """
+        pipe = self.redis.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, window_seconds)
+        count, _ = await pipe.execute()
+        try:
+            attempts = int(count)
+        except (TypeError, ValueError):
+            # In tests where Redis is mocked, a non-int response means the
+            # rate limiter isn't actually wired up — fail open.
+            return True, 0
+        if attempts <= limit:
+            return True, 0
+        ttl = await self.redis.ttl(key)
+        try:
+            ttl_int = int(ttl)
+        except (TypeError, ValueError):
+            ttl_int = window_seconds
+        retry_after = max(1, ttl_int if ttl_int > 0 else window_seconds)
+        return False, retry_after
+
     # --- Cleanup ---
 
     async def clear_room_state(self, room_id: str) -> None:
@@ -134,6 +209,7 @@ class RedisService:
         pipe.delete(f"room:{room_id}:state")
         pipe.delete(f"room:{room_id}:participants")
         pipe.delete(f"room:{room_id}:hand_queue")
+        pipe.delete(self.anonymous_listener_key(room_id))
         pipe.zrem("active_rooms", room_id)
         await pipe.execute()
 
