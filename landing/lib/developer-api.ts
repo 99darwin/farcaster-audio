@@ -114,12 +114,14 @@ export type SiwnPayload = {
   nonce: string;
 };
 
+// Post-normalization shape — `parseJsonResponse` runs `toCamelCase`, so the
+// server's snake_case fields (`refresh_token`, `expires_at`) arrive here as
+// camelCase. The legacy `refresh_token` is optional because the dashboard
+// uses cookie-based refresh and the body omits it.
 type LoginResponse = {
   jwt: string;
-  // Optional: the dashboard uses cookie-based refresh, so the body omits
-  // the refresh token entirely. Legacy callers may still receive it.
-  refresh_token?: string | null;
-  expires_at: string;
+  refreshToken?: string | null;
+  expiresAt: string;
   user: { fid: number };
 };
 
@@ -207,12 +209,18 @@ export class DeveloperApiClient {
     const res = await fetch(`${DEVELOPER_API_BASE_URL}/v1/auth/neynar-auth-url`, {
       cache: "no-store",
     });
-    const body = await parseJsonResponse<{ authorization_url: string }>(
+    // parseJsonResponse runs toCamelCase on the body, so the server's
+    // {"authorization_url": "..."} arrives here as {authorizationUrl: "..."}.
+    // The type reflects post-normalization shape.
+    const body = await parseJsonResponse<{ authorizationUrl: string }>(
       res,
       "Could not start sign in",
     );
+    if (!body?.authorizationUrl) {
+      throw new DeveloperApiError("Could not start sign in", 500);
+    }
     const nonce = generateSiwnNonce();
-    const authorizationUrl = appendSiwnCallback(body.authorization_url, nonce);
+    const authorizationUrl = appendSiwnCallback(body.authorizationUrl, nonce);
 
     const popup =
       options?.openPopup === false
@@ -567,7 +575,7 @@ function normalizeLogin(body: LoginResponse): DeveloperSession {
   // touches JS-accessible storage.
   return {
     jwt: body.jwt,
-    expiresAt: body.expires_at,
+    expiresAt: body.expiresAt,
     fid: body.user.fid,
   };
 }

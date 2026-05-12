@@ -593,10 +593,6 @@ function SignedOutPanel({
         <h2 className="text-xl font-semibold text-white">
           Sign in with Farcaster
         </h2>
-        <p className="mt-2 text-sm text-juke-text-on-dark-secondary">
-          Same Neynar SIWN as your embed users. Sessions stay in memory; key
-          secrets never touch persistent browser storage.
-        </p>
         <button
           type="button"
           onClick={onSignIn}
