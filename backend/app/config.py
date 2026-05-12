@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     FARCASTER_APP_MNEMONIC: str = ""
     FARCASTER_APP_FID: int = 0
     MINIAPP_WEBHOOK_SECRET: str = ""
+    JUKE_API_KEY_PEPPER: str = ""
+    JUKE_API_KEY_ENCRYPTION_KEY: str = ""
+    JUKE_API_AUDIT_SECRET: str = ""
 
     # Farcaster Quick Auth — https://miniapps.farcaster.xyz/docs/sdk/quick-auth
     # Comma-separated list of allowed `aud` values in incoming Quick Auth JWTs.

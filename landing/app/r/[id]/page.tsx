@@ -168,7 +168,7 @@ export default async function RecordingPage({ params }: PageProps) {
         <div className="mx-auto flex max-w-2xl items-center justify-between text-sm text-juke-text-on-dark-tertiary">
           <span>&copy; 2026 Juke</span>
           <a
-            href="https://warpcast.com/jukeaudio"
+            href="https://farcaster.xyz/jukeaudio"
             target="_blank"
             rel="noopener noreferrer"
             className="transition-colors hover:text-juke-text-on-dark-secondary"

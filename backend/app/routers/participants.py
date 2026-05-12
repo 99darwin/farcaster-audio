@@ -7,6 +7,8 @@ Dependency pattern:
   - `room_id` is always a path parameter (string UUID).
 """
 
+import hashlib
+
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +31,9 @@ from app.services.room_service import RoomService
 
 router = APIRouter(prefix="/v1/rooms", tags=["participants"])
 
+ANONYMOUS_JOIN_RATE_LIMIT = 30
+ANONYMOUS_JOIN_RATE_WINDOW_SECONDS = 60
+
 
 async def get_room_service(
     db: AsyncSession = Depends(get_db),
@@ -39,6 +44,41 @@ async def get_room_service(
         yield RoomService(db=db, redis=RedisService(redis), livekit=livekit)
     finally:
         await livekit.close()
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _anonymous_session_id(request: Request) -> str:
+    raw_session_id = request.headers.get("x-juke-session-id")
+    if raw_session_id:
+        return hashlib.sha256(raw_session_id.encode("utf-8")).hexdigest()
+    fallback = f"{_client_ip(request)}:{request.headers.get('user-agent', '')}"
+    return hashlib.sha256(fallback.encode("utf-8")).hexdigest()
+
+
+async def _enforce_anonymous_join_rate_limit(
+    request: Request, redis: aioredis.Redis
+) -> None:
+    ip_digest = hashlib.sha256(_client_ip(request).encode("utf-8")).hexdigest()
+    rate_keys = [f"anonymous_join:rate:ip:{ip_digest}"]
+    session_id = request.headers.get("x-juke-session-id")
+    if session_id:
+        session_digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+        rate_keys.append(f"anonymous_join:rate:session:{session_digest}")
+
+    pipe = redis.pipeline()
+    for rate_key in rate_keys:
+        pipe.incr(rate_key)
+        pipe.expire(rate_key, ANONYMOUS_JOIN_RATE_WINDOW_SECONDS)
+    results = await pipe.execute()
+    attempts = [int(results[index] or 0) for index in range(0, len(results), 2)]
+    if any(count > ANONYMOUS_JOIN_RATE_LIMIT for count in attempts):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Anonymous join rate limit exceeded. Try again later.",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +94,21 @@ async def join_room(
 ) -> JoinResponse:
     """Join a room as a listener. Returns LiveKit token, WS URL, and current room state."""
     return await service.join_room(room_id=room_id, fid=fid)
+
+
+@router.post("/{room_id}/anonymous-join", response_model=JoinResponse)
+async def anonymous_join_room(
+    room_id: str,
+    request: Request,
+    redis: aioredis.Redis = Depends(get_redis),
+    service: RoomService = Depends(get_room_service),
+) -> JoinResponse:
+    """Join an active room as an anonymous listen-only listener."""
+    await _enforce_anonymous_join_rate_limit(request, redis)
+    return await service.join_room_anonymously(
+        room_id=room_id,
+        session_id=_anonymous_session_id(request),
+    )
 
 
 @router.post("/{room_id}/agent-join", response_model=AgentJoinResponse)

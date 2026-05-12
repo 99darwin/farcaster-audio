@@ -61,6 +61,9 @@ from app.services.redis_service import RedisService
 
 logger = logging.getLogger(__name__)
 
+ANONYMOUS_LISTENER_TTL_SECONDS = 20 * 60
+ANONYMOUS_LISTENER_TOKEN_TTL_SECONDS = 15 * 60
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers (module-level, no self dependency)
@@ -83,6 +86,11 @@ def _iso(dt: datetime | None) -> str | None:
 
 def _livekit_expires_at() -> str:
     return (_utcnow() + timedelta(hours=6)).isoformat()
+
+
+def _anonymous_livekit_expires_at() -> str:
+    expires_at = _utcnow() + timedelta(seconds=ANONYMOUS_LISTENER_TOKEN_TTL_SECONDS)
+    return expires_at.isoformat()
 
 
 def _room_discovery_event(room_id: str, reason: str, status: str) -> dict[str, str]:
@@ -446,30 +454,15 @@ class RoomService:
         participants_data = await self.redis.get_all_participants(room_id)
         hand_queue = await self.redis.get_hand_queue(room_id)
 
-        speaker_count = sum(
-            1
-            for p in participants_data
-            if p.get("role") in ("host", "co_host", "speaker")
-        )
-        listener_count = sum(
-            1 for p in participants_data if p.get("role") == "listener"
+        speaker_count, listener_count = await self._count_participants(
+            room_id, participants_data
         )
 
         room_response = await self._build_room_response(
             room, host, speaker_count, listener_count
         )
 
-        participants = [
-            ParticipantResponse(
-                fid=p["fid"],
-                role=p["role"],
-                is_muted=p.get("is_muted", True),
-                hand_raised=p.get("hand_raised", False),
-                display_name=p.get("display_name", str(p["fid"])),
-                pfp_url=p.get("pfp_url"),
-            )
-            for p in participants_data
-        ]
+        participants = self._build_participant_responses(participants_data)
 
         return RoomDetailResponse(
             room=room_response,
@@ -665,6 +658,7 @@ class RoomService:
                     status_code=404, detail=f"User with fid={room.host_fid} not found"
                 )
             speaker_count, listener_count = count_map.get(rid, (0, 0))
+            listener_count += await self._get_anonymous_listener_count(rid)
             room_response = await self._build_room_response(
                 room, host, speaker_count, listener_count
             )
@@ -1138,28 +1132,13 @@ class RoomService:
             )
             participants_data = await self.redis.get_all_participants(room_id)
             host = await self._get_user(room.host_fid)
-            speaker_count = sum(
-                1
-                for p in participants_data
-                if p.get("role") in ("host", "co_host", "speaker")
-            )
-            listener_count = sum(
-                1 for p in participants_data if p.get("role") == "listener"
+            speaker_count, listener_count = await self._count_participants(
+                room_id, participants_data
             )
             room_response = await self._build_room_response(
                 room, host, speaker_count, listener_count
             )
-            participants = [
-                ParticipantResponse(
-                    fid=p["fid"],
-                    role=p["role"],
-                    is_muted=p.get("is_muted", True),
-                    hand_raised=p.get("hand_raised", False),
-                    display_name=p.get("display_name", str(p["fid"])),
-                    pfp_url=p.get("pfp_url"),
-                )
-                for p in participants_data
-            ]
+            participants = self._build_participant_responses(participants_data)
             return JoinResponse(
                 livekit_token=token,
                 livekit_ws_url=settings.LIVEKIT_WS_URL,
@@ -1234,29 +1213,14 @@ class RoomService:
 
         participants_data = await self.redis.get_all_participants(room_id)
         host = await self._get_user(room.host_fid)
-        speaker_count = sum(
-            1
-            for p in participants_data
-            if p.get("role") in ("host", "co_host", "speaker")
-        )
-        listener_count = sum(
-            1 for p in participants_data if p.get("role") == "listener"
+        speaker_count, listener_count = await self._count_participants(
+            room_id, participants_data
         )
         room_response = await self._build_room_response(
             room, host, speaker_count, listener_count
         )
 
-        participants = [
-            ParticipantResponse(
-                fid=p["fid"],
-                role=p["role"],
-                is_muted=p.get("is_muted", True),
-                hand_raised=p.get("hand_raised", False),
-                display_name=p.get("display_name", str(p["fid"])),
-                pfp_url=p.get("pfp_url"),
-            )
-            for p in participants_data
-        ]
+        participants = self._build_participant_responses(participants_data)
 
         logger.info("fid=%s joined room %s", fid, room_id)
         return JoinResponse(
@@ -1264,6 +1228,48 @@ class RoomService:
             livekit_ws_url=settings.LIVEKIT_WS_URL,
             expires_at=_livekit_expires_at(),
             role=role,
+            room=room_response,
+            participants=participants,
+        )
+
+    async def join_room_anonymously(
+        self,
+        room_id: str,
+        session_id: str,
+    ) -> JoinResponse:
+        """
+        Join an active room as an anonymous, listen-only LiveKit subscriber.
+
+        Anonymous listeners are counted separately from named Farcaster
+        participants and are never persisted to the participant hash or DB.
+        """
+        room = await self._get_room_or_404(room_id)
+
+        if room.status != "active":
+            raise HTTPException(status_code=400, detail="Room is not active")
+
+        token = self.livekit.generate_anonymous_listener_token(
+            room_id=room_id,
+            session_id=session_id,
+        )
+        await self._register_anonymous_listener(room_id, session_id)
+
+        participants_data = await self.redis.get_all_participants(room_id)
+        host = await self._get_user(room.host_fid)
+        speaker_count, listener_count = await self._count_participants(
+            room_id, participants_data
+        )
+        room_response = await self._build_room_response(
+            room, host, speaker_count, listener_count
+        )
+
+        participants = self._build_participant_responses(participants_data)
+
+        return JoinResponse(
+            livekit_token=token,
+            livekit_ws_url=settings.LIVEKIT_WS_URL,
+            expires_at=_anonymous_livekit_expires_at(),
+            role="listener",
             room=room_response,
             participants=participants,
         )
@@ -1313,28 +1319,13 @@ class RoomService:
             )
             participants_data = await self.redis.get_all_participants(room_id)
             host = await self._get_user(room.host_fid)
-            speaker_count = sum(
-                1
-                for p in participants_data
-                if p.get("role") in ("host", "co_host", "speaker")
-            )
-            listener_count = sum(
-                1 for p in participants_data if p.get("role") == "listener"
+            speaker_count, listener_count = await self._count_participants(
+                room_id, participants_data
             )
             room_response = await self._build_room_response(
                 room, host, speaker_count, listener_count
             )
-            participants = [
-                ParticipantResponse(
-                    fid=p["fid"],
-                    role=p["role"],
-                    is_muted=p.get("is_muted", True),
-                    hand_raised=p.get("hand_raised", False),
-                    display_name=p.get("display_name", str(p["fid"])),
-                    pfp_url=p.get("pfp_url"),
-                )
-                for p in participants_data
-            ]
+            participants = self._build_participant_responses(participants_data)
             return JoinResponse(
                 livekit_token=token,
                 livekit_ws_url=settings.LIVEKIT_WS_URL,
@@ -1409,29 +1400,14 @@ class RoomService:
 
         participants_data = await self.redis.get_all_participants(room_id)
         host = await self._get_user(room.host_fid)
-        speaker_count = sum(
-            1
-            for p in participants_data
-            if p.get("role") in ("host", "co_host", "speaker")
-        )
-        listener_count = sum(
-            1 for p in participants_data if p.get("role") == "listener"
+        speaker_count, listener_count = await self._count_participants(
+            room_id, participants_data
         )
         room_response = await self._build_room_response(
             room, host, speaker_count, listener_count
         )
 
-        participants = [
-            ParticipantResponse(
-                fid=p["fid"],
-                role=p["role"],
-                is_muted=p.get("is_muted", True),
-                hand_raised=p.get("hand_raised", False),
-                display_name=p.get("display_name", str(p["fid"])),
-                pfp_url=p.get("pfp_url"),
-            )
-            for p in participants_data
-        ]
+        participants = self._build_participant_responses(participants_data)
 
         logger.info("agent fid=%s (%s) joined room %s", agent_fid, agent_name, room_id)
         return JoinResponse(
@@ -2097,11 +2073,73 @@ class RoomService:
         )
         return [row[0] for row in result.all()]
 
+    def _anonymous_listener_key(self, room_id: str) -> str:
+        return f"room:{room_id}:anonymous_listeners"
+
+    async def _register_anonymous_listener(
+        self, room_id: str, session_id: str
+    ) -> None:
+        key = self._anonymous_listener_key(room_id)
+        now = _utcnow().timestamp()
+        cutoff = now - ANONYMOUS_LISTENER_TTL_SECONDS
+        pipe = self.redis.redis.pipeline()
+        pipe.zremrangebyscore(key, 0, cutoff)
+        pipe.zadd(key, {session_id: now})
+        pipe.expire(key, ANONYMOUS_LISTENER_TTL_SECONDS)
+        await pipe.execute()
+
+    async def _get_anonymous_listener_count(self, room_id: str) -> int:
+        key = self._anonymous_listener_key(room_id)
+        now = _utcnow().timestamp()
+        cutoff = now - ANONYMOUS_LISTENER_TTL_SECONDS
+        try:
+            pipe = self.redis.redis.pipeline()
+            pipe.zremrangebyscore(key, 0, cutoff)
+            pipe.zcard(key)
+            results = await pipe.execute()
+            count = results[1] if len(results) > 1 else 0
+            if isinstance(count, int) and not isinstance(count, bool):
+                return count
+            return 0
+        except AttributeError:
+            return 0
+
+    def _build_participant_responses(
+        self, participants_data: list[dict]
+    ) -> list[ParticipantResponse]:
+        return [
+            ParticipantResponse(
+                fid=p["fid"],
+                role=p["role"],
+                is_muted=p.get("is_muted", True),
+                hand_raised=p.get("hand_raised", False),
+                display_name=p.get("display_name", str(p["fid"])),
+                pfp_url=p.get("pfp_url"),
+            )
+            for p in participants_data
+            if p.get("fid") is not None
+        ]
+
+    async def _count_participants(
+        self, room_id: str, participants_data: list[dict]
+    ) -> tuple[int, int]:
+        speaker_count = sum(
+            1
+            for p in participants_data
+            if p.get("role") in ("host", "co_host", "speaker")
+        )
+        named_listener_count = sum(
+            1 for p in participants_data if p.get("role") == "listener"
+        )
+        return (
+            speaker_count,
+            named_listener_count + await self._get_anonymous_listener_count(room_id),
+        )
+
     async def _get_live_counts(self, room_id: str) -> tuple[int, int]:
-        """Return (speaker_count, listener_count) from Redis participant state."""
-        speaker_count = await self.redis.get_speaker_count(room_id)
-        listener_count = await self.redis.get_listener_count(room_id)
-        return speaker_count, listener_count
+        """Return (speaker_count, listener_count) from Redis live state."""
+        participants_data = await self.redis.get_all_participants(room_id)
+        return await self._count_participants(room_id, participants_data)
 
     async def _build_room_response(
         self,
