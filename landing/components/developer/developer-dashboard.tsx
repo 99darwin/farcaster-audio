@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { SignerApprovalPrompt } from "./signer-approval-prompt";
 import {
   DeveloperApiError,
   ReauthRequiredError,
@@ -187,11 +188,12 @@ export function DeveloperDashboard({
     setSignerApprovalUrl(null);
 
     try {
-      const { signerUuid, signerApprovalUrl: approvalUrl, popup } =
+      const { signerUuid, signerApprovalUrl: approvalUrl } =
         await clientRef.current!.startManagedSignerFlow();
-      // Surface the approval URL so a popup-blocked user has a fallback
-      // link they can click to open Farcaster manually.
-      if (!popup) setSignerApprovalUrl(approvalUrl);
+      // The approval URL is a Farcaster deeplink, not a regular web
+      // page — show it as a QR for desktop users (scan with phone)
+      // and as a tap-to-deeplink button for mobile.
+      setSignerApprovalUrl(approvalUrl);
       setPendingAction("Waiting for Farcaster approval");
 
       const approved = await clientRef.current!.pollSignerStatus(signerUuid, {
@@ -200,7 +202,6 @@ export function DeveloperDashboard({
 
       setPendingAction("Completing sign in");
       await clientRef.current!.completeManagedSignerLogin(approved);
-      popup?.close();
       setSignerApprovalUrl(null);
       await loadDashboard();
     } catch (err) {
@@ -619,29 +620,10 @@ function SignedOutPanel({
         Sign in with Farcaster
       </h2>
       {isPolling ? (
-        <div className="mt-5 space-y-3">
-          <p className="text-sm text-juke-text-on-dark-secondary">
-            Approve the request in your Farcaster client. This page will
-            update automatically once you confirm.
-          </p>
-          {approvalUrl && (
-            <a
-              href={approvalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-11 items-center justify-center rounded-full bg-juke-orange px-5 text-sm font-semibold text-white transition hover:bg-juke-orange-hover"
-            >
-              Open in Farcaster
-            </a>
-          )}
-          <button
-            type="button"
-            onClick={onCancelSignIn}
-            className="ml-2 inline-flex h-11 items-center justify-center rounded-full border border-white/15 bg-transparent px-4 text-sm font-medium text-white/80 transition hover:bg-white/5"
-          >
-            Cancel
-          </button>
-        </div>
+        <SignerApprovalPrompt
+          approvalUrl={approvalUrl}
+          onCancel={onCancelSignIn}
+        />
       ) : (
         <button
           type="button"

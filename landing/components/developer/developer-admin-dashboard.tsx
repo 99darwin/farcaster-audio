@@ -8,6 +8,7 @@ import {
   type DeveloperApiClient,
   type DeveloperStatus,
 } from "@/lib/developer-api";
+import { SignerApprovalPrompt } from "./signer-approval-prompt";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -20,6 +21,9 @@ type DeveloperAdminDashboardProps = {
 export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardProps) {
   const clientRef = useRef<DeveloperApiClient | null>(null);
   const signerAbortRef = useRef<AbortController | null>(null);
+  const [signerApprovalUrl, setSignerApprovalUrl] = useState<string | null>(
+    null,
+  );
   const mockMode = Boolean(mockUsers);
   const [mockSourceUsers, setMockSourceUsers] = useState<DeveloperAccessUser[]>(
     mockUsers ?? [],
@@ -60,16 +64,18 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
 
     setPendingAction("Opening Farcaster");
     setError(null);
+    setSignerApprovalUrl(null);
     try {
-      const { signerUuid, popup } =
+      const { signerUuid, signerApprovalUrl: approvalUrl } =
         await clientRef.current!.startManagedSignerFlow();
+      setSignerApprovalUrl(approvalUrl);
       setPendingAction("Waiting for Farcaster approval");
       const approved = await clientRef.current!.pollSignerStatus(signerUuid, {
         signal: abort.signal,
       });
       setPendingAction("Completing sign in");
       await clientRef.current!.completeManagedSignerLogin(approved);
-      popup?.close();
+      setSignerApprovalUrl(null);
       await loadUsers();
     } catch (err) {
       if (abort.signal.aborted) return;
@@ -78,6 +84,13 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
       if (signerAbortRef.current === abort) signerAbortRef.current = null;
       setPendingAction(null);
     }
+  }
+
+  function cancelSignIn() {
+    signerAbortRef.current?.abort();
+    signerAbortRef.current = null;
+    setSignerApprovalUrl(null);
+    setPendingAction(null);
   }
 
   function signOut() {
@@ -198,13 +211,20 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
               <p className="mt-2 text-sm text-juke-text-on-dark-secondary">
                 Use a Juke admin account to approve or suspend developer access.
               </p>
-              <button
-                type="button"
-                onClick={signIn}
-                className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-juke-orange px-5 text-sm font-semibold text-white transition hover:bg-juke-orange-hover"
-              >
-                Sign in
-              </button>
+              {signerApprovalUrl ? (
+                <SignerApprovalPrompt
+                  approvalUrl={signerApprovalUrl}
+                  onCancel={cancelSignIn}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={signIn}
+                  className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-juke-orange px-5 text-sm font-semibold text-white transition hover:bg-juke-orange-hover"
+                >
+                  Sign in
+                </button>
+              )}
             </Card>
           )}
 
