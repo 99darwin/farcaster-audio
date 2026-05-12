@@ -12,15 +12,12 @@ import {
   DeveloperApiError,
   ReauthRequiredError,
   createDeveloperApiClient,
-  isTrustedDeveloperSiwnMessage,
   maskDeveloperKey,
-  parseDeveloperSiwnPayload,
   type CreateDeveloperKeyResponse,
   type DeveloperApiClient,
   type DeveloperApp,
   type DeveloperDashboardResponse,
   type DeveloperStatus,
-  type SiwnExpectation,
 } from "@/lib/developer-api";
 
 type PreviewStatus = DeveloperStatus | null;
@@ -121,7 +118,10 @@ export function DeveloperDashboard({
   initialPreviewStatus,
 }: DeveloperDashboardProps) {
   const clientRef = useRef<DeveloperApiClient | null>(null);
-  const expectedSiwn = useRef<SiwnExpectation | null>(null);
+  const signerAbortRef = useRef<AbortController | null>(null);
+  const [signerApprovalUrl, setSignerApprovalUrl] = useState<string | null>(
+    null,
+  );
   const [previewStatus, setPreviewStatus] =
     useState<PreviewStatus>(initialPreviewStatus);
   const [dashboard, setDashboard] = useState<DeveloperDashboardResponse | null>(
@@ -148,30 +148,12 @@ export function DeveloperDashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewStatus]);
 
+  // Abort any in-flight signer polling on unmount.
   useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      const expected = expectedSiwn.current;
-      if (!expected) return;
-      if (!isTrustedDeveloperSiwnMessage(event, expected)) return;
-      const payload = parseDeveloperSiwnPayload(event.data);
-      if (!payload) return;
-      expectedSiwn.current = null;
-
-      setPendingAction("Completing sign in");
-      setError(null);
-      try {
-        await clientRef.current!.completeSiwn(payload);
-        await loadDashboard();
-      } catch (err) {
-        setError(errorMessage(err));
-      } finally {
-        setPendingAction(null);
-      }
+    return () => {
+      signerAbortRef.current?.abort();
+      signerAbortRef.current = null;
     };
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadDashboard() {
@@ -194,18 +176,47 @@ export function DeveloperDashboard({
   }
 
   async function signIn() {
-    setPendingAction("Opening Farcaster sign in");
+    // Abort any previous in-flight sign-in attempt.
+    signerAbortRef.current?.abort();
+    const abort = new AbortController();
+    signerAbortRef.current = abort;
+
+    setPendingAction("Opening Farcaster");
     setError(null);
     setPreviewStatus(null);
+    setSignerApprovalUrl(null);
+
     try {
-      const { nonce, popup } = await clientRef.current!.startSiwn();
-      expectedSiwn.current = { nonce, source: popup };
+      const { signerUuid, signerApprovalUrl: approvalUrl, popup } =
+        await clientRef.current!.startManagedSignerFlow();
+      // Surface the approval URL so a popup-blocked user has a fallback
+      // link they can click to open Farcaster manually.
+      if (!popup) setSignerApprovalUrl(approvalUrl);
+      setPendingAction("Waiting for Farcaster approval");
+
+      const approved = await clientRef.current!.pollSignerStatus(signerUuid, {
+        signal: abort.signal,
+      });
+
+      setPendingAction("Completing sign in");
+      await clientRef.current!.completeManagedSignerLogin(approved);
+      popup?.close();
+      setSignerApprovalUrl(null);
+      await loadDashboard();
     } catch (err) {
-      expectedSiwn.current = null;
+      if (abort.signal.aborted) return; // user cancelled — stay silent
       setError(errorMessage(err));
     } finally {
+      if (signerAbortRef.current === abort) signerAbortRef.current = null;
       setPendingAction(null);
     }
+  }
+
+  function cancelSignIn() {
+    signerAbortRef.current?.abort();
+    signerAbortRef.current = null;
+    setSignerApprovalUrl(null);
+    setPendingAction(null);
   }
 
   function signOut() {
@@ -493,7 +504,15 @@ export function DeveloperDashboard({
               </Banner>
             )}
 
-            {!dashboard && <SignedOutPanel loadState={loadState} onSignIn={signIn} />}
+            {!dashboard && (
+              <SignedOutPanel
+                loadState={loadState}
+                onSignIn={signIn}
+                onCancelSignIn={cancelSignIn}
+                isPolling={pendingAction === "Waiting for Farcaster approval"}
+                approvalUrl={signerApprovalUrl}
+              />
+            )}
 
             {profile?.status === "none" && (
               <NoApplicationPanel
@@ -584,15 +603,46 @@ function TopBar({
 function SignedOutPanel({
   loadState,
   onSignIn,
+  onCancelSignIn,
+  isPolling,
+  approvalUrl,
 }: {
   loadState: LoadState;
   onSignIn: () => void;
+  onCancelSignIn: () => void;
+  isPolling: boolean;
+  approvalUrl: string | null;
 }) {
   return (
     <Card>
-        <h2 className="text-xl font-semibold text-white">
-          Sign in with Farcaster
-        </h2>
+      <h2 className="text-xl font-semibold text-white">
+        Sign in with Farcaster
+      </h2>
+      {isPolling ? (
+        <div className="mt-5 space-y-3">
+          <p className="text-sm text-juke-text-on-dark-secondary">
+            Approve the request in your Farcaster client. This page will
+            update automatically once you confirm.
+          </p>
+          {approvalUrl && (
+            <a
+              href={approvalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-11 items-center justify-center rounded-full bg-juke-orange px-5 text-sm font-semibold text-white transition hover:bg-juke-orange-hover"
+            >
+              Open in Farcaster
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={onCancelSignIn}
+            className="ml-2 inline-flex h-11 items-center justify-center rounded-full border border-white/15 bg-transparent px-4 text-sm font-medium text-white/80 transition hover:bg-white/5"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
         <button
           type="button"
           onClick={onSignIn}
@@ -600,11 +650,12 @@ function SignedOutPanel({
         >
           Sign in
         </button>
-        {loadState === "error" && (
-          <p className="mt-3 text-xs text-juke-text-on-dark-tertiary">
-            Sign in is required before requesting developer access.
-          </p>
-        )}
+      )}
+      {loadState === "error" && !isPolling && (
+        <p className="mt-3 text-xs text-juke-text-on-dark-tertiary">
+          Sign in is required before requesting developer access.
+        </p>
+      )}
     </Card>
   );
 }

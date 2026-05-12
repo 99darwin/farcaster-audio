@@ -13,6 +13,25 @@ export type StartDeveloperSiwnResult = {
   nonce: string;
 };
 
+export type StartManagedSignerResult = {
+  signerUuid: string;
+  signerApprovalUrl: string;
+  popup: Window | null;
+};
+
+export type SignerStatus =
+  | "generated"
+  | "pending_approval"
+  | "approved"
+  | "revoked";
+
+export type ApprovedSigner = {
+  signerUuid: string;
+  fid: number;
+};
+
+export const SIGNER_POLL_INTERVAL_MS = 2000;
+
 let memorySession: DeveloperSession | null = null;
 
 export type DeveloperStatus = "none" | "pending" | "approved" | "suspended";
@@ -232,6 +251,111 @@ export class DeveloperApiClient {
           );
 
     return { authorizationUrl, popup, nonce };
+  }
+
+  /**
+   * Managed-signer SIWN flow. Replaces the popup→postMessage path which
+   * Neynar's web auth page no longer reliably supports. The backend
+   * provisions a Neynar signer + signs its public_key with the app's
+   * custody key; we open the resulting `signer_approval_url` for the
+   * user to approve in their Farcaster client, then `pollSignerStatus`
+   * waits for `approved` and `completeManagedSignerLogin` finishes.
+   */
+  async startManagedSignerFlow(options?: {
+    openPopup?: boolean;
+  }): Promise<StartManagedSignerResult> {
+    const res = await fetch(
+      `${DEVELOPER_API_BASE_URL}/v1/auth/signer/create`,
+      { method: "POST" },
+    );
+    const body = await parseJsonResponse<{
+      signerUuid: string;
+      signerApprovalUrl: string;
+    }>(res, "Could not start sign in");
+    if (!body?.signerUuid || !body?.signerApprovalUrl) {
+      throw new DeveloperApiError("Could not start sign in", 500);
+    }
+
+    const popup =
+      options?.openPopup === false
+        ? null
+        : window.open(
+            body.signerApprovalUrl,
+            "_blank",
+            "popup=yes,width=430,height=720",
+          );
+
+    return {
+      signerUuid: body.signerUuid,
+      signerApprovalUrl: body.signerApprovalUrl,
+      popup,
+    };
+  }
+
+  /**
+   * Poll `/v1/auth/signer/status` until the signer is approved (or
+   * revoked / aborted). Resolves to {fid, signerUuid} on approval.
+   * Callers should pass an `AbortSignal` so the polling stops when
+   * the user navigates away or cancels.
+   */
+  async pollSignerStatus(
+    signerUuid: string,
+    options?: { signal?: AbortSignal; intervalMs?: number },
+  ): Promise<ApprovedSigner> {
+    const interval = options?.intervalMs ?? SIGNER_POLL_INTERVAL_MS;
+    while (true) {
+      if (options?.signal?.aborted) {
+        throw new DeveloperApiError("Sign-in cancelled", 0);
+      }
+      const url = `${DEVELOPER_API_BASE_URL}/v1/auth/signer/status?signer_uuid=${encodeURIComponent(signerUuid)}`;
+      const res = await fetch(url, { cache: "no-store" });
+      const body = await parseJsonResponse<{
+        status: SignerStatus;
+        fid: number | null;
+      }>(res, "Could not check signer status");
+
+      if (body.status === "approved" && typeof body.fid === "number" && body.fid > 0) {
+        return { signerUuid, fid: body.fid };
+      }
+      if (body.status === "revoked") {
+        throw new DeveloperApiError("Signer was revoked", 410);
+      }
+      // generated / pending_approval — keep polling.
+      await new Promise<void>((resolve, reject) => {
+        const t = window.setTimeout(resolve, interval);
+        options?.signal?.addEventListener("abort", () => {
+          window.clearTimeout(t);
+          reject(new DeveloperApiError("Sign-in cancelled", 0));
+        });
+      });
+    }
+  }
+
+  /** Finish managed-signer login. Calls `/v1/auth/login` with the
+   *  approved {fid, signer_uuid}; sets the HttpOnly refresh cookie. */
+  async completeManagedSignerLogin(
+    payload: ApprovedSigner,
+  ): Promise<DeveloperSession> {
+    if (!Number.isFinite(payload.fid) || payload.fid <= 0 || !payload.signerUuid) {
+      throw new Error("Invalid sign-in response");
+    }
+    const res = await fetch(`${DEVELOPER_API_BASE_URL}/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        fid: payload.fid,
+        signer_uuid: payload.signerUuid,
+        use_cookie: true,
+      }),
+    });
+    const body = await parseJsonResponse<LoginResponse>(
+      res,
+      "Could not complete sign in",
+    );
+    this.session = normalizeLogin(body);
+    memorySession = this.session;
+    return this.session;
   }
 
   async completeSiwn(payload: SiwnPayload): Promise<DeveloperSession> {

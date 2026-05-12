@@ -39,6 +39,27 @@ class AuthUrlResponse(BaseModel):
     authorization_url: str
 
 
+class SignerCreateResponse(BaseModel):
+    """Returned to the web SIWN client. The client opens
+    `signer_approval_url` in a popup and polls
+    `/v1/auth/signer/status` with `signer_uuid` until approved.
+    """
+
+    signer_uuid: str
+    signer_approval_url: str
+
+
+class SignerStatusResponse(BaseModel):
+    """Polled status of a Neynar managed signer.
+
+    `status` is one of: `generated`, `pending_approval`, `approved`,
+    `revoked`. `fid` is populated once the user approves on-device.
+    """
+
+    status: str
+    fid: int | None = None
+
+
 class RegisterAuthAddressRequest(BaseModel):
     auth_address: str
 
