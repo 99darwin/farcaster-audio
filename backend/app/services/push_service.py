@@ -23,6 +23,7 @@ from app.models.notification_preference import NotificationPreference
 from app.models.room import Room
 from app.models.room_rsvp import RoomRsvp
 from app.schemas.push import NotificationPreferencesResponse, RoomLiveNotifyResponse
+from app.services.spam_service import SpamService
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,27 @@ def _is_safe_miniapp_notification_url(url: str) -> bool:
 
 def _redis_bool(value) -> bool:
     return value in (True, 1, b"1", "1")
+
+
+def _extract_actor(event_type: str, payload: dict) -> tuple[int | None, float | None]:
+    """Return (actor_fid, neynar_user_score) for a Neynar webhook payload.
+
+    The "actor" is whoever triggered the notification — author for cast.created,
+    reactor for reaction.created, follower for follow.created. The score, when
+    present, lets SpamService short-circuit a DB lookup.
+    """
+    data = payload.get("data") or {}
+    if event_type == "cast.created":
+        actor = data.get("author") or {}
+    elif event_type == "reaction.created":
+        actor = data.get("user") or {}
+    elif event_type == "follow.created":
+        actor = data.get("follower") or {}
+    else:
+        return (None, None)
+    fid = actor.get("fid")
+    score = (actor.get("experimental") or {}).get("neynar_user_score")
+    return (fid if isinstance(fid, int) else None, score)
 
 
 class PushService:
@@ -695,6 +717,22 @@ class PushService:
     ) -> None:
         """Process an incoming Neynar webhook event and send push notifications."""
         logger.info("handle_notification_event: type=%s", event_type)
+
+        # Drop the entire event if the actor is flagged as probable spam.
+        # Otherwise the user receives a push, taps it, and finds the cast hidden
+        # by feed/thread filtering — a confusing dead end. SpamService is
+        # Redis-cached so this is a hot-path-safe check.
+        actor_fid_check, actor_score_check = _extract_actor(event_type, payload)
+        if actor_fid_check is not None:
+            spam_service = SpamService(self.db, self.redis)
+            if await spam_service.is_spam(actor_fid_check, actor_score_check):
+                logger.info(
+                    "Skipping %s push: actor fid=%s flagged as spam",
+                    event_type,
+                    actor_fid_check,
+                )
+                return
+
         target_fid: int | None = None
         title = ""
         body = ""

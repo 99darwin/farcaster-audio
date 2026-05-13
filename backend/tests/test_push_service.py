@@ -502,3 +502,116 @@ async def test_admin_notify_rejects_invalid_room_state():
         )
 
     assert exc.value.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# handle_notification_event — probable-spam gate
+# ---------------------------------------------------------------------------
+
+def _patch_spam(is_spam_value: bool):
+    """Patch SpamService inside push_service so is_spam returns the given value."""
+    spam_mock = MagicMock()
+    spam_mock.is_spam = AsyncMock(return_value=is_spam_value)
+    return patch(
+        "app.services.push_service.SpamService",
+        MagicMock(return_value=spam_mock),
+    )
+
+
+def _spam_handler_service() -> PushService:
+    service = PushService(db=AsyncMock(), redis=AsyncMock())
+    service.redis.sismember = AsyncMock(return_value=True)
+    service.is_enabled = AsyncMock(return_value=True)
+    service.send_push = AsyncMock()
+    service._resolve_pfp_url = AsyncMock(return_value=None)
+    return service
+
+
+@pytest.mark.asyncio
+async def test_handle_event_skips_reaction_from_spam_reactor():
+    service = _spam_handler_service()
+    payload = {
+        "data": {
+            "reaction_type": "like",
+            "user": {"fid": 9001, "display_name": "Spammer"},
+            "cast": {"hash": "0xabc", "text": "hi", "author": {"fid": TARGET_FID}},
+        }
+    }
+
+    with _patch_spam(True):
+        await service.handle_notification_event("reaction.created", payload)
+
+    service.send_push.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_event_skips_reply_from_spam_author():
+    service = _spam_handler_service()
+    payload = {
+        "data": {
+            "hash": "0xreply",
+            "text": "spammy reply",
+            "author": {"fid": 9001, "display_name": "Spammer"},
+            "parent_author": {"fid": TARGET_FID},
+            "parent_hash": "0xparent",
+            "thread_hash": "0xparent",
+            "mentioned_profiles": [],
+        }
+    }
+
+    with _patch_spam(True):
+        await service.handle_notification_event("cast.created", payload)
+
+    service.send_push.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_event_skips_mention_from_spam_author():
+    service = _spam_handler_service()
+    payload = {
+        "data": {
+            "hash": "0xcast",
+            "text": "hey @victim",
+            "author": {"fid": 9001, "display_name": "Spammer"},
+            "parent_author": {"fid": None},
+            "mentioned_profiles": [{"fid": TARGET_FID}],
+        }
+    }
+
+    with _patch_spam(True):
+        await service.handle_notification_event("cast.created", payload)
+
+    service.send_push.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_event_skips_follow_from_spam_follower():
+    service = _spam_handler_service()
+    payload = {
+        "data": {
+            "user": {"fid": TARGET_FID},
+            "follower": {"fid": 9001, "display_name": "Spammer"},
+        }
+    }
+
+    with _patch_spam(True):
+        await service.handle_notification_event("follow.created", payload)
+
+    service.send_push.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_event_delivers_when_actor_not_spam():
+    service = _spam_handler_service()
+    payload = {
+        "data": {
+            "reaction_type": "like",
+            "user": {"fid": 9001, "display_name": "Real User"},
+            "cast": {"hash": "0xabc", "text": "hi", "author": {"fid": TARGET_FID}},
+        }
+    }
+
+    with _patch_spam(False):
+        await service.handle_notification_event("reaction.created", payload)
+
+    service.send_push.assert_awaited_once()

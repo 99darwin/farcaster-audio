@@ -99,6 +99,8 @@ export function NotificationItem({
   const extraCount = Math.max(0, (notification.count ?? 0) - 1);
 
   if (!actor) return null;
+  if (actor.is_spam) return null;
+  if (cast?.author?.is_spam) return null;
 
   const meta = getTypeMeta(type, colors);
   const rowBackground = isUnread
@@ -127,8 +129,9 @@ export function NotificationItem({
       ? ` and ${extraCount} other${extraCount > 1 ? "s" : ""}`
       : "";
   const actionText = ACTION_TEXT[type] ?? type;
-  const quotedCast =
+  const rawQuotedCast =
     type === "quote" ? (cast?.embeds?.find((e) => e.cast)?.cast ?? null) : null;
+  const quotedCast = rawQuotedCast?.author?.is_spam ? null : rawQuotedCast;
 
   const showActions = type === "reply" && cast?.hash;
 
