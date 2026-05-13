@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
 import httpx
+from fastapi import HTTPException
 
 from app.config import settings
 from app.models.user import User
@@ -360,98 +361,249 @@ async def test_protected_endpoint_invalid_token(client):
 
 
 # ---------------------------------------------------------------------------
-# Stream A follow-ups: signer endpoints, audit logging, proxy-aware IP,
-# and per-IP / per-uuid rate limits.
+# SIWF (Sign In With Farcaster) — nonce + login endpoints.
 # ---------------------------------------------------------------------------
 
 
 def _http_status_error(status_code: int, body: str = "") -> httpx.HTTPStatusError:
-    """Build an httpx.HTTPStatusError with a populated response body.
-
-    The auth router logs `exc.response.text`, so the response mock must
-    expose both a status_code and a `.text` attribute.
-    """
+    """Build an httpx.HTTPStatusError with a populated response body."""
     resp = MagicMock()
     resp.status_code = status_code
     resp.text = body
     return httpx.HTTPStatusError("upstream error", request=None, response=resp)
 
 
-@pytest.mark.asyncio
-async def test_signer_status_accepts_post_body(client):
-    """POST with JSON body works, and GET on the same path is 405."""
-    with patch(
-        "app.routers.auth.lookup_signer_status",
-        new_callable=AsyncMock,
-        return_value={"status": "pending_approval", "fid": None},
-    ):
-        response = await client.post(
-            "/v1/auth/signer/status",
-            json={"signer_uuid": "abc"},
-        )
+# Minimal-but-parseable SIWE message — siwe-py's `from_message` accepts
+# this and exposes `.nonce` + `.domain`. Tests mock everything beyond
+# parsing, so the address / signature don't have to verify.
+def _siwe_msg(nonce: str = "testnonce123", domain: str = "juke.audio") -> str:
+    return (
+        f"{domain} wants you to sign in with your Ethereum account:\n"
+        "0x1234567890AbcdEF1234567890aBcdef12345678\n"
+        "\n"
+        "Farcaster Auth\n"
+        "\n"
+        f"URI: https://{domain}/developers\n"
+        "Version: 1\n"
+        "Chain ID: 10\n"
+        f"Nonce: {nonce}\n"
+        "Issued At: 2026-05-12T18:00:00.000Z\n"
+        "Resources:\n"
+        "- farcaster://fids/7777"
+    )
 
+
+@pytest.mark.asyncio
+async def test_siwf_nonce_returns_unique_nonce(client):
+    """Happy path: POST /v1/auth/siwf/nonce returns a non-empty nonce."""
+    response = await client.post("/v1/auth/siwf/nonce")
     assert response.status_code == 200
     body = response.json()
-    assert body == {"status": "pending_approval", "fid": None}
+    assert isinstance(body["nonce"], str)
+    assert len(body["nonce"]) >= 8  # SIWE recommends 8+ chars; we use ~22
 
-    # GET on /signer/status must NOT exist — guards against an accidental
-    # reintroduction of the querystring variant (#16) which would leak
-    # signer_uuid into access logs / Referer headers.
-    get_response = await client.get(
-        "/v1/auth/signer/status",
-        params={"signer_uuid": "abc"},
+
+@pytest.mark.asyncio
+async def test_siwf_nonce_rate_limit_returns_429(client):
+    """31st nonce request from one IP within 60s returns 429."""
+    from app.main import app
+
+    app.state.redis.incr = AsyncMock(return_value=31)
+    app.state.redis.ttl = AsyncMock(return_value=42)
+
+    response = await client.post("/v1/auth/siwf/nonce")
+    assert response.status_code == 429
+    assert response.headers.get("retry-after") == "42"
+
+
+@pytest.mark.asyncio
+async def test_siwf_login_happy_path_mints_jwt(auth_client):
+    """Full SIWF happy path: nonce → verify → fid lookup → JWT."""
+    client, _ = auth_client
+    consume_patch = patch(
+        "app.routers.auth.consume_siwf_nonce",
+        new_callable=AsyncMock,
+        return_value=True,
     )
-    assert get_response.status_code == 405
+    verify_patch = patch(
+        "app.routers.auth.verify_siwf_message",
+        new_callable=AsyncMock,
+        return_value="0x1234567890abcdef1234567890abcdef12345678",
+    )
+    lookup_patch = patch(
+        "app.routers.auth.lookup_fid_by_custody",
+        new_callable=AsyncMock,
+        return_value=7777,
+    )
+    profile_patch = patch(
+        "app.routers.auth.fetch_user_profile",
+        new_callable=AsyncMock,
+        return_value={
+            "username": "tester",
+            "display_name": "Tester",
+            "pfp_url": None,
+            "custody_address": "0x1234567890abcdef1234567890abcdef12345678",
+        },
+    )
+
+    with consume_patch, verify_patch, lookup_patch, profile_patch:
+        response = await client.post(
+            "/v1/auth/siwf/login",
+            json={
+                "message": _siwe_msg(),
+                "signature": "0xabc",
+                "use_cookie": False,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["jwt"]
+    assert body["user"]["fid"] == 7777
+    assert body["expires_at"]
 
 
 @pytest.mark.asyncio
-async def test_signer_status_per_uuid_rate_limit(client):
-    """31st poll for one signer_uuid (within 24h) returns 429 + Retry-After.
+async def test_siwf_login_with_use_cookie_sets_cookie_and_omits_body_token(auth_client):
+    """use_cookie:true delivers the refresh token via HttpOnly cookie only."""
+    client, _ = auth_client
+    with (
+        patch("app.routers.auth.consume_siwf_nonce", new_callable=AsyncMock, return_value=True),
+        patch(
+            "app.routers.auth.verify_siwf_message",
+            new_callable=AsyncMock,
+            return_value="0x1234567890abcdef1234567890abcdef12345678",
+        ),
+        patch(
+            "app.routers.auth.lookup_fid_by_custody",
+            new_callable=AsyncMock,
+            return_value=7777,
+        ),
+        patch(
+            "app.routers.auth.fetch_user_profile",
+            new_callable=AsyncMock,
+            return_value={
+                "username": "tester",
+                "display_name": "Tester",
+                "pfp_url": None,
+                "custody_address": None,
+            },
+        ),
+    ):
+        response = await client.post(
+            "/v1/auth/siwf/login",
+            json={
+                "message": _siwe_msg(),
+                "signature": "0xabc",
+                "use_cookie": True,
+            },
+        )
 
-    The route calls redis.incr twice in sequence: per-IP first, then
-    per-UUID. Sequence the side_effect: per-IP returns 1 (well under
-    the 120/min cap), per-UUID returns 31 (one above the 30/24h cap).
+    assert response.status_code == 200, response.text
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "juke_refresh=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert not response.json().get("refresh_token")
+
+
+@pytest.mark.asyncio
+async def test_siwf_login_rejects_unused_nonce(auth_client):
+    """If the nonce was never minted (or already consumed), 401."""
+    client, _ = auth_client
+    with patch(
+        "app.routers.auth.consume_siwf_nonce",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        response = await client.post(
+            "/v1/auth/siwf/login",
+            json={"message": _siwe_msg(), "signature": "0xabc"},
+        )
+
+    assert response.status_code == 401
+    assert "nonce" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_siwf_login_rejects_bad_signature(auth_client):
+    """Signature verification failure → 401 with a generic detail."""
+    client, _ = auth_client
+    with (
+        patch("app.routers.auth.consume_siwf_nonce", new_callable=AsyncMock, return_value=True),
+        patch(
+            "app.routers.auth.verify_siwf_message",
+            new_callable=AsyncMock,
+            side_effect=HTTPException(
+                status_code=401, detail="Invalid SIWF signature."
+            ),
+        ),
+    ):
+        response = await client.post(
+            "/v1/auth/siwf/login",
+            json={"message": _siwe_msg(), "signature": "0xabc"},
+        )
+
+    assert response.status_code == 401
+    # Detail string is the generic one — verify it doesn't leak which
+    # specific siwe check failed.
+    assert response.json()["detail"] == "Invalid SIWF signature."
+
+
+@pytest.mark.asyncio
+async def test_siwf_login_rejects_unknown_address(auth_client):
+    """Recovered address with no Farcaster account → 401."""
+    client, _ = auth_client
+    with (
+        patch("app.routers.auth.consume_siwf_nonce", new_callable=AsyncMock, return_value=True),
+        patch(
+            "app.routers.auth.verify_siwf_message",
+            new_callable=AsyncMock,
+            return_value="0xdeadbeef1234567890abcdef1234567890abcdef",
+        ),
+        patch(
+            "app.routers.auth.lookup_fid_by_custody",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        response = await client.post(
+            "/v1/auth/siwf/login",
+            json={"message": _siwe_msg(), "signature": "0xabc"},
+        )
+
+    assert response.status_code == 401
+    assert "no farcaster account" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_siwf_login_rate_limit_returns_429(auth_client):
+    """11th SIWF login attempt from one IP within 60s returns 429."""
+    from app.main import app
+
+    client, _ = auth_client
+    app.state.redis.incr = AsyncMock(return_value=11)
+    app.state.redis.ttl = AsyncMock(return_value=42)
+
+    response = await client.post(
+        "/v1/auth/siwf/login",
+        json={"message": _siwe_msg(), "signature": "0xabc"},
+    )
+    assert response.status_code == 429
+    assert response.headers.get("retry-after") == "42"
+
+
+@pytest.mark.asyncio
+async def test_signer_endpoints_are_gone(client):
+    """The legacy managed-signer endpoints from PR #160 Stream A no longer exist.
+
+    Sanity-check that a future contributor doesn't accidentally
+    re-introduce them — the audit's CRITICAL #1 was structurally fixed
+    by switching to SIWF, and we want the dead routes to stay dead.
     """
-    from app.main import app
-
-    app.state.redis.incr = AsyncMock(side_effect=[1, 31])
-    app.state.redis.ttl = AsyncMock(return_value=12345)
-
-    with patch(
-        "app.routers.auth.lookup_signer_status",
-        new_callable=AsyncMock,
-        return_value={"status": "pending_approval", "fid": None},
-    ):
-        response = await client.post(
-            "/v1/auth/signer/status",
-            json={"signer_uuid": "leaky-uuid"},
-        )
-
-    assert response.status_code == 429
-    assert "this signer" in response.json()["detail"].lower()
-
-
-@pytest.mark.asyncio
-async def test_signer_status_per_ip_rate_limit(client):
-    """121st request from one IP within 60s returns 429."""
-    from app.main import app
-
-    # First incr (per-IP) overshoots the 120/min cap; per-UUID incr
-    # never runs because the 429 short-circuits the route.
-    app.state.redis.incr = AsyncMock(side_effect=[121, 1])
-
-    with patch(
-        "app.routers.auth.lookup_signer_status",
-        new_callable=AsyncMock,
-        return_value={"status": "pending_approval", "fid": None},
-    ):
-        response = await client.post(
-            "/v1/auth/signer/status",
-            json={"signer_uuid": "abc"},
-        )
-
-    assert response.status_code == 429
-    assert "polling" in response.json()["detail"].lower()
+    create = await client.post("/v1/auth/signer/create")
+    status_post = await client.post("/v1/auth/signer/status", json={"signer_uuid": "x"})
+    assert create.status_code == 404
+    assert status_post.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -474,86 +626,6 @@ async def test_login_rate_limit_returns_429(auth_client):
     assert response.status_code == 429
     assert response.headers.get("retry-after") == "42"
     assert "login" in response.json()["detail"].lower()
-
-
-@pytest.mark.asyncio
-async def test_create_signer_neynar_502_logs_failure(client, caplog):
-    """Upstream 502 surfaces as 502 + emits a `signer_create_failed` audit log."""
-    caplog.set_level(logging.INFO, logger="app.routers.auth")
-    with patch(
-        "app.routers.auth.create_and_register_signer",
-        new_callable=AsyncMock,
-        side_effect=_http_status_error(502, body="neynar down"),
-    ):
-        response = await client.post("/v1/auth/signer/create")
-
-    assert response.status_code == 502
-
-    audit_records = [
-        r for r in caplog.records
-        if getattr(r, "event", None) == "signer_create_failed"
-    ]
-    assert audit_records, "expected at least one signer_create_failed log"
-    rec = audit_records[0]
-    assert rec.error == "neynar_upstream_error"
-    assert rec.signer_uuid is None
-    assert hasattr(rec, "ip")
-    assert hasattr(rec, "user_agent")
-
-
-@pytest.mark.asyncio
-async def test_create_signer_misconfigured_raises_500(client, caplog):
-    """ValueError from create_and_register_signer surfaces as 500 + audit log."""
-    caplog.set_level(logging.INFO, logger="app.routers.auth")
-    with patch(
-        "app.routers.auth.create_and_register_signer",
-        new_callable=AsyncMock,
-        side_effect=ValueError("FARCASTER_APP_FID is not configured"),
-    ):
-        response = await client.post("/v1/auth/signer/create")
-
-    assert response.status_code == 500
-
-    audit_records = [
-        r for r in caplog.records
-        if getattr(r, "event", None) == "signer_create_failed"
-    ]
-    assert audit_records, "expected at least one signer_create_failed log"
-    assert audit_records[0].error == "misconfigured"
-
-
-@pytest.mark.asyncio
-async def test_create_signer_emits_audit_log_on_success(client, caplog):
-    """Successful signer creation emits a structured `signer_created` log."""
-    caplog.set_level(logging.INFO, logger="app.routers.auth")
-    fake_result = {
-        "signer_uuid": "fake-uuid-1234",
-        "signer_approval_url": "https://example.com/approve",
-        "public_key": "0xdeadbeef",
-    }
-    with patch(
-        "app.routers.auth.create_and_register_signer",
-        new_callable=AsyncMock,
-        return_value=fake_result,
-    ):
-        response = await client.post(
-            "/v1/auth/signer/create",
-            headers={"User-Agent": "Mozilla/5.0 (test)"},
-        )
-
-    assert response.status_code == 200
-    assert response.json()["signer_uuid"] == "fake-uuid-1234"
-
-    audit_records = [
-        r for r in caplog.records
-        if getattr(r, "event", None) == "signer_created"
-    ]
-    assert audit_records, "expected at least one signer_created log"
-    rec = audit_records[0]
-    assert rec.signer_uuid == "fake-uuid-1234"
-    assert rec.user_agent == "Mozilla/5.0 (test)"
-    assert hasattr(rec, "ip")
-    assert hasattr(rec, "app_fid")
 
 
 def test_client_ip_helper_parses_xff_leftmost():

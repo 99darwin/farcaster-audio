@@ -188,20 +188,24 @@ export function DeveloperDashboard({
     setSignerApprovalUrl(null);
 
     try {
-      const { signerUuid, signerApprovalUrl: approvalUrl } =
-        await clientRef.current!.startManagedSignerFlow();
-      // The approval URL is a Farcaster deeplink, not a regular web
-      // page — show it as a QR for desktop users (scan with phone)
-      // and as a tap-to-deeplink button for mobile.
-      setSignerApprovalUrl(approvalUrl);
+      const { channelToken, url } = await clientRef.current!.startSiwfFlow();
+      // The url is a `farcaster://connect?...` deeplink. Render as
+      // a QR for desktop (scan with phone) or as a tap-to-deeplink
+      // button on mobile. The Farcaster client displays the domain
+      // (juke.audio) at approval time — that's the SIWF guarantee
+      // that lets users verify they're signing into the real site.
+      setSignerApprovalUrl(url);
       setPendingAction("Waiting for Farcaster approval");
 
-      const approved = await clientRef.current!.pollSignerStatus(signerUuid, {
+      const approved = await clientRef.current!.pollSiwfStatus(channelToken, {
         signal: abort.signal,
       });
 
       setPendingAction("Completing sign in");
-      await clientRef.current!.completeManagedSignerLogin(approved);
+      await clientRef.current!.completeSiwfLogin({
+        message: approved.message,
+        signature: approved.signature,
+      });
       setSignerApprovalUrl(null);
       await loadDashboard();
     } catch (err) {

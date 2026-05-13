@@ -1,28 +1,36 @@
 "use client";
 
+import { createAppClient, viemConnector } from "@farcaster/auth-client";
+
 export const DEVELOPER_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
 
 const EXPIRY_SAFETY_MS = 60 * 1000;
 
-export type StartManagedSignerResult = {
-  signerUuid: string;
-  signerApprovalUrl: string;
-  popup: Window | null;
+// Sign In With Farcaster — EIP-4361 / SIWE. The signed message
+// includes the requesting `domain`, which the Farcaster client
+// displays to the user at approval time. That structurally closes
+// the QR phishing chain that the old `createSigner` flow couldn't
+// defend against.
+export type StartSiwfFlowResult = {
+  channelToken: string;
+  url: string;
 };
 
-export type SignerStatus =
-  | "generated"
-  | "pending_approval"
-  | "approved"
-  | "revoked";
-
-export type ApprovedSigner = {
-  signerUuid: string;
+export type SiwfApproved = {
+  message: string;
+  signature: string;
   fid: number;
 };
 
-export const SIGNER_POLL_INTERVAL_MS = 2000;
+export const SIWF_POLL_INTERVAL_MS = 2000;
+// AuthKit relay times its channels out at 10 minutes — match.
+const SIWF_TIMEOUT_MS = 10 * 60 * 1000;
+
+const siwfAppClient = createAppClient({
+  relay: "https://relay.farcaster.xyz",
+  ethereum: viemConnector(),
+});
 
 let memorySession: DeveloperSession | null = null;
 
@@ -209,107 +217,133 @@ export class DeveloperApiClient {
   }
 
   /**
-   * Managed-signer SIWN flow. The backend provisions a Neynar signer +
-   * signs its public_key with the app's custody key; the response
-   * contains a `signer_approval_url` which is a Farcaster deeplink
-   * (`client.farcaster.xyz/deeplinks/signed-key-request?...`).
+   * Sign In With Farcaster (SIWF) — EIP-4361 / SIWE.
    *
-   * On desktop: render the URL as a QR code so the user scans it with
-   * their Farcaster mobile app.
+   * Why this and not the legacy `createSigner + registerSignedKey`
+   * flow we shipped originally: SIWF binds the requesting `domain`
+   * into the signed message, and the Farcaster client displays that
+   * domain to the user at approval time. A victim scanning a QR
+   * generated on `evil.com` sees `evil.com wants you to sign in`
+   * rather than just the registered app name — structurally closes
+   * the QR phishing chain.
    *
-   * On mobile: the URL can be opened directly to deeplink into the
-   * native Farcaster app.
-   *
-   * Either way, `pollSignerStatus` waits for `approved` and
-   * `completeManagedSignerLogin` finishes the session.
-   *
-   * NOTE: We do NOT open the URL in a popup here. The deeplink renders
-   * as a blank page in a desktop browser, which is confusing.
+   * Flow:
+   * 1. `startSiwfFlow()` fetches a server-issued nonce from
+   *    `/v1/auth/siwf/nonce` and asks the Farcaster auth relay to
+   *    open a channel. Returns `{channelToken, url}` — the url is a
+   *    `farcaster://connect?channelToken=...` deeplink to render as
+   *    a QR or tap-to-open on mobile.
+   * 2. `pollSiwfStatus(channelToken)` waits via the auth-client SDK
+   *    until the user approves and the relay returns the signed SIWE
+   *    message + signature.
+   * 3. `completeSiwfLogin({message, signature})` POSTs to our backend
+   *    which cryptographically verifies the signature, confirms the
+   *    domain + nonce, resolves the custody address to a FID via
+   *    Neynar, and mints a Juke JWT.
    */
-  async startManagedSignerFlow(): Promise<StartManagedSignerResult> {
-    const res = await fetch(
-      `${DEVELOPER_API_BASE_URL}/v1/auth/signer/create`,
+  async startSiwfFlow(): Promise<StartSiwfFlowResult> {
+    // Server-issued nonce — gives us replay protection and lets us
+    // bound a single sign-in attempt to a short window.
+    const nonceRes = await fetch(
+      `${DEVELOPER_API_BASE_URL}/v1/auth/siwf/nonce`,
       { method: "POST" },
     );
-    const body = await parseJsonResponse<{
-      signerUuid: string;
-      signerApprovalUrl: string;
-    }>(res, "Could not start sign in");
-    if (!body?.signerUuid || !body?.signerApprovalUrl) {
+    const nonceBody = await parseJsonResponse<{ nonce: string }>(
+      nonceRes,
+      "Could not start sign in",
+    );
+    if (!nonceBody?.nonce) {
       throw new DeveloperApiError("Could not start sign in", 500);
     }
 
+    const channel = await siwfAppClient.createChannel({
+      siweUri: `${window.location.origin}/developers`,
+      domain: window.location.hostname,
+      nonce: nonceBody.nonce,
+    });
+
+    if (!channel.data?.channelToken || !channel.data?.url) {
+      throw new DeveloperApiError("Could not start sign in", 502);
+    }
     return {
-      signerUuid: body.signerUuid,
-      signerApprovalUrl: body.signerApprovalUrl,
-      popup: null,
+      channelToken: channel.data.channelToken,
+      url: channel.data.url,
     };
   }
 
   /**
-   * Poll `/v1/auth/signer/status` until the signer is approved (or
-   * revoked / aborted). Resolves to {fid, signerUuid} on approval.
-   * Callers should pass an `AbortSignal` so the polling stops when
-   * the user navigates away or cancels.
+   * Wait for the Farcaster relay to report completion. Resolves to
+   * the SIWE message + signature when the user approves. Callers
+   * pass an AbortSignal so the polling stops on user cancel /
+   * component unmount.
    */
-  async pollSignerStatus(
-    signerUuid: string,
-    options?: { signal?: AbortSignal; intervalMs?: number },
-  ): Promise<ApprovedSigner> {
-    const interval = options?.intervalMs ?? SIGNER_POLL_INTERVAL_MS;
-    while (true) {
-      if (options?.signal?.aborted) {
+  async pollSiwfStatus(
+    channelToken: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<SiwfApproved> {
+    if (options?.signal?.aborted) {
+      throw new DeveloperApiError("Sign-in cancelled", 0);
+    }
+    // The auth-client SDK does the polling; we just race against
+    // the abort signal so cancel happens quickly. The SDK exposes
+    // an `onResponse` callback we use to bail out promptly when the
+    // user cancels (rather than waiting for the next status poll).
+    let aborted = false;
+    const abortHandler = () => {
+      aborted = true;
+    };
+    options?.signal?.addEventListener("abort", abortHandler);
+    try {
+      const result = await siwfAppClient.watchStatus({
+        channelToken,
+        timeout: SIWF_TIMEOUT_MS,
+        interval: SIWF_POLL_INTERVAL_MS,
+        onResponse: () => {
+          if (aborted) throw new DeveloperApiError("Sign-in cancelled", 0);
+        },
+      });
+      if (aborted) {
         throw new DeveloperApiError("Sign-in cancelled", 0);
       }
-      const res = await fetch(
-        `${DEVELOPER_API_BASE_URL}/v1/auth/signer/status`,
-        {
-          method: "POST",
-          cache: "no-store",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ signer_uuid: signerUuid }),
-        },
-      );
-      const body = await parseJsonResponse<{
-        status: SignerStatus;
-        fid: number | null;
-      }>(res, "Could not check signer status");
-
-      if (body.status === "approved" && typeof body.fid === "number" && body.fid > 0) {
-        return { signerUuid, fid: body.fid };
+      const data = result.data;
+      if (data.state !== "completed") {
+        throw new DeveloperApiError("Sign-in did not complete", 408);
       }
-      if (body.status === "revoked") {
-        throw new DeveloperApiError("Signer was revoked", 410);
+      if (!data.message || !data.signature || !data.fid) {
+        throw new DeveloperApiError("Incomplete SIWF response", 502);
       }
-      // generated / pending_approval — keep polling.
-      await new Promise<void>((resolve, reject) => {
-        const t = window.setTimeout(resolve, interval);
-        options?.signal?.addEventListener("abort", () => {
-          window.clearTimeout(t);
-          reject(new DeveloperApiError("Sign-in cancelled", 0));
-        });
-      });
+      return {
+        message: data.message,
+        signature: data.signature,
+        fid: data.fid,
+      };
+    } finally {
+      options?.signal?.removeEventListener("abort", abortHandler);
     }
   }
 
-  /** Finish managed-signer login. Calls `/v1/auth/login` with the
-   *  approved {fid, signer_uuid}; sets the HttpOnly refresh cookie. */
-  async completeManagedSignerLogin(
-    payload: ApprovedSigner,
+  /** Finish SIWF login. Submits the signed SIWE message to the
+   *  backend, which verifies the signature + resolves fid via Neynar,
+   *  and returns a Juke session. Sets the HttpOnly refresh cookie. */
+  async completeSiwfLogin(
+    payload: { message: string; signature: string },
   ): Promise<DeveloperSession> {
-    if (!Number.isFinite(payload.fid) || payload.fid <= 0 || !payload.signerUuid) {
+    if (!payload.message || !payload.signature) {
       throw new Error("Invalid sign-in response");
     }
-    const res = await fetch(`${DEVELOPER_API_BASE_URL}/v1/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        fid: payload.fid,
-        signer_uuid: payload.signerUuid,
-        use_cookie: true,
-      }),
-    });
+    const res = await fetch(
+      `${DEVELOPER_API_BASE_URL}/v1/auth/siwf/login`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          message: payload.message,
+          signature: payload.signature,
+          use_cookie: true,
+        }),
+      },
+    );
     const body = await parseJsonResponse<LoginResponse>(
       res,
       "Could not complete sign in",
@@ -576,7 +610,7 @@ function normalizeApp(app: Omit<DeveloperApp, "keys">): Omit<DeveloperApp, "keys
 
 function normalizeLogin(body: LoginResponse): DeveloperSession {
   // refresh_token is intentionally not stored on the client — the dashboard
-  // uses cookie-based refresh (see completeManagedSignerLogin) so the refresh
+  // uses cookie-based refresh (see completeSiwfLogin) so the refresh
   // token never touches JS-accessible storage.
   return {
     jwt: body.jwt,

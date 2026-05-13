@@ -7,6 +7,7 @@ from eth_account import Account
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from jose import JWTError, jwt
 from pydantic import BaseModel
+from siwe import SiweMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
@@ -25,9 +26,8 @@ from app.schemas.auth import (
     RegisterAuthAddressRequest,
     RegisterAuthAddressResponse,
     AuthAddressStatusResponse,
-    SignerCreateResponse,
-    SignerStatusRequest,
-    SignerStatusResponse,
+    SiwfLoginRequest,
+    SiwfNonceResponse,
     UserResponse,
 )
 from app.services.auth_service import (
@@ -45,9 +45,11 @@ from app.services.auth_address_service import (
     register_auth_address_with_neynar,
     upsert_auth_address_from_registration,
 )
-from app.services.developer_signer_service import (
-    create_and_register_signer,
-    lookup_signer_status,
+from app.services.siwf_service import (
+    consume_siwf_nonce,
+    lookup_fid_by_custody,
+    mint_siwf_nonce,
+    verify_siwf_message,
 )
 from app.dependencies import DEMO_SIGNER_UUID, get_current_user, require_non_demo_user
 
@@ -118,6 +120,13 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     )
 
 
+# Sentinel `signer_uuid` for users who authed via SIWF (Sign In With
+# Farcaster). SIWF proves FID ownership but doesn't grant write access
+# — there's no Neynar signer attached. Same shape as the miniapp Quick
+# Auth flow's read-only sessions.
+SIWF_SENTINEL_SIGNER_UUID = "siwf-auth"
+
+
 def _clear_refresh_cookie(response: Response) -> None:
     """Expire the refresh cookie. Attributes must match the original set."""
     is_prod = settings.ENVIRONMENT == "production"
@@ -185,156 +194,166 @@ async def dev_login(
     )
 
 
-@router.post("/signer/create", response_model=SignerCreateResponse)
-async def create_signer(
+@router.post("/siwf/nonce", response_model=SiwfNonceResponse)
+async def siwf_nonce(
     request: Request,
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Create a Neynar managed signer for web SIWN.
+    """Issue a fresh nonce for a SIWF (Sign In With Farcaster) attempt.
 
-    The client opens the returned `signer_approval_url` in a popup;
-    the user approves the signer in their Farcaster client; the
-    client polls `/v1/auth/signer/status` until `approved` and then
-    calls `/v1/auth/login` with the {fid, signer_uuid} pair.
+    The client passes this verbatim into the SIWE message it generates
+    via `@farcaster/auth-client`. The user signs the message in their
+    Farcaster client (which displays the requesting `domain` field —
+    that's what makes SIWF phishing-resistant in a way the legacy
+    managed-signer flow couldn't be). The signed message + signature
+    are submitted to `/v1/auth/siwf/login` for verification.
+
+    Rate-limited per IP so a nonce-fetch loop can't burn Redis.
     """
-    # Per-IP rate limit. Each call mints a fresh signer on Neynar's
-    # side, which has a cost — keep this aggressive.
     ip = _client_ip(request)
-    rate_key = f"signer_create_rate:{ip}"
+    rate_key = f"siwf_nonce_rate:{ip}"
     attempts = await redis.incr(rate_key)
     if attempts == 1:
         await redis.expire(rate_key, 60)
-    if attempts > 5:
+    if attempts > 30:
+        retry_after = await redis.ttl(rate_key)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many sign-in attempts. Try again in a minute.",
+            detail="Too many sign-in attempts. Try again shortly.",
+            headers={"Retry-After": str(max(int(retry_after or 60), 1))},
         )
 
-    user_agent = request.headers.get("user-agent", "")
-    try:
-        result = await create_and_register_signer()
-    except httpx.HTTPStatusError as exc:
-        logger.error(
-            "Neynar createSigner/registerSignedKey failed: %s",
-            exc.response.text,
-        )
-        logger.info(
-            "signer_create_failed",
-            extra={
-                "event": "signer_create_failed",
-                "signer_uuid": None,
-                "ip": ip,
-                "user_agent": user_agent,
-                "app_fid": settings.FARCASTER_APP_FID,
-                "error": "neynar_upstream_error",
-            },
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Sign-in service unavailable",
-        )
-    except ValueError as exc:
-        # FARCASTER_APP_MNEMONIC / FARCASTER_APP_FID misconfigured.
-        logger.error("Signer signing misconfigured: %s", exc)
-        logger.info(
-            "signer_create_failed",
-            extra={
-                "event": "signer_create_failed",
-                "signer_uuid": None,
-                "ip": ip,
-                "user_agent": user_agent,
-                "app_fid": settings.FARCASTER_APP_FID,
-                "error": "misconfigured",
-            },
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Sign-in service misconfigured",
-        )
-
-    # Structured audit log — ops can grep `event=signer_created` later
-    # to correlate a leaked signer_uuid back to its creator IP / UA.
-    logger.info(
-        "signer_created",
-        extra={
-            "event": "signer_created",
-            "signer_uuid": result["signer_uuid"],
-            "ip": ip,
-            "user_agent": user_agent,
-            "app_fid": settings.FARCASTER_APP_FID,
-        },
-    )
-
-    return SignerCreateResponse(
-        signer_uuid=result["signer_uuid"],
-        signer_approval_url=result["signer_approval_url"],
-    )
+    nonce = await mint_siwf_nonce(redis)
+    return SiwfNonceResponse(nonce=nonce)
 
 
-@router.post("/signer/status", response_model=SignerStatusResponse)
-async def get_signer_status(
-    body: SignerStatusRequest,
+@router.post("/siwf/login", response_model=LoginResponse)
+async def siwf_login(
+    body: SiwfLoginRequest,
     request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Poll a managed signer's status.
+    """Verify a SIWF signature and mint a Juke JWT.
 
-    Used by the dashboard during the SIWN flow — clients poll this
-    every ~2s until `status == "approved"`, then complete login.
+    Wire shape (per `@farcaster/auth-client` watchStatus completion):
+    the client receives `{message, signature, nonce, fid, ...}` from
+    the Farcaster auth relay, then POSTs `{message, signature, nonce}`
+    here. We:
 
-    Body-only (not querystring) so the signer_uuid never lands in
-    access logs, Referer headers, or browser history.
+    1. Confirm the nonce was issued by us and isn't already consumed
+       (atomic delete-if-exists in Redis).
+    2. Verify the SIWE message + EIP-191 signature with `siwe`
+       (checks signature validity, domain match, nonce match,
+       timestamps). On any failure → 401 with a generic detail; we
+       don't leak which check failed.
+    3. Resolve the recovered custody address → Farcaster FID via
+       Neynar's bulk-by-address endpoint. We do NOT trust a
+       client-supplied FID — the FID is derived server-side from the
+       cryptographically-verified address.
+    4. Mint JWT + (optional) HttpOnly refresh cookie, mark a recent
+       SIWN for step-up auth on developer-key mutations.
+
+    Same per-IP rate limit as `/v1/auth/login` so this endpoint is
+    bounded against credential-stuffing-style attempts.
     """
-    signer_uuid = body.signer_uuid
-
-    # Cap polling at one request every ~500ms per IP. The dashboard
-    # polls at 2s intervals so this is well above normal usage.
     ip = _client_ip(request)
-    rate_key = f"signer_status_rate:{ip}"
-    attempts = await redis.incr(rate_key)
+    login_rate_key = f"siwf_login_rate:{ip}"
+    attempts = await redis.incr(login_rate_key)
     if attempts == 1:
-        await redis.expire(rate_key, 60)
-    if attempts > 120:
+        await redis.expire(login_rate_key, 60)
+    if attempts > 10:
+        retry_after = await redis.ttl(login_rate_key)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Polling too aggressively",
+            detail="Too many sign-in attempts. Try again shortly.",
+            headers={"Retry-After": str(max(int(retry_after or 60), 1))},
         )
 
-    # Per-signer-uuid cap (30 polls / 24h) so a leaked uuid + botnet
-    # can't bypass the per-IP cap by spreading requests across IPs.
-    # Legitimate polling completes in well under 30 requests
-    # (2s interval × ~30s typical approval = ~15 polls).
-    uuid_rate_key = f"signer_status_per_uuid_rate:{signer_uuid}"
-    uuid_attempts = await redis.incr(uuid_rate_key)
-    if uuid_attempts == 1:
-        await redis.expire(uuid_rate_key, 86400)
-    if uuid_attempts > 30:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Polling too aggressively for this signer",
-        )
-
+    # Parse the SIWE message once up front so we know the nonce to
+    # check (the message carries its own copy that has to match what
+    # we issued).
     try:
-        result = await lookup_signer_status(signer_uuid)
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Signer not found",
-            )
-        logger.error(
-            "Neynar lookupSigner failed for %s: %s",
-            signer_uuid,
-            exc.response.text,
-        )
+        parsed = SiweMessage.from_message(body.message)
+        msg_nonce = parsed.nonce
+        msg_domain = parsed.domain
+    except Exception:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not check signer status",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid SIWF message.",
         )
 
-    return SignerStatusResponse(
-        status=result.get("status", "generated"),
-        fid=result.get("fid"),
+    # Atomic nonce check & consume — concurrent submissions of the
+    # same message all collapse to a single successful login.
+    if not await consume_siwf_nonce(redis, msg_nonce):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired nonce.",
+        )
+
+    # Cryptographic verification. Bound to our domain so a message
+    # signed for someone else's app can't be replayed against Juke.
+    custody = await verify_siwf_message(
+        message=body.message,
+        signature=body.signature,
+        expected_domain=settings.SIWF_DOMAIN or msg_domain,
+        expected_nonce=msg_nonce,
+    )
+
+    # Resolve custody → fid via Neynar. The recovered address has
+    # already been cryptographically tied to the message; this just
+    # turns it into a Farcaster identity.
+    fid = await lookup_fid_by_custody(custody)
+    if fid is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No Farcaster account found for this address.",
+        )
+
+    # Profile lookup + user upsert. SIWF doesn't grant write access,
+    # so users authenticated this way use the same `siwf-auth`
+    # sentinel signer the miniapp Quick Auth flow uses for read-only
+    # sessions.
+    try:
+        profile = await fetch_user_profile(fid)
+    except (httpx.HTTPStatusError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    user = await get_or_create_user(db, fid, SIWF_SENTINEL_SIGNER_UUID, profile)
+
+    jwt_token, expires_at = create_jwt(user.fid)
+    refresh_token = await create_refresh_token(user.fid, redis)
+
+    # Mark recent SIWN — sign-in completed within the step-up window
+    # required for developer-key mutations.
+    from app.services.redis_service import RedisService
+
+    await RedisService(redis).mark_siwn(user.fid)
+
+    if body.use_cookie:
+        _set_refresh_cookie(response, refresh_token)
+        body_refresh_token: str | None = None
+    else:
+        body_refresh_token = refresh_token
+
+    is_pro = profile.get("pro", {}).get("status") == "subscribed"
+    return LoginResponse(
+        jwt=jwt_token,
+        refresh_token=body_refresh_token,
+        expires_at=expires_at,
+        user=UserResponse(
+            fid=user.fid,
+            username=user.username or "",
+            display_name=user.display_name or "",
+            pfp_url=user.pfp_url,
+            custody_address=user.custody_address,
+            is_pro=is_pro,
+            is_admin=user.is_admin,
+        ),
     )
 
 

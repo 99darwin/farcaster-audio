@@ -16,6 +16,7 @@ pydub>=0.25.1
 python-multipart>=0.0.9
 sentry-sdk[fastapi]>=2.0
 eth-account>=0.13.0
+siwe>=4.4.0
 x402[fastapi,httpx,evm]>=2.6.0
 cdp-sdk>=1.41.0
 # Test-only: in-memory SQLite for service-level cache tests.

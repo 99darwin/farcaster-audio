@@ -127,17 +127,17 @@ export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
     setSignerApprovalUrl(null);
 
     try {
-      const { signerUuid, signerApprovalUrl: approvalUrl } =
-        await sdkRef.current!.startManagedSignerFlow();
-      setSignerApprovalUrl(approvalUrl);
+      const { channelToken, url } = await sdkRef.current!.startSiwfFlow();
+      setSignerApprovalUrl(url);
 
-      const approved = await sdkRef.current!.pollSignerStatus(signerUuid, {
+      const approved = await sdkRef.current!.pollSiwfStatus(channelToken, {
         signal: abort.signal,
       });
 
-      const session = await sdkRef.current!.completeManagedSignerLogin(
-        approved,
-      );
+      const session = await sdkRef.current!.completeSiwfLogin({
+        message: approved.message,
+        signature: approved.signature,
+      });
       setIsAuthenticated(true);
       setAuthenticatedFid(session.fid);
       setSignerApprovalUrl(null);

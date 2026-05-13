@@ -40,7 +40,7 @@ https://juke.audio/developers
 ```
 
 Developer access states:
-- signed out: prompt Farcaster SIWN before loading developer apps
+- signed out: prompt Farcaster SIWF before loading developer apps
 - pending: no keys yet; hosted iframe still works without keys
 - approved: create apps, create keys, rotate keys, revoke keys
 - suspended: custom API key calls are disabled; hosted public embeds can remain
@@ -83,19 +83,22 @@ const space = await juke.getSpace(spaceId);
 const anonymousJoin = await juke.joinAnonymousListener(spaceId);
 await juke.connectAudio(anonymousJoin);
 
-// 2. Only when the visitor opts into participation, mint a managed signer.
-//    The backend provisions a Neynar signer and signs its public key with
-//    the app's custody key; you get back a Farcaster deeplink the user
-//    approves in their Farcaster client.
-const { signerUuid, signerApprovalUrl } = await juke.startManagedSignerFlow();
+// 2. When the visitor opts into participation, run Sign In With Farcaster.
+//    The SDK fetches a single-use nonce from the backend, opens a SIWF
+//    channel via the Farcaster auth relay, and returns a deeplink the
+//    user opens in their Farcaster client.
+const { channelToken, url } = await juke.startSiwfFlow();
 
-// 3. Render `signerApprovalUrl` as a QR code (desktop) or a tap button
-//    (mobile). The user approves the signer in their Farcaster client.
-//    Then poll until status === "approved".
-const approved = await juke.pollSignerStatus(signerUuid);
+// 3. Render `url` (a `farcaster://connect?...` deeplink) as a QR code
+//    on desktop or as a tap button on mobile. The user approves in
+//    their Farcaster client, which displays the signing domain on the
+//    approval screen.
+const approved = await juke.pollSiwfStatus(channelToken);
 
 // 4. Finish login and join the room as an authenticated participant.
-await juke.completeManagedSignerLogin(approved);
+//    The backend re-verifies the signature, the domain, and the nonce
+//    before issuing a Juke JWT.
+await juke.completeSiwfLogin(approved);
 const authedJoin = await juke.joinAuthenticated(spaceId);
 await juke.connectAudio(authedJoin);
 await juke.raiseHand(spaceId, true);
@@ -105,12 +108,11 @@ await juke.sendReaction("clap");
 SDK capabilities:
 - `getSpace(id)`
 - `joinAnonymousListener(id)`
-- `startManagedSignerFlow()` — returns `{signerUuid, signerApprovalUrl}`;
-  render the URL as a QR for desktop scan or as a tap button on mobile.
-- `pollSignerStatus(signerUuid, { signal? })` — resolves to
-  `{ signerUuid, fid }` when the user approves; rejects on revoke/abort.
-- `completeManagedSignerLogin({ signerUuid, fid })` — finalizes the
-  Juke session.
+- `startSiwfFlow()` — returns `{channelToken, url}`; render `url` as a
+  QR for desktop scan or as a tap button on mobile.
+- `pollSiwfStatus(channelToken, { signal? })` — resolves to
+  `{message, signature, fid}` when the user signs; rejects on abort.
+- `completeSiwfLogin({message, signature})` — finalizes the Juke session.
 - `joinAuthenticated(id, token?)`
 - `leaveSpace(id)`
 - `refreshToken(id)`
@@ -119,11 +121,11 @@ SDK capabilities:
 - `connectAudio(joinResponse)`
 - `enableMicrophone()` only after host approval
 
-Do not open `signerApprovalUrl` in a desktop popup — it is a Farcaster
-deeplink (`client.farcaster.xyz/deeplinks/signed-key-request?...`) and
-renders blank in a normal browser tab. Show a QR code so the user can
-scan it with their Farcaster app, plus a tap-to-deeplink button for
-visitors already on mobile.
+Do not open the SIWF `url` in a desktop popup — it is a Farcaster
+deeplink (`farcaster://connect?...`) and renders blank in a normal
+browser tab. Show a QR code so the user can scan it with their
+Farcaster app, plus a tap-to-deeplink button for visitors already on
+mobile.
 
 If building custom UI, keep visible Juke attribution and link to the canonical
 space page: `https://juke.audio/space/{spaceId}`.
@@ -138,7 +140,7 @@ client-side error monitoring.
 End-to-end flow:
 
 1. Open `https://juke.audio/developers`.
-2. Sign in with Farcaster using SIWN.
+2. Sign in with Farcaster using SIWF.
 3. Request developer access with the app/use-case details.
 4. Wait for Juke admin approval.
 5. Create an app with the production origins where the integration runs.
@@ -158,7 +160,7 @@ Two distinct auth paths:
 - **`/v1/developer/apps/*`** (dashboard routes: list apps, list keys,
   create app, etc.) — **JWT only**, scoped to the developer's signed-in
   session. Dangerous mutations (rotate, revoke, reveal, delete-app)
-  additionally require a recent SIWN within the last 5 minutes; the
+  additionally require a recent SIWF within the last 5 minutes; the
   server signals this with `401 "Recent sign-in required."` and a
   `WWW-Authenticate: ReAuth` header. The dashboard handles this for you
   — server integrations rarely need these endpoints.
@@ -221,10 +223,12 @@ POST /v1/developer/spaces
 
 1. Public metadata: no auth.
 2. Anonymous listen: `POST /v1/rooms/{spaceId}/anonymous-join`.
-3. Human participation on ordinary web: managed-signer SIWN. SDK calls
-   `startManagedSignerFlow()` → renders the resulting Farcaster deeplink
-   as a QR for desktop scan or a tap button on mobile → polls
-   `pollSignerStatus()` until approved → `completeManagedSignerLogin()`.
+3. Human participation on ordinary web: Sign In With Farcaster (SIWF).
+   SDK calls `startSiwfFlow()` → renders the resulting
+   `farcaster://connect` deeplink as a QR for desktop scan or a tap
+   button on mobile → polls `pollSiwfStatus()` until signed →
+   `completeSiwfLogin()`. The signing domain is bound into the SIWE
+   message and displayed to the user at approval.
 4. Farcaster miniapps: Quick Auth via `@farcaster/miniapp-sdk`.
 5. Native Juke iOS app: on-device secp256k1 auth address registered via
    the developer-managed signed key API (separate from the web SDK).
@@ -304,8 +308,11 @@ Backend env keys (the Juke server stack):
   `JWT_REFRESH_EXPIRY_DAYS`
 - `NEYNAR_API_KEY`, `NEYNAR_CLIENT_ID`
 - `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_WS_URL`
-- `FARCASTER_APP_FID`, `FARCASTER_APP_MNEMONIC` (signs managed-signer
-  key requests with the app's custody account)
+- `FARCASTER_APP_FID`, `FARCASTER_APP_MNEMONIC` (used by the miniapp
+  auth-address registration and snap signing — SIWF login does not
+  require these; the user's own Farcaster custody signs)
+- `SIWF_DOMAIN` (the domain the backend will require in SIWF signed
+  messages; e.g. `juke.audio`)
 - `JUKE_API_KEY_PEPPER` (≥32 bytes random; peppers stored API key
   hashes)
 - `JUKE_API_KEY_ENCRYPTION_KEY` (exactly 32 bytes base64; AES-256-GCM
