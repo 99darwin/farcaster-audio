@@ -28,20 +28,6 @@ type LoginResponse = {
   user: { fid: number };
 };
 
-export type SiwnPayload = {
-  fid: number | string;
-  signer_uuid: string;
-  nonce: string;
-};
-
-export type StartSiwnResult = {
-  authorizationUrl: string;
-  popup: Window | null;
-  nonce: string;
-};
-
-export type SiwnExpectation = { nonce: string; source: Window | null };
-
 export type StartManagedSignerResult = {
   signerUuid: string;
   signerApprovalUrl: string;
@@ -112,55 +98,6 @@ export class JukeEmbedSdk {
     return parseJsonResponse<JoinSpaceResponse>(res, "Could not join space");
   }
 
-  async startSiwn(options?: { openPopup?: boolean }): Promise<StartSiwnResult> {
-    const res = await fetch(`${API_BASE_URL}/v1/auth/neynar-auth-url`, {
-      cache: "no-store",
-    });
-    const body = await parseJsonResponse<{ authorization_url: string }>(
-      res,
-      "Could not start sign in",
-    );
-
-    const nonce = generateSiwnNonce();
-    const authorizationUrl = appendSiwnCallback(body.authorization_url, nonce);
-    const popup =
-      options?.openPopup === false
-        ? null
-        : window.open(
-            authorizationUrl,
-            "_blank",
-            "popup=yes,width=430,height=720",
-          );
-
-    return { authorizationUrl, popup, nonce };
-  }
-
-  async completeSiwn(payload: SiwnPayload): Promise<AuthSession> {
-    const fid =
-      typeof payload.fid === "string" ? Number.parseInt(payload.fid, 10) : payload.fid;
-    if (!Number.isFinite(fid) || fid <= 0 || !payload.signer_uuid) {
-      throw new Error("Invalid sign-in response");
-    }
-
-    const res = await fetch(`${API_BASE_URL}/v1/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fid, signer_uuid: payload.signer_uuid }),
-    });
-    const body = await parseJsonResponse<LoginResponse>(
-      res,
-      "Could not complete sign in",
-    );
-
-    this.authSession = {
-      jwt: body.jwt,
-      refreshToken: body.refresh_token,
-      expiresAt: body.expires_at,
-      fid: body.user.fid,
-    };
-    return this.authSession;
-  }
-
   /**
    * Managed-signer SIWN flow for the embed. The backend mints a Neynar
    * signer + signs its public_key; we render `signer_approval_url` as a
@@ -169,8 +106,7 @@ export class JukeEmbedSdk {
    *
    * Unlike the dashboard, the embed lives in a cross-origin iframe
    * where third-party storage partitioning makes HttpOnly cookies
-   * unreliable — so we keep the refresh_token in JS memory (same model
-   * as the legacy `completeSiwn`).
+   * unreliable — so we keep the refresh_token in JS memory.
    */
   async startManagedSignerFlow(): Promise<StartManagedSignerResult> {
     const res = await fetch(`${API_BASE_URL}/v1/auth/signer/create`, {
@@ -198,8 +134,12 @@ export class JukeEmbedSdk {
       if (options?.signal?.aborted) {
         throw new Error("Sign-in cancelled");
       }
-      const url = `${API_BASE_URL}/v1/auth/signer/status?signer_uuid=${encodeURIComponent(signerUuid)}`;
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(`${API_BASE_URL}/v1/auth/signer/status`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signer_uuid: signerUuid }),
+      });
       const body = await parseJsonResponse<{
         status: SignerStatus;
         fid: number | null;
@@ -451,78 +391,6 @@ export class JukeEmbedSdk {
 
 export function createJukeEmbedSdk(): JukeEmbedSdk {
   return new JukeEmbedSdk();
-}
-
-// Neynar's web SIWN flow posts the auth payload to `window.opener` directly
-// from the popup running on `app.neynar.com` — it does NOT redirect to the
-// `deeplink_url` we pass (that's for mobile/WebView flows). The popup is
-// captured in `expected.source`; the `event.source` check below binds the
-// message to the specific window we opened, so even though we accept
-// messages from Neynar's origin, only the popup at the auth URL we
-// constructed can be the actual sender. See developer-api.ts for the
-// fuller writeup.
-const TRUSTED_SIWN_ORIGINS = new Set([
-  "https://app.neynar.com",
-  "https://farcaster.xyz",
-  "https://client.farcaster.xyz",
-]);
-
-export function isTrustedSiwnMessage(
-  event: MessageEvent,
-  expected: SiwnExpectation,
-): boolean {
-  if (typeof window === "undefined") return false;
-  if (!expected.source || event.source !== expected.source) return false;
-  const ownOrigin = window.location.origin;
-  const isOwnOrigin = event.origin === ownOrigin;
-  if (!isOwnOrigin && !TRUSTED_SIWN_ORIGINS.has(event.origin)) return false;
-  const payload = parseSiwnPayload(event.data);
-  if (!payload) return false;
-  // Nonce binding only applies when the message came through our own
-  // /embed/auth/callback page (mobile/WebView fallback). Neynar's direct
-  // postMessage doesn't include our URL params.
-  if (isOwnOrigin && payload.nonce !== expected.nonce) return false;
-  return true;
-}
-
-export function parseSiwnPayload(data: unknown): SiwnPayload | null {
-  let payload = data;
-  if (typeof payload === "string") {
-    try {
-      payload = JSON.parse(payload);
-    } catch {
-      return null;
-    }
-  }
-  if (typeof payload !== "object" || payload === null) return null;
-  const candidate = payload as Partial<SiwnPayload> & {
-    is_authenticated?: boolean;
-    nonce?: unknown;
-  };
-  if (!candidate.signer_uuid || candidate.fid === undefined) return null;
-  if (candidate.is_authenticated === false) return null;
-  return {
-    signer_uuid: candidate.signer_uuid,
-    fid: candidate.fid,
-    nonce:
-      typeof candidate.nonce === "string" && candidate.nonce
-        ? candidate.nonce
-        : "",
-  };
-}
-
-function appendSiwnCallback(rawUrl: string, nonce: string): string {
-  const url = new URL(rawUrl);
-  if (typeof window !== "undefined") {
-    const callback = new URL("/embed/auth/callback", window.location.origin);
-    callback.searchParams.set("nonce", nonce);
-    url.searchParams.set("deeplink_url", callback.toString());
-  }
-  return url.toString();
-}
-
-function generateSiwnNonce(): string {
-  return crypto.randomUUID();
 }
 
 function supportsWebRtc(): boolean {

@@ -52,16 +52,12 @@ Use this when the developer wants spaces live quickly and accepts Juke-owned UI.
 
 ```html
 <iframe
-  src="https://juke.audio/embed/{spaceId}?mode=compact&participation=speak-request"
+  src="https://juke.audio/embed/{spaceId}"
   title="Juke live audio space"
   allow="autoplay; microphone"
   style="width: 100%; max-width: 420px; height: 620px; border: 0; border-radius: 24px;"
 ></iframe>
 ```
-
-Parameters:
-- `mode`: `full` or `compact`
-- `participation`: `listen`, `social`, or `speak-request`
 
 Behavior:
 - no auth is required to render public metadata

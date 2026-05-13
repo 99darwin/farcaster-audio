@@ -5,14 +5,6 @@ export const DEVELOPER_API_BASE_URL =
 
 const EXPIRY_SAFETY_MS = 60 * 1000;
 
-export type SiwnExpectation = { nonce: string; source: Window | null };
-
-export type StartDeveloperSiwnResult = {
-  authorizationUrl: string;
-  popup: Window | null;
-  nonce: string;
-};
-
 export type StartManagedSignerResult = {
   signerUuid: string;
   signerApprovalUrl: string;
@@ -127,12 +119,6 @@ export type DeveloperApplicationInput = {
   useCase: string;
 };
 
-export type SiwnPayload = {
-  fid: number | string;
-  signer_uuid: string;
-  nonce: string;
-};
-
 // Post-normalization shape — `parseJsonResponse` runs `toCamelCase`, so the
 // server's snake_case fields (`refresh_token`, `expires_at`) arrive here as
 // camelCase. The legacy `refresh_token` is optional because the dashboard
@@ -222,37 +208,6 @@ export class DeveloperApiClient {
     return this.session;
   }
 
-  async startSiwn(
-    options?: { openPopup?: boolean },
-  ): Promise<StartDeveloperSiwnResult> {
-    const res = await fetch(`${DEVELOPER_API_BASE_URL}/v1/auth/neynar-auth-url`, {
-      cache: "no-store",
-    });
-    // parseJsonResponse runs toCamelCase on the body, so the server's
-    // {"authorization_url": "..."} arrives here as {authorizationUrl: "..."}.
-    // The type reflects post-normalization shape.
-    const body = await parseJsonResponse<{ authorizationUrl: string }>(
-      res,
-      "Could not start sign in",
-    );
-    if (!body?.authorizationUrl) {
-      throw new DeveloperApiError("Could not start sign in", 500);
-    }
-    const nonce = generateSiwnNonce();
-    const authorizationUrl = appendSiwnCallback(body.authorizationUrl, nonce);
-
-    const popup =
-      options?.openPopup === false
-        ? null
-        : window.open(
-            authorizationUrl,
-            "_blank",
-            "popup=yes,width=430,height=720",
-          );
-
-    return { authorizationUrl, popup, nonce };
-  }
-
   /**
    * Managed-signer SIWN flow. The backend provisions a Neynar signer +
    * signs its public_key with the app's custody key; the response
@@ -306,8 +261,15 @@ export class DeveloperApiClient {
       if (options?.signal?.aborted) {
         throw new DeveloperApiError("Sign-in cancelled", 0);
       }
-      const url = `${DEVELOPER_API_BASE_URL}/v1/auth/signer/status?signer_uuid=${encodeURIComponent(signerUuid)}`;
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(
+        `${DEVELOPER_API_BASE_URL}/v1/auth/signer/status`,
+        {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ signer_uuid: signerUuid }),
+        },
+      );
       const body = await parseJsonResponse<{
         status: SignerStatus;
         fid: number | null;
@@ -345,36 +307,6 @@ export class DeveloperApiClient {
       body: JSON.stringify({
         fid: payload.fid,
         signer_uuid: payload.signerUuid,
-        use_cookie: true,
-      }),
-    });
-    const body = await parseJsonResponse<LoginResponse>(
-      res,
-      "Could not complete sign in",
-    );
-    this.session = normalizeLogin(body);
-    memorySession = this.session;
-    return this.session;
-  }
-
-  async completeSiwn(payload: SiwnPayload): Promise<DeveloperSession> {
-    const fid =
-      typeof payload.fid === "string" ? Number.parseInt(payload.fid, 10) : payload.fid;
-    if (!Number.isFinite(fid) || fid <= 0 || !payload.signer_uuid) {
-      throw new Error("Invalid sign-in response");
-    }
-
-    const res = await fetch(`${DEVELOPER_API_BASE_URL}/v1/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // use_cookie:true tells the API to deliver the refresh token via an
-      // HttpOnly cookie scoped to /v1/auth instead of returning it in the
-      // response body. credentials:"include" is required for cross-origin
-      // (juke.audio → your-api-host.example.com) to send/receive cookies.
-      credentials: "include",
-      body: JSON.stringify({
-        fid,
-        signer_uuid: payload.signer_uuid,
         use_cookie: true,
       }),
     });
@@ -614,77 +546,6 @@ export function createDeveloperApiClient(): DeveloperApiClient {
   return new DeveloperApiClient();
 }
 
-// Neynar's web SIWN flow posts the auth payload to `window.opener` directly
-// from the popup running on `app.neynar.com` — it does NOT redirect to the
-// `deeplink_url` we pass (that's for mobile/WebView flows). So we accept
-// messages from Neynar's origin AS LONG AS the message came from the
-// specific popup window we opened (event.source binding below).
-//
-// Security model:
-//   1. event.source === expected.source — the message must come from the
-//      window we called window.open() on. An attacker on app.neynar.com
-//      can't be event.source unless they're hosted INSIDE the auth URL
-//      we constructed, which requires compromising Neynar's auth page.
-//   2. event.origin is on a small allowlist — sanity tripwire only.
-//   3. Payload shape is valid.
-//   4. Nonce check is enforced ONLY when the message came from our own
-//      origin (the /embed/auth/callback page, used by mobile/WebView).
-//      Neynar's direct postMessage doesn't propagate our URL params.
-const TRUSTED_SIWN_ORIGINS = new Set([
-  "https://app.neynar.com",
-  "https://farcaster.xyz",
-  "https://client.farcaster.xyz",
-]);
-
-export function isTrustedDeveloperSiwnMessage(
-  event: MessageEvent,
-  expected: SiwnExpectation,
-): boolean {
-  if (typeof window === "undefined") return false;
-  // event.source binding is the primary defense — without a popup
-  // reference we can't safely accept any message.
-  if (!expected.source || event.source !== expected.source) return false;
-  const ownOrigin = window.location.origin;
-  const isOwnOrigin = event.origin === ownOrigin;
-  if (!isOwnOrigin && !TRUSTED_SIWN_ORIGINS.has(event.origin)) return false;
-  const payload = parseDeveloperSiwnPayload(event.data);
-  if (!payload) return false;
-  // Nonce binding only applies on the own-origin callback path. Neynar's
-  // direct postMessage doesn't include URL params we set on deeplink_url.
-  if (isOwnOrigin && payload.nonce !== expected.nonce) return false;
-  return true;
-}
-
-export function parseDeveloperSiwnPayload(data: unknown): SiwnPayload | null {
-  let payload = data;
-  if (typeof payload === "string") {
-    try {
-      payload = JSON.parse(payload);
-    } catch {
-      return null;
-    }
-  }
-  if (typeof payload !== "object" || payload === null) return null;
-
-  const candidate = payload as Partial<SiwnPayload> & {
-    is_authenticated?: boolean;
-    nonce?: unknown;
-  };
-  if (!candidate.signer_uuid || candidate.fid === undefined) return null;
-  if (candidate.is_authenticated === false) return null;
-  // Nonce is optional in the payload — Neynar's direct postMessage path
-  // does not include it; the own-origin callback path does and we
-  // validate it in `isTrustedDeveloperSiwnMessage`.
-  return {
-    fid: candidate.fid,
-    signer_uuid: candidate.signer_uuid,
-    nonce:
-      typeof candidate.nonce === "string" && candidate.nonce
-        ? candidate.nonce
-        : "",
-  };
-}
-
 export function maskDeveloperKey(key: DeveloperApiKey): string {
   return `jk_sec_live_${key.keyId}_${"*".repeat(20)}`;
 }
@@ -713,24 +574,10 @@ function normalizeApp(app: Omit<DeveloperApp, "keys">): Omit<DeveloperApp, "keys
   };
 }
 
-function appendSiwnCallback(rawUrl: string, nonce: string): string {
-  const url = new URL(rawUrl);
-  if (typeof window !== "undefined") {
-    const callback = new URL("/embed/auth/callback", window.location.origin);
-    callback.searchParams.set("nonce", nonce);
-    url.searchParams.set("deeplink_url", callback.toString());
-  }
-  return url.toString();
-}
-
-function generateSiwnNonce(): string {
-  return crypto.randomUUID();
-}
-
 function normalizeLogin(body: LoginResponse): DeveloperSession {
   // refresh_token is intentionally not stored on the client — the dashboard
-  // uses cookie-based refresh (see completeSiwn) so the refresh token never
-  // touches JS-accessible storage.
+  // uses cookie-based refresh (see completeManagedSignerLogin) so the refresh
+  // token never touches JS-accessible storage.
   return {
     jwt: body.jwt,
     expiresAt: body.expiresAt,
