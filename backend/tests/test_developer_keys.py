@@ -1621,3 +1621,60 @@ async def test_embed_policy_returns_empty_list_for_app_without_origins(
     res = await client_with_db.get(f"/v1/rooms/{room.id}/embed-policy")
     assert res.status_code == 200
     assert res.json()["allowed_origins"] == []
+
+
+# ---------------------------------------------------------------------------
+# Stream A: embed-policy cache headers — TTL was reduced from the original
+# aggressive value so suspension / origin changes propagate to the edge
+# in well under 2 minutes worst-case. Pin the exact Cache-Control value so
+# we get a regression alarm if someone bumps it back up by accident.
+# ---------------------------------------------------------------------------
+
+
+EMBED_POLICY_CACHE_CONTROL = (
+    "public, max-age=30, s-maxage=60, stale-while-revalidate=120"
+)
+
+
+@pytest.mark.asyncio
+async def test_embed_policy_cache_headers_reflect_reduced_ttl(
+    client_with_db, db_session
+):
+    """All three embed-policy branches emit the reduced Cache-Control header.
+
+    The cache TTL was deliberately tightened to ~2 min worst-case so that
+    revoked/suspended apps (which return `[]`) stop being embeddable at the
+    edge in a timely manner. Pin the exact header value across:
+      - normal app-linked room (allowed_origins=[...])
+      - app present but no origins configured (allowed_origins=[])
+      - room with no owning app (allowed_origins=null)
+    """
+    await _seed_user(db_session)
+    create_app = await client_with_db.post(
+        "/v1/developer/apps",
+        json={
+            "name": "Cache header app",
+            "allowed_origins": ["https://example.com"],
+        },
+        headers=_auth_header(OWNER_FID),
+    )
+    app_id = uuid.UUID(create_app.json()["id"])
+
+    # Linked room with origins.
+    room_with_origins = await _seed_room_with_app(
+        db_session, host_fid=OWNER_FID, app_id=app_id
+    )
+    res = await client_with_db.get(
+        f"/v1/rooms/{room_with_origins.id}/embed-policy"
+    )
+    assert res.status_code == 200
+    assert res.headers.get("cache-control") == EMBED_POLICY_CACHE_CONTROL
+
+    # Unlinked room → null branch.
+    room_no_app = await _seed_room_with_app(
+        db_session, host_fid=OWNER_FID, app_id=None
+    )
+    res = await client_with_db.get(f"/v1/rooms/{room_no_app.id}/embed-policy")
+    assert res.status_code == 200
+    assert res.json()["allowed_origins"] is None
+    assert res.headers.get("cache-control") == EMBED_POLICY_CACHE_CONTROL

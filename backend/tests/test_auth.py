@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
@@ -355,3 +357,251 @@ async def test_protected_endpoint_invalid_token(client):
         headers={"Authorization": "Bearer invalid-token"},
     )
     assert response.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Stream A follow-ups: signer endpoints, audit logging, proxy-aware IP,
+# and per-IP / per-uuid rate limits.
+# ---------------------------------------------------------------------------
+
+
+def _http_status_error(status_code: int, body: str = "") -> httpx.HTTPStatusError:
+    """Build an httpx.HTTPStatusError with a populated response body.
+
+    The auth router logs `exc.response.text`, so the response mock must
+    expose both a status_code and a `.text` attribute.
+    """
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = body
+    return httpx.HTTPStatusError("upstream error", request=None, response=resp)
+
+
+@pytest.mark.asyncio
+async def test_signer_status_accepts_post_body(client):
+    """POST with JSON body works, and GET on the same path is 405."""
+    with patch(
+        "app.routers.auth.lookup_signer_status",
+        new_callable=AsyncMock,
+        return_value={"status": "pending_approval", "fid": None},
+    ):
+        response = await client.post(
+            "/v1/auth/signer/status",
+            json={"signer_uuid": "abc"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {"status": "pending_approval", "fid": None}
+
+    # GET on /signer/status must NOT exist — guards against an accidental
+    # reintroduction of the querystring variant (#16) which would leak
+    # signer_uuid into access logs / Referer headers.
+    get_response = await client.get(
+        "/v1/auth/signer/status",
+        params={"signer_uuid": "abc"},
+    )
+    assert get_response.status_code == 405
+
+
+@pytest.mark.asyncio
+async def test_signer_status_per_uuid_rate_limit(client):
+    """31st poll for one signer_uuid (within 24h) returns 429 + Retry-After.
+
+    The route calls redis.incr twice in sequence: per-IP first, then
+    per-UUID. Sequence the side_effect: per-IP returns 1 (well under
+    the 120/min cap), per-UUID returns 31 (one above the 30/24h cap).
+    """
+    from app.main import app
+
+    app.state.redis.incr = AsyncMock(side_effect=[1, 31])
+    app.state.redis.ttl = AsyncMock(return_value=12345)
+
+    with patch(
+        "app.routers.auth.lookup_signer_status",
+        new_callable=AsyncMock,
+        return_value={"status": "pending_approval", "fid": None},
+    ):
+        response = await client.post(
+            "/v1/auth/signer/status",
+            json={"signer_uuid": "leaky-uuid"},
+        )
+
+    assert response.status_code == 429
+    assert "this signer" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_signer_status_per_ip_rate_limit(client):
+    """121st request from one IP within 60s returns 429."""
+    from app.main import app
+
+    # First incr (per-IP) overshoots the 120/min cap; per-UUID incr
+    # never runs because the 429 short-circuits the route.
+    app.state.redis.incr = AsyncMock(side_effect=[121, 1])
+
+    with patch(
+        "app.routers.auth.lookup_signer_status",
+        new_callable=AsyncMock,
+        return_value={"status": "pending_approval", "fid": None},
+    ):
+        response = await client.post(
+            "/v1/auth/signer/status",
+            json={"signer_uuid": "abc"},
+        )
+
+    assert response.status_code == 429
+    assert "polling" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_login_rate_limit_returns_429(auth_client):
+    """11th login attempt from one IP within 60s returns 429 + Retry-After."""
+    from app.main import app
+
+    # Force the over-limit branch on the first request: per-IP incr returns 11.
+    app.state.redis.incr = AsyncMock(return_value=11)
+    app.state.redis.ttl = AsyncMock(return_value=42)
+
+    client, _ = auth_client
+    signer_patch, profile_patch = _mock_signer_and_profile()
+    with signer_patch, profile_patch:
+        response = await client.post(
+            "/v1/auth/login",
+            json={"signer_uuid": "test-signer", "fid": 7777},
+        )
+
+    assert response.status_code == 429
+    assert response.headers.get("retry-after") == "42"
+    assert "login" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_create_signer_neynar_502_logs_failure(client, caplog):
+    """Upstream 502 surfaces as 502 + emits a `signer_create_failed` audit log."""
+    caplog.set_level(logging.INFO, logger="app.routers.auth")
+    with patch(
+        "app.routers.auth.create_and_register_signer",
+        new_callable=AsyncMock,
+        side_effect=_http_status_error(502, body="neynar down"),
+    ):
+        response = await client.post("/v1/auth/signer/create")
+
+    assert response.status_code == 502
+
+    audit_records = [
+        r for r in caplog.records
+        if getattr(r, "event", None) == "signer_create_failed"
+    ]
+    assert audit_records, "expected at least one signer_create_failed log"
+    rec = audit_records[0]
+    assert rec.error == "neynar_upstream_error"
+    assert rec.signer_uuid is None
+    assert hasattr(rec, "ip")
+    assert hasattr(rec, "user_agent")
+
+
+@pytest.mark.asyncio
+async def test_create_signer_misconfigured_raises_500(client, caplog):
+    """ValueError from create_and_register_signer surfaces as 500 + audit log."""
+    caplog.set_level(logging.INFO, logger="app.routers.auth")
+    with patch(
+        "app.routers.auth.create_and_register_signer",
+        new_callable=AsyncMock,
+        side_effect=ValueError("FARCASTER_APP_FID is not configured"),
+    ):
+        response = await client.post("/v1/auth/signer/create")
+
+    assert response.status_code == 500
+
+    audit_records = [
+        r for r in caplog.records
+        if getattr(r, "event", None) == "signer_create_failed"
+    ]
+    assert audit_records, "expected at least one signer_create_failed log"
+    assert audit_records[0].error == "misconfigured"
+
+
+@pytest.mark.asyncio
+async def test_create_signer_emits_audit_log_on_success(client, caplog):
+    """Successful signer creation emits a structured `signer_created` log."""
+    caplog.set_level(logging.INFO, logger="app.routers.auth")
+    fake_result = {
+        "signer_uuid": "fake-uuid-1234",
+        "signer_approval_url": "https://example.com/approve",
+        "public_key": "0xdeadbeef",
+    }
+    with patch(
+        "app.routers.auth.create_and_register_signer",
+        new_callable=AsyncMock,
+        return_value=fake_result,
+    ):
+        response = await client.post(
+            "/v1/auth/signer/create",
+            headers={"User-Agent": "Mozilla/5.0 (test)"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["signer_uuid"] == "fake-uuid-1234"
+
+    audit_records = [
+        r for r in caplog.records
+        if getattr(r, "event", None) == "signer_created"
+    ]
+    assert audit_records, "expected at least one signer_created log"
+    rec = audit_records[0]
+    assert rec.signer_uuid == "fake-uuid-1234"
+    assert rec.user_agent == "Mozilla/5.0 (test)"
+    assert hasattr(rec, "ip")
+    assert hasattr(rec, "app_fid")
+
+
+def test_client_ip_helper_parses_xff_leftmost():
+    """`_client_ip` parses XFF leftmost, falls back through real-ip → peer → 'unknown'."""
+    from app.routers.auth import _client_ip
+
+    def _make_request(headers: dict, client_host: str | None = "10.99.99.99"):
+        """Build a stand-in `Request` covering the fields _client_ip touches."""
+        req = MagicMock()
+        # Use a real Headers-compatible dict (case-insensitive .get).
+        # MagicMock's default would record .get() calls but never return data.
+        class _Headers:
+            def __init__(self, d):
+                self._d = {k.lower(): v for k, v in d.items()}
+            def get(self, key, default=""):
+                return self._d.get(key.lower(), default)
+        req.headers = _Headers(headers)
+        if client_host is None:
+            req.client = None
+        else:
+            client = MagicMock()
+            client.host = client_host
+            req.client = client
+        return req
+
+    # 1. Leftmost XFF wins, even when intermediate proxies are present.
+    req = _make_request(
+        {"x-forwarded-for": "203.0.113.1, 10.0.0.1, 10.0.0.2"}
+    )
+    assert _client_ip(req) == "203.0.113.1"
+
+    # 2. Empty XFF falls through to X-Real-IP.
+    req = _make_request(
+        {"x-forwarded-for": "", "x-real-ip": "198.51.100.7"}
+    )
+    assert _client_ip(req) == "198.51.100.7"
+
+    # 3. No XFF, no X-Real-IP → request.client.host.
+    req = _make_request({}, client_host="10.99.99.99")
+    assert _client_ip(req) == "10.99.99.99"
+
+    # 4. All sources missing → "unknown" sentinel.
+    req = _make_request({}, client_host=None)
+    assert _client_ip(req) == "unknown"
+
+    # 5. XFF with only whitespace falls through (defensive — guard against
+    #    a single-stripped-empty-element returning "").
+    req = _make_request(
+        {"x-forwarded-for": "   ", "x-real-ip": "198.51.100.9"}
+    )
+    assert _client_ip(req) == "198.51.100.9"
