@@ -24,6 +24,7 @@ from app.routers import (
     push,
     recordings,
     rooms,
+    search,
     snaps,
     users,
     voice_notes,
@@ -269,6 +270,7 @@ app.include_router(media.router)
 app.include_router(notifications.router)
 app.include_router(push.router)
 app.include_router(recordings.router)
+app.include_router(search.router)
 app.include_router(snaps.router)
 app.include_router(voice_notes.router)
 app.include_router(webhooks.router)

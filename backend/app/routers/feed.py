@@ -290,8 +290,8 @@ async def search_channels(
     q: str = Query(
         ...,
         min_length=1,
-        max_length=64,
-        pattern=r"^[a-zA-Z0-9_-]+$",
+        max_length=100,
+        pattern=r"^[a-zA-Z0-9 _-]+$",
     ),
     limit: int = Query(default=8, ge=1, le=20),
     _current_user: int = Depends(get_current_user),
