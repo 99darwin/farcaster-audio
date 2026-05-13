@@ -108,7 +108,13 @@ async def verify_siwf_message(
     try:
         siwe_msg = SiweMessage.from_message(message)
     except Exception as exc:  # noqa: BLE001 — siwe lib raises a mix
-        logger.info("siwf_verify_parse_failed", extra={"error": str(exc)})
+        logger.warning(
+            "siwf_verify_parse_failed",
+            extra={
+                "error_class": exc.__class__.__name__,
+                "error": str(exc)[:200],
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid SIWF message.",
@@ -116,16 +122,29 @@ async def verify_siwf_message(
 
     try:
         # siwe-py 4.x `verify` is synchronous and raises VerificationError
-        # on any mismatch (signature, domain, nonce, timestamps).
+        # subclasses on any mismatch (DomainMismatch, NonceMismatch,
+        # InvalidSignature, ExpiredMessage, NotYetValidMessage, etc.).
         siwe_msg.verify(
             signature=signature,
             domain=expected_domain,
             nonce=expected_nonce,
         )
     except VerificationError as exc:
-        logger.info(
+        # Log the *specific* subclass so production failures are
+        # diagnosable (domain mismatch vs nonce vs signature vs
+        # expiry). Also log the parsed message's domain so we can
+        # spot host-variant issues (e.g. www.juke.audio vs
+        # juke.audio). The user-visible detail stays generic so we
+        # don't leak which check failed.
+        logger.warning(
             "siwf_verify_failed",
-            extra={"error": exc.__class__.__name__},
+            extra={
+                "error_class": exc.__class__.__name__,
+                "error": str(exc)[:200],
+                "msg_domain": getattr(siwe_msg, "domain", None),
+                "expected_domain": expected_domain,
+                "msg_nonce_prefix": (getattr(siwe_msg, "nonce", "") or "")[:6],
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

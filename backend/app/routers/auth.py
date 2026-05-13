@@ -292,12 +292,26 @@ async def siwf_login(
             detail="Invalid or expired nonce.",
         )
 
-    # Cryptographic verification. Bound to our domain so a message
+    # Cryptographic verification. Bound to our domain(s) so a message
     # signed for someone else's app can't be replayed against Juke.
+    # SIWF_DOMAIN is a comma-separated allowlist — the message's own
+    # domain must match exactly one of the entries.
+    allowed_domains = [
+        d.strip() for d in (settings.SIWF_DOMAIN or "").split(",") if d.strip()
+    ]
+    if msg_domain not in allowed_domains:
+        logger.warning(
+            "siwf_domain_not_allowed",
+            extra={"msg_domain": msg_domain, "allowed": allowed_domains},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="SIWF domain not allowed.",
+        )
     custody = await verify_siwf_message(
         message=body.message,
         signature=body.signature,
-        expected_domain=settings.SIWF_DOMAIN or msg_domain,
+        expected_domain=msg_domain,
         expected_nonce=msg_nonce,
     )
 
