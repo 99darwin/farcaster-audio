@@ -12,7 +12,6 @@
 
 import "@/utils/cryptoPolyfill";
 import * as SecureStore from "expo-secure-store";
-import * as Crypto from "expo-crypto";
 import * as ed from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
 import * as api from "@/services/api";
@@ -211,11 +210,16 @@ export async function invalidateSnapSigner(fid: number): Promise<void> {
 
 // --- JFS signing ---
 
+export type SnapSurface =
+  | { type: "standalone" }
+  | { type: "cast"; cast: { hash: string; author: { fid: number } } };
+
 export interface SnapSubmitPayload {
   fid: number;
+  user: { fid: number };
   inputs: Record<string, string | number | boolean>;
-  nonce: string;
   audience: string;
+  surface: SnapSurface;
   timestamp: number;
 }
 
@@ -231,15 +235,16 @@ export interface JfsBody {
  * Returns the JSON shape accepted by @farcaster/snap server:
  * `{ header, payload, signature }` where each field is base64url-encoded.
  *
- * Snap v2 requires `nonce` and `audience` in the signed payload. `audience`
- * binds the signature to the snap server origin (scheme+host+port) and
- * `nonce` defeats replay. Per-button discrimination is now carried by the
- * POST `target` URL, not a `button_index` claim.
+ * Snap v2 requires `audience`, `user`, and `surface` in the signed payload.
+ * `audience` binds the signature to the snap server origin (scheme+host).
+ * `user.fid` replaces the top-level `fid` (kept for transitional servers).
+ * `surface` identifies where the snap is being rendered. Per-button
+ * discrimination is carried by the POST `target` URL, not a `button_index`.
  */
 export async function signSnapSubmit(
   fid: number,
   inputs: Record<string, string | number | boolean>,
-  { audience }: { audience: string },
+  { audience, surface }: { audience: string; surface: SnapSurface },
 ): Promise<JfsBody> {
   const { publicKey, privateKey } = await getOrCreateSnapKey(fid);
 
@@ -248,12 +253,12 @@ export async function signSnapSubmit(
     type: "app_key",
     key: publicKey,
   };
-  const nonceBytes = await Crypto.getRandomBytesAsync(16);
   const payload: SnapSubmitPayload = {
     fid,
+    user: { fid },
     inputs,
-    nonce: base64UrlEncode(nonceBytes),
     audience,
+    surface,
     timestamp: Math.floor(Date.now() / 1000),
   };
 
