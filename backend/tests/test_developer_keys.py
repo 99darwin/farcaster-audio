@@ -1551,14 +1551,15 @@ async def test_embed_policy_returns_null_for_unlinked_room(
 
 
 @pytest.mark.asyncio
-async def test_embed_policy_returns_null_for_inactive_app(
+async def test_embed_policy_blocks_inactive_app_with_empty_list(
     client_with_db, db_session
 ):
-    """Soft-deleting the owning app drops back to the default policy.
+    """Soft-deleting the owning app must BLOCK embedding, not relax it.
 
-    Avoids surfacing stale enforcement after a developer has disabled the
-    app — and avoids breaking already-running rooms whose owning app was
-    deleted.
+    Previously this returned `null` (treated as permissive by the
+    middleware), meaning a suspended developer's existing rooms became
+    *more* permissive than the admin intended. The contract is now an
+    empty list — the middleware reads `[]` as an explicit block.
     """
     await _seed_user(db_session)
     create_app = await client_with_db.post(
@@ -1578,7 +1579,7 @@ async def test_embed_policy_returns_null_for_inactive_app(
 
     res = await client_with_db.get(f"/v1/rooms/{room.id}/embed-policy")
     assert res.status_code == 200
-    assert res.json()["allowed_origins"] is None
+    assert res.json()["allowed_origins"] == []
 
 
 @pytest.mark.asyncio

@@ -18,7 +18,6 @@ from app.config import settings
 from app.dependencies import get_db, get_redis
 from app.models.user import User
 from app.schemas.auth import (
-    AuthUrlResponse,
     InvalidateAuthAddressRequest,
     LoginRequest,
     LoginResponse,
@@ -27,6 +26,7 @@ from app.schemas.auth import (
     RegisterAuthAddressResponse,
     AuthAddressStatusResponse,
     SignerCreateResponse,
+    SignerStatusRequest,
     SignerStatusResponse,
     UserResponse,
 )
@@ -52,6 +52,38 @@ from app.services.developer_signer_service import (
 from app.dependencies import DEMO_SIGNER_UUID, get_current_user, require_non_demo_user
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
+
+
+# ---------------------------------------------------------------------------
+# Proxy-aware client IP
+# ---------------------------------------------------------------------------
+
+
+def _client_ip(request: Request) -> str:
+    """Best-effort real client IP behind Railway's L7 proxy.
+
+    Reads the leftmost `X-Forwarded-For` entry first, then `X-Real-IP`,
+    then the raw socket peer. The leftmost XFF value is the originating
+    client as documented by RFC 7239 / MDN; subsequent values are the
+    chain of intermediate proxies.
+
+    We deliberately parse these headers in-process rather than enabling
+    uvicorn's `ProxyHeadersMiddleware`: that middleware's own threat
+    model around `forwarded-allow-ips` adds attack surface (mis-trusting
+    a proxy IP would let a client forge their own source). Doing it here
+    keeps the trust decision explicit and scoped to rate-limit keys.
+    """
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        first = forwarded_for.split(",")[0].strip()
+        if first:
+            return first
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -153,28 +185,6 @@ async def dev_login(
     )
 
 
-@router.get("/neynar-auth-url", response_model=AuthUrlResponse)
-async def get_auth_url():
-    """Fetch the Neynar authorization URL for SIWN via the Neynar API.
-
-    Legacy popup-based flow — kept for compatibility but the web
-    dashboard now uses the managed-signer flow below
-    (/signer/create + /signer/status).
-    """
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://api.neynar.com/v2/farcaster/login/authorize",
-            params={
-                "client_id": settings.NEYNAR_CLIENT_ID,
-                "response_type": "code",
-            },
-            headers={"x-api-key": settings.NEYNAR_API_KEY},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    return AuthUrlResponse(authorization_url=data["authorization_url"])
-
-
 @router.post("/signer/create", response_model=SignerCreateResponse)
 async def create_signer(
     request: Request,
@@ -189,7 +199,7 @@ async def create_signer(
     """
     # Per-IP rate limit. Each call mints a fresh signer on Neynar's
     # side, which has a cost — keep this aggressive.
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     rate_key = f"signer_create_rate:{ip}"
     attempts = await redis.incr(rate_key)
     if attempts == 1:
@@ -200,12 +210,24 @@ async def create_signer(
             detail="Too many sign-in attempts. Try again in a minute.",
         )
 
+    user_agent = request.headers.get("user-agent", "")
     try:
         result = await create_and_register_signer()
     except httpx.HTTPStatusError as exc:
         logger.error(
             "Neynar createSigner/registerSignedKey failed: %s",
             exc.response.text,
+        )
+        logger.info(
+            "signer_create_failed",
+            extra={
+                "event": "signer_create_failed",
+                "signer_uuid": None,
+                "ip": ip,
+                "user_agent": user_agent,
+                "app_fid": settings.FARCASTER_APP_FID,
+                "error": "neynar_upstream_error",
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -214,10 +236,34 @@ async def create_signer(
     except ValueError as exc:
         # FARCASTER_APP_MNEMONIC / FARCASTER_APP_FID misconfigured.
         logger.error("Signer signing misconfigured: %s", exc)
+        logger.info(
+            "signer_create_failed",
+            extra={
+                "event": "signer_create_failed",
+                "signer_uuid": None,
+                "ip": ip,
+                "user_agent": user_agent,
+                "app_fid": settings.FARCASTER_APP_FID,
+                "error": "misconfigured",
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Sign-in service misconfigured",
         )
+
+    # Structured audit log — ops can grep `event=signer_created` later
+    # to correlate a leaked signer_uuid back to its creator IP / UA.
+    logger.info(
+        "signer_created",
+        extra={
+            "event": "signer_created",
+            "signer_uuid": result["signer_uuid"],
+            "ip": ip,
+            "user_agent": user_agent,
+            "app_fid": settings.FARCASTER_APP_FID,
+        },
+    )
 
     return SignerCreateResponse(
         signer_uuid=result["signer_uuid"],
@@ -225,9 +271,9 @@ async def create_signer(
     )
 
 
-@router.get("/signer/status", response_model=SignerStatusResponse)
+@router.post("/signer/status", response_model=SignerStatusResponse)
 async def get_signer_status(
-    signer_uuid: str,
+    body: SignerStatusRequest,
     request: Request,
     redis: aioredis.Redis = Depends(get_redis),
 ):
@@ -235,10 +281,15 @@ async def get_signer_status(
 
     Used by the dashboard during the SIWN flow — clients poll this
     every ~2s until `status == "approved"`, then complete login.
+
+    Body-only (not querystring) so the signer_uuid never lands in
+    access logs, Referer headers, or browser history.
     """
+    signer_uuid = body.signer_uuid
+
     # Cap polling at one request every ~500ms per IP. The dashboard
     # polls at 2s intervals so this is well above normal usage.
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     rate_key = f"signer_status_rate:{ip}"
     attempts = await redis.incr(rate_key)
     if attempts == 1:
@@ -247,6 +298,20 @@ async def get_signer_status(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Polling too aggressively",
+        )
+
+    # Per-signer-uuid cap (30 polls / 24h) so a leaked uuid + botnet
+    # can't bypass the per-IP cap by spreading requests across IPs.
+    # Legitimate polling completes in well under 30 requests
+    # (2s interval × ~30s typical approval = ~15 polls).
+    uuid_rate_key = f"signer_status_per_uuid_rate:{signer_uuid}"
+    uuid_attempts = await redis.incr(uuid_rate_key)
+    if uuid_attempts == 1:
+        await redis.expire(uuid_rate_key, 86400)
+    if uuid_attempts > 30:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Polling too aggressively for this signer",
         )
 
     try:
@@ -276,11 +341,30 @@ async def get_signer_status(
 @router.post("/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
     """Login with Neynar SIWF credentials."""
+    # Per-IP rate limit before any other work. Login is the redemption
+    # endpoint for the managed-signer flow, so it must not be unrate-limited
+    # — otherwise a leaked {fid, signer_uuid} pair from the QR-phishing
+    # chain could be replayed without throttling.
+    ip = _client_ip(request)
+    rate_key = f"login_rate:{ip}"
+    attempts = await redis.incr(rate_key)
+    if attempts == 1:
+        await redis.expire(rate_key, 60)
+    if attempts > 10:
+        ttl = await redis.ttl(rate_key)
+        retry_after = max(int(ttl), 1) if ttl and ttl > 0 else 60
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Try again in a minute.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     try:
         await verify_neynar_signer(body.signer_uuid, body.fid, redis=redis)
     except httpx.HTTPStatusError:

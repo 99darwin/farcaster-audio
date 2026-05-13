@@ -183,9 +183,19 @@ async def get_room_embed_policy(
 
     Returns the owning developer app's `allowed_origins` when the room
     was created via `POST /v1/developer/spaces` and the app is still
-    active. Returns `allowed_origins=null` otherwise — the room → app
-    linkage is immutable once set, so the caller can cache aggressively.
+    active. Returns `allowed_origins=null` for unlinked rooms (legacy
+    rooms predating the SDK that have no enforcement intent), and
+    `allowed_origins=[]` when the owning app exists but has been
+    suspended/deleted — an explicit block so a suspended developer's
+    rooms aren't made *more* permissive than the admin intended.
+
+    Cache TTL is kept short (~2 min worst-case) so suspension or origin
+    changes propagate quickly to the edge.
     """
+    cache_control = (
+        "public, max-age=30, s-maxage=60, stale-while-revalidate=120"
+    )
+
     try:
         room_uuid = uuid.UUID(room_id)
     except (ValueError, TypeError):
@@ -198,10 +208,9 @@ async def get_room_embed_policy(
     if app_id is None:
         # Either room doesn't exist or has no owning app. We deliberately
         # don't distinguish so a 404 here can't be used as an existence
-        # oracle for arbitrary UUIDs.
-        response.headers["Cache-Control"] = (
-            "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
-        )
+        # oracle for arbitrary UUIDs. `null` here means "no enforcement
+        # intent" — these are legacy rooms predating the SDK.
+        response.headers["Cache-Control"] = cache_control
         return RoomEmbedPolicyResponse(allowed_origins=None)
 
     app_row = await db.execute(
@@ -211,14 +220,13 @@ async def get_room_embed_policy(
     )
     app = app_row.first()
     if app is None or app.status != "active":
-        response.headers["Cache-Control"] = (
-            "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
-        )
-        return RoomEmbedPolicyResponse(allowed_origins=None)
+        # The app was deleted or suspended. Block all embedding — a
+        # suspended developer's rooms must not silently become *more*
+        # permissive than the admin intended.
+        response.headers["Cache-Control"] = cache_control
+        return RoomEmbedPolicyResponse(allowed_origins=[])
 
-    response.headers["Cache-Control"] = (
-        "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
-    )
+    response.headers["Cache-Control"] = cache_control
     return RoomEmbedPolicyResponse(allowed_origins=list(app.allowed_origins or []))
 
 

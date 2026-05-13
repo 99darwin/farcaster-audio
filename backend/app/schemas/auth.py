@@ -35,10 +35,6 @@ class RefreshRequest(BaseModel):
     refresh_token: str | None = None
 
 
-class AuthUrlResponse(BaseModel):
-    authorization_url: str
-
-
 class SignerCreateResponse(BaseModel):
     """Returned to the web SIWN client. The client opens
     `signer_approval_url` in a popup and polls
@@ -47,6 +43,17 @@ class SignerCreateResponse(BaseModel):
 
     signer_uuid: str
     signer_approval_url: str
+
+
+class SignerStatusRequest(BaseModel):
+    """Body for POST /v1/auth/signer/status.
+
+    The signer_uuid is sent in the request body rather than the URL so
+    it never lands in access logs, Referer headers, browser history, or
+    error-reporter URL captures.
+    """
+
+    signer_uuid: str
 
 
 class SignerStatusResponse(BaseModel):

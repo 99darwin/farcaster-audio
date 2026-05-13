@@ -16,9 +16,12 @@ the auth lifecycle end-to-end on the backend:
 2. Client opens signer_approval_url in a popup. User approves the
    signer in their Farcaster client.
 
-3. GET /v1/auth/signer/status?signer_uuid=...
+3. POST /v1/auth/signer/status   body: {signer_uuid: "..."}
    → backend: GET Neynar /v2/farcaster/signer?signer_uuid=...
    ← returns {status, fid}
+
+   Body-only (no querystring) so the signer_uuid never lands in
+   access logs, Referer headers, or browser history.
 
 4. On status="approved": client calls /v1/auth/login with the
    {fid, signer_uuid} pair (existing endpoint).
@@ -31,6 +34,7 @@ a shared dependency would risk regressing the iOS auth-address flow.
 """
 
 import time
+from functools import lru_cache
 
 import httpx
 from eth_account import Account
@@ -60,9 +64,10 @@ NEYNAR_SIGNER_URL = "https://api.neynar.com/v2/farcaster/signer/"
 NEYNAR_SIGNER_SIGNED_KEY_URL = (
     "https://api.neynar.com/v2/farcaster/signer/signed_key"
 )
-KEY_REQUEST_DEADLINE_SECONDS = 86400  # 24h
+KEY_REQUEST_DEADLINE_SECONDS = 600  # 10 min
 
 
+@lru_cache(maxsize=1)
 def _get_app_account():
     if not settings.FARCASTER_APP_MNEMONIC:
         raise ValueError("FARCASTER_APP_MNEMONIC is not configured")

@@ -28,6 +28,12 @@ async def client():
     mock_redis.delete = AsyncMock()
     mock_redis.publish = AsyncMock()
     mock_redis.close = AsyncMock()
+    # Rate limiters that call redis.incr(...) directly (signer create/status,
+    # auth login, etc.) expect an int back. Default to 1 so the first request
+    # in any given test always falls under the threshold.
+    mock_redis.incr = AsyncMock(return_value=1)
+    mock_redis.expire = AsyncMock(return_value=True)
+    mock_redis.ttl = AsyncMock(return_value=60)
     # Redis pipeline used for rate limiting (incr + expire then execute).
     # incr/expire are sync on a real pipeline; execute() returns the list of
     # results — give back (1, True) so rate limit checks see count=1.
