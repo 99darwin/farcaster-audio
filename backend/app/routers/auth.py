@@ -19,6 +19,7 @@ from app.config import settings
 from app.dependencies import get_db, get_redis
 from app.models.user import User
 from app.schemas.auth import (
+    AuthUrlResponse,
     InvalidateAuthAddressRequest,
     LoginRequest,
     LoginResponse,
@@ -140,6 +141,39 @@ def _clear_refresh_cookie(response: Response) -> None:
         httponly=True,
         samesite="lax",
     )
+
+
+@router.get("/neynar-auth-url", response_model=AuthUrlResponse)
+async def get_neynar_auth_url():
+    """Fetch the Neynar SIWN authorization URL.
+
+    Native client SIWN flow (the iOS app at `farcaster-audio/` opens
+    this URL in a popup, the user signs in inside Neynar's hosted
+    flow, Neynar redirects back to the configured callback with a
+    one-time code). The web/embed/dashboard surfaces use SIWF
+    instead — see `POST /v1/auth/siwf/*`.
+
+    This route was briefly removed in PR #160 as part of a dead-code
+    audit; the audit covered `landing/` but not `farcaster-audio/`,
+    which is still on this flow. Restored to unblock iOS sign-in.
+    """
+    if not settings.NEYNAR_API_KEY or not settings.NEYNAR_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Neynar not configured.",
+        )
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        resp = await client.get(
+            "https://api.neynar.com/v2/farcaster/login/authorize",
+            params={
+                "client_id": settings.NEYNAR_CLIENT_ID,
+                "response_type": "code",
+            },
+            headers={"x-api-key": settings.NEYNAR_API_KEY},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    return AuthUrlResponse(authorization_url=data["authorization_url"])
 
 
 @router.post("/dev-login", response_model=LoginResponse)
