@@ -115,7 +115,9 @@ async def verify_siwf_message(
         )
 
     try:
-        await siwe_msg.verify(
+        # siwe-py 4.x `verify` is synchronous and raises VerificationError
+        # on any mismatch (signature, domain, nonce, timestamps).
+        siwe_msg.verify(
             signature=signature,
             domain=expected_domain,
             nonce=expected_nonce,
