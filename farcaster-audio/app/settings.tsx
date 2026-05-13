@@ -75,6 +75,28 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <Pressable
           style={styles.row}
+          onPress={() => {
+            router.dismiss();
+            router.push("/bookmarks");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Bookmarks"
+        >
+          <Ionicons
+            name="bookmark-outline"
+            size={20}
+            color={colors.purple}
+          />
+          <Text style={styles.rowText}>Bookmarks</Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.secondary}
+            style={{ marginLeft: "auto" }}
+          />
+        </Pressable>
+        <Pressable
+          style={styles.row}
           onPress={() => router.push("/notification-settings")}
           accessibilityRole="button"
           accessibilityLabel="Notification settings"

@@ -1,6 +1,6 @@
 import { UserProfile } from "./user";
 import { Room, Participant, ParticipantRole } from "./space";
-import type { NeynarFeedResponse } from "./neynar";
+import type { NeynarCast, NeynarFeedResponse } from "./neynar";
 
 // Auth
 export interface LoginRequest {
@@ -158,6 +158,50 @@ export interface ChannelSearchItem {
 
 export interface ChannelSearchResponse {
   channels: ChannelSearchItem[];
+}
+
+// --- Search ---
+export interface MiniappResultAuthor {
+  fid?: number;
+  username?: string;
+  display_name?: string;
+  pfp_url?: string | null;
+}
+
+export interface MiniappResult {
+  name: string;
+  image_url: string | null;
+  frames_url: string;
+  author?: MiniappResultAuthor | null;
+}
+
+export interface MiniappSearchMeta {
+  unsupported?: boolean;
+}
+
+export interface MiniappSearchResponse {
+  frames: MiniappResult[];
+  next: { cursor: string | null };
+  meta?: MiniappSearchMeta;
+}
+
+export interface CastSearchParsed {
+  author_username: string | null;
+  author_fid: number | null;
+  before: string | null;
+  after: string | null;
+  text: string;
+}
+
+export interface CastSearchMeta {
+  parsed: CastSearchParsed;
+  unknown_author: boolean;
+}
+
+export interface CastSearchResponse {
+  casts: NeynarCast[];
+  next: { cursor: string | null };
+  meta: CastSearchMeta;
 }
 
 // Auth Address

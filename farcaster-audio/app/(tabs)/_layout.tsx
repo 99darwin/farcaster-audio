@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { Pressable } from "react-native";
 import { Tabs, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "@/stores/authStore";
 import { useComposeStore } from "@/stores/composeStore";
 import { Avatar } from "@/components/common/Avatar";
@@ -26,6 +27,26 @@ function HeaderAvatar() {
   );
 }
 
+function HeaderSearchButton() {
+  const router = useRouter();
+  const { colors } = useTheme();
+
+  return (
+    <Pressable
+      onPress={() => router.push("/search")}
+      hitSlop={8}
+      accessibilityLabel="Search"
+      accessibilityRole="button"
+    >
+      <Ionicons
+        name="search-outline"
+        size={24}
+        color={colors.text.primary}
+      />
+    </Pressable>
+  );
+}
+
 export default function TabLayout() {
   const { colors } = useTheme();
   const requestCompose = useComposeStore((s) => s.requestCompose);
@@ -42,8 +63,14 @@ export default function TabLayout() {
         headerRightContainerStyle: { paddingRight: 16 },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="bookmarks" options={{ title: "Bookmarks" }} />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Home",
+          headerLeft: () => <HeaderSearchButton />,
+          headerLeftContainerStyle: { paddingLeft: 16 },
+        }}
+      />
       <Tabs.Screen name="notifications" options={{ title: "Notifications" }} />
     </Tabs>
   );

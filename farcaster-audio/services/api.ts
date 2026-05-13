@@ -32,6 +32,8 @@ import type {
   ChannelSearchResponse,
   BlockUserResponse,
   BlockedUsersResponse,
+  CastSearchResponse,
+  MiniappSearchResponse,
 } from "@/types/api";
 
 export const apiClient: AxiosInstance = axios.create({
@@ -250,16 +252,29 @@ export const getUserRecordings = (fid: number, cursor?: string) =>
     .then((r) => r.data);
 
 // --- Users ---
-export const searchUsers = (q: string, limit = 5) =>
+export interface UserSearchItem {
+  fid: number;
+  username: string;
+  display_name: string;
+  pfp_url: string | null;
+  bio?: string | null;
+  follower_count?: number | null;
+}
+
+export interface UserSearchResponse {
+  users: UserSearchItem[];
+}
+
+export const searchUsers = (
+  q: string,
+  limit = 5,
+  options?: { signal?: AbortSignal },
+) =>
   apiClient
-    .get<{
-      users: Array<{
-        fid: number;
-        username: string;
-        display_name: string;
-        pfp_url: string | null;
-      }>;
-    }>("/v1/users/search", { params: { q, limit } })
+    .get<UserSearchResponse>("/v1/users/search", {
+      params: { q, limit },
+      signal: options?.signal,
+    })
     .then((r) => r.data);
 
 export const getUserProfile = (fid: number) =>
@@ -314,10 +329,41 @@ export const getBookmarkedCasts = (params?: {
     .get<BookmarksFeedResponse>("/v1/feed/bookmarks", { params })
     .then((r) => r.data);
 
-export const searchChannels = (q: string, limit = 8) =>
+export const searchChannels = (
+  q: string,
+  limit = 8,
+  options?: { signal?: AbortSignal },
+) =>
   apiClient
     .get<ChannelSearchResponse>("/v1/feed/channels/search", {
       params: { q, limit },
+      signal: options?.signal,
+    })
+    .then((r) => r.data);
+
+// --- Search (global) ---
+export const searchCasts = (
+  q: string,
+  sort: "popular" | "recent" = "popular",
+  cursor?: string,
+  options?: { signal?: AbortSignal; limit?: number },
+) =>
+  apiClient
+    .get<CastSearchResponse>("/v1/search/casts", {
+      params: { q, sort, cursor, limit: options?.limit ?? 20 },
+      signal: options?.signal,
+    })
+    .then((r) => r.data);
+
+export const searchMiniapps = (
+  q: string,
+  cursor?: string,
+  options?: { signal?: AbortSignal; limit?: number },
+) =>
+  apiClient
+    .get<MiniappSearchResponse>("/v1/search/miniapps", {
+      params: { q, cursor, limit: options?.limit ?? 12 },
+      signal: options?.signal,
     })
     .then((r) => r.data);
 

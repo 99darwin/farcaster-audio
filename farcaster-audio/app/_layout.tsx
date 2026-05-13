@@ -30,6 +30,7 @@ import { ViewCastToast } from "@/components/common/ViewCastToast";
 import * as livekitService from "@/services/livekit";
 import * as api from "@/services/api";
 import { Config } from "@/constants/config";
+import { isValidMiniAppUrl } from "@/utils/url";
 
 // Must be called before any LiveKit Room usage
 registerGlobals();
@@ -99,29 +100,6 @@ export default function RootLayout() {
 
     return () => subscription.remove();
   }, []);
-
-  const isValidMiniAppUrl = (url: string): boolean => {
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== "https:") return false;
-      const host = parsed.hostname.toLowerCase();
-      // Reject private/local IPs and hostnames
-      if (host === "localhost" || host.endsWith(".local")) return false;
-      // IPv4 private/reserved ranges
-      if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)) return false;
-      if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
-      // IPv6 loopback, link-local, private
-      if (/^\[?(::1|fe80:|fc00:|fd00:)/.test(host)) return false;
-      // Reject bare IPs (require a real domain)
-      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return false;
-      if (host.startsWith("[")) return false;
-      // Must have a dot (real domain)
-      if (!host.includes(".")) return false;
-      return true;
-    } catch {
-      return false;
-    }
-  };
 
   const handleDeepLink = (url: string) => {
     const parsed = Linking.parse(url);
@@ -233,6 +211,8 @@ export default function RootLayout() {
             name="admin"
             options={{ title: "Admin", presentation: "modal" }}
           />
+          <Stack.Screen name="search" options={{ headerShown: false }} />
+          <Stack.Screen name="bookmarks" options={{ title: "Bookmarks" }} />
           <Stack.Screen name="cast/[hash]" options={{ title: "Thread" }} />
           <Stack.Screen name="profile/[fid]" options={{ title: "Profile" }} />
           <Stack.Screen

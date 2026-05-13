@@ -99,12 +99,6 @@ export function GlassTabBar({
 }
 
 function getTabConfig(routeName: string, isFocused: boolean) {
-  if (routeName === "bookmarks") {
-    return {
-      label: "Bookmarks",
-      iconName: isFocused ? "bookmark" : "bookmark-outline",
-    };
-  }
   if (routeName === "notifications") {
     return {
       label: "Notifications",
