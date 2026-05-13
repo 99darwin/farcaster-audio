@@ -488,13 +488,18 @@ function CastCardImpl({
   ]);
 
   const card = (
-    <View
+    <Pressable
       style={[styles.container, threaded && styles.threadedContainer]}
+      onPress={onPress}
+      disabled={!onPress}
       accessibilityRole="summary"
       accessibilityLabel={`${cast.author.display_name}: ${truncatedText}`}
     >
       {threaded && !hideThreadLine && <View style={styles.threadLine} />}
-      <Pressable onPress={() => navigateToProfile(cast.author.fid)}>
+      <Pressable
+        style={styles.avatarPressable}
+        onPress={() => navigateToProfile(cast.author.fid)}
+      >
         <Avatar
           pfpUrl={cast.author.pfp_url}
           displayName={cast.author.display_name}
@@ -503,28 +508,30 @@ function CastCardImpl({
       </Pressable>
       <View style={styles.content}>
         <View style={styles.headerRow}>
-          <Pressable
-            style={styles.header}
-            onPress={() => navigateToProfile(cast.author.fid)}
-          >
-            <Text style={styles.displayName} numberOfLines={1}>
-              {cast.author.display_name}
-            </Text>
-            <Text style={styles.username} numberOfLines={1}>
-              @{cast.author.username}
-            </Text>
-            {cast.author.pro?.status === "subscribed" && (
-              <Ionicons
-                name="checkmark-circle"
-                size={14}
-                color={colors.purple}
-              />
-            )}
+          <View style={styles.header}>
+            <Pressable
+              style={styles.authorNameRow}
+              onPress={() => navigateToProfile(cast.author.fid)}
+            >
+              <Text style={styles.displayName} numberOfLines={1}>
+                {cast.author.display_name}
+              </Text>
+              <Text style={styles.username} numberOfLines={1}>
+                @{cast.author.username}
+              </Text>
+              {cast.author.pro?.status === "subscribed" && (
+                <Ionicons
+                  name="checkmark-circle"
+                  size={14}
+                  color={colors.purple}
+                />
+              )}
+            </Pressable>
             <Text style={styles.dot}>{"\u00B7"}</Text>
             <Text style={styles.timestamp}>
               {getRelativeTime(cast.timestamp)}
             </Text>
-          </Pressable>
+          </View>
           {channel ? <ChannelAttribution channel={channel} /> : null}
           <Pressable
             style={styles.menuButton}
@@ -540,24 +547,13 @@ function CastCardImpl({
             />
           </Pressable>
         </View>
-        {expanded ? (
-          <CastBody
-            text={cast.text}
-            expanded={expanded}
-            onMentionPress={handleMentionPress}
-            hiddenUrls={renderedEmbedUrls}
-            granularSelection
-          />
-        ) : (
-          <Pressable onPress={onPress} disabled={!onPress}>
-            <CastBody
-              text={cast.text}
-              expanded={expanded}
-              onMentionPress={handleMentionPress}
-              hiddenUrls={renderedEmbedUrls}
-            />
-          </Pressable>
-        )}
+        <CastBody
+          text={cast.text}
+          expanded={expanded}
+          onMentionPress={handleMentionPress}
+          hiddenUrls={renderedEmbedUrls}
+          granularSelection={expanded}
+        />
         <CastImages
           embeds={embeds}
           onImagePress={(images, index) => setViewerState({ images, index })}
@@ -603,7 +599,7 @@ function CastCardImpl({
         visible={viewerState !== null}
         onClose={() => setViewerState(null)}
       />
-    </View>
+    </Pressable>
   );
 
   return card;
@@ -622,6 +618,9 @@ const useStyles = () =>
     },
     content: {
       flex: 1,
+    },
+    avatarPressable: {
+      alignSelf: "flex-start" as const,
     },
     headerRow: {
       flexDirection: "row" as const,
@@ -643,6 +642,12 @@ const useStyles = () =>
       flexDirection: "row" as const,
       alignItems: "center" as const,
       gap: 4,
+    },
+    authorNameRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 4,
+      flexShrink: 1,
     },
     displayName: {
       color: colors.text.primary,

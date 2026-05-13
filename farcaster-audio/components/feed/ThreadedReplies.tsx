@@ -196,6 +196,29 @@ function ReplyNode({
   );
 }
 
+export function partitionSpamFromTree(replies: NeynarCastWithReplies[]): {
+  clean: NeynarCastWithReplies[];
+  spam: NeynarCastWithReplies[];
+} {
+  const clean: NeynarCastWithReplies[] = [];
+  const spam: NeynarCastWithReplies[] = [];
+  for (const reply of replies) {
+    if (reply.author?.is_spam === true) {
+      spam.push(reply);
+      continue;
+    }
+    const children = reply.direct_replies ?? [];
+    if (children.length === 0) {
+      clean.push(reply);
+      continue;
+    }
+    const childResult = partitionSpamFromTree(children);
+    clean.push({ ...reply, direct_replies: childResult.clean });
+    spam.push(...childResult.spam);
+  }
+  return { clean, spam };
+}
+
 export function ThreadedReplies({
   replies,
   depth = 0,
@@ -210,26 +233,9 @@ export function ThreadedReplies({
   onCastPress,
   focusHash,
 }: ThreadedRepliesProps) {
-  const styles = useStyles();
-  const [slopRevealed, setSlopRevealed] = useState(false);
-
-  // Separate spam from non-spam replies
-  const { clean, spam } = useMemo(() => {
-    const clean: NeynarCastWithReplies[] = [];
-    const spam: NeynarCastWithReplies[] = [];
-    for (const reply of replies) {
-      if (reply.author?.is_spam === true) {
-        spam.push(reply);
-      } else {
-        clean.push(reply);
-      }
-    }
-    return { clean, spam };
-  }, [replies]);
-
   return (
     <View>
-      {clean.map((reply) => (
+      {replies.map((reply) => (
         <ReplyNode
           key={reply.hash}
           reply={reply}
@@ -246,41 +252,71 @@ export function ThreadedReplies({
           focusHash={focusHash}
         />
       ))}
+    </View>
+  );
+}
 
-      {spam.length > 0 && !slopRevealed && (
-        <Pressable
-          style={styles.slopBanner}
-          onPress={() => setSlopRevealed(true)}
-        >
-          <Text style={styles.slopText}>
-            See {spam.length} probable slop{" "}
-            {spam.length === 1 ? "reply" : "replies"}
-          </Text>
-        </Pressable>
-      )}
+interface ThreadSlopFooterProps {
+  spam: NeynarCastWithReplies[];
+  myFid: number;
+  onLike: (hash: string, isLiked: boolean) => void;
+  onRecast: (hash: string, isRecasted: boolean) => void;
+  onBookmark: (hash: string, isBookmarked: boolean) => void;
+  onQuoteCast: (cast: NeynarCast) => void;
+  onReply: (cast: NeynarCast) => void;
+  onBlockAuthor?: (fid: number) => Promise<void> | void;
+  onCastPress: (hash: string) => void;
+  focusHash?: string;
+}
 
-      {spam.length > 0 && slopRevealed && (
-        <View style={styles.slopSection}>
-          {spam.map((reply) => (
-            <View key={reply.hash} style={styles.slopMuted}>
-              <ReplyNode
-                reply={reply}
-                depth={depth}
-                maxDepth={maxDepth}
-                myFid={myFid}
-                onLike={onLike}
-                onRecast={onRecast}
-                onBookmark={onBookmark}
-                onQuoteCast={onQuoteCast}
-                onReply={onReply}
-                onBlockAuthor={onBlockAuthor}
-                onCastPress={onCastPress}
-                focusHash={focusHash}
-              />
-            </View>
-          ))}
+export function ThreadSlopFooter({
+  spam,
+  myFid,
+  onLike,
+  onRecast,
+  onBookmark,
+  onQuoteCast,
+  onReply,
+  onBlockAuthor,
+  onCastPress,
+  focusHash,
+}: ThreadSlopFooterProps) {
+  const styles = useStyles();
+  const [revealed, setRevealed] = useState(false);
+
+  if (spam.length === 0) return null;
+
+  if (!revealed) {
+    return (
+      <Pressable style={styles.slopBanner} onPress={() => setRevealed(true)}>
+        <Text style={styles.slopText}>
+          See {spam.length} probable slop{" "}
+          {spam.length === 1 ? "reply" : "replies"}
+        </Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.slopSection}>
+      {spam.map((reply) => (
+        <View key={reply.hash} style={styles.slopMuted}>
+          <ReplyNode
+            reply={reply}
+            depth={0}
+            maxDepth={DEFAULT_MAX_DEPTH}
+            myFid={myFid}
+            onLike={onLike}
+            onRecast={onRecast}
+            onBookmark={onBookmark}
+            onQuoteCast={onQuoteCast}
+            onReply={onReply}
+            onBlockAuthor={onBlockAuthor}
+            onCastPress={onCastPress}
+            focusHash={focusHash}
+          />
         </View>
-      )}
+      ))}
     </View>
   );
 }
@@ -303,7 +339,7 @@ const useStyles = () =>
     },
     slopBanner: {
       paddingVertical: 12,
-      paddingLeft: 68,
+      paddingHorizontal: 16,
       minHeight: 44,
     },
     slopText: {
