@@ -50,7 +50,7 @@ Drop this into any HTML page. Replace `{spaceId}` with the Juke space UUID.
 That's it. The iframe handles:
 - public room metadata fetch
 - anonymous listening (no sign-in)
-- "Sign in to participate" via SIWN popup
+- "Sign in to participate" via managed-signer SIWN (QR + mobile deeplink)
 - reactions, hand raise, mic (after host promotion)
 - LiveKit connection and reconnection
 - Juke attribution
@@ -85,18 +85,20 @@ This is the canonical flow. Adapt the JSX to the developer's design system; keep
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode"; // any QR library works
 import {
   createJukeEmbedSdk,
-  isTrustedSiwnMessage,
-  parseSiwnPayload,
   type JukeEmbedSdk,
 } from "@/lib/juke-embed-sdk";
 import type { JoinSpaceResponse } from "@/lib/spaces";
 
 export function MySpace({ spaceId }: { spaceId: string }) {
   const sdkRef = useRef<JukeEmbedSdk>();
+  const signerAbortRef = useRef<AbortController | null>(null);
   const [join, setJoin] = useState<JoinSpaceResponse | null>(null);
   const [isAuthed, setIsAuthed] = useState(false);
+  const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   if (!sdkRef.current) sdkRef.current = createJukeEmbedSdk();
 
@@ -107,34 +109,59 @@ export function MySpace({ spaceId }: { spaceId: string }) {
     setJoin(j);
   }
 
-  // 2. Sign in only when the user opts into participation.
+  // 2. Managed-signer SIWN: backend mints a Neynar signer, signs its
+  //    public_key with the app's custody key, and returns a Farcaster
+  //    deeplink the user approves in their Farcaster client.
   async function signIn() {
-    await sdkRef.current!.startSiwn(); // opens popup
-    // The popup posts a message back when the user finishes SIWN.
-    // The listener below picks it up.
-  }
+    // Cancel any previous in-flight attempt.
+    signerAbortRef.current?.abort();
+    const abort = new AbortController();
+    signerAbortRef.current = abort;
 
-  // 3. Handle the SIWN postMessage callback.
-  useEffect(() => {
-    const handler = async (event: MessageEvent) => {
-      if (!isTrustedSiwnMessage(event)) return;
-      const payload = parseSiwnPayload(event.data);
-      if (!payload) return;
+    const { signerUuid, signerApprovalUrl } =
+      await sdkRef.current!.startManagedSignerFlow();
+    setApprovalUrl(signerApprovalUrl);
 
-      await sdkRef.current!.completeSiwn(payload);
+    // Render the deeplink as a QR for desktop scan. Mobile users tap the
+    // "I'm on my mobile device" link instead.
+    QRCode.toDataURL(signerApprovalUrl).then(setQrDataUrl);
+
+    try {
+      // 3. Poll until the user approves the signer on their phone.
+      const approved = await sdkRef.current!.pollSignerStatus(signerUuid, {
+        signal: abort.signal,
+      });
+
+      // 4. Complete login and join as an authenticated participant.
+      await sdkRef.current!.completeManagedSignerLogin(approved);
       const j = await sdkRef.current!.joinAuthenticated(spaceId);
       await sdkRef.current!.connectAudio(j);
+
+      setApprovalUrl(null);
+      setQrDataUrl(null);
       setJoin(j);
       setIsAuthed(true);
-    };
-    window.addEventListener("message", handler);
-    return () => {
-      window.removeEventListener("message", handler);
-      sdkRef.current?.leaveSpace().catch(() => {});
-    };
-  }, [spaceId]);
+    } catch (err) {
+      if (!abort.signal.aborted) throw err;
+    } finally {
+      if (signerAbortRef.current === abort) signerAbortRef.current = null;
+    }
+  }
 
-  // 4. Authenticated actions.
+  function cancelSignIn() {
+    signerAbortRef.current?.abort();
+    signerAbortRef.current = null;
+    setApprovalUrl(null);
+    setQrDataUrl(null);
+  }
+
+  // Clean up the audio connection on unmount.
+  useEffect(() => () => {
+    signerAbortRef.current?.abort();
+    sdkRef.current?.leaveSpace().catch(() => {});
+  }, []);
+
+  // 5. Authenticated actions.
   const react = () => sdkRef.current!.sendReaction("clap");
   const raiseHand = () => sdkRef.current!.raiseHand(spaceId, true);
   const speak = () => sdkRef.current!.enableMicrophone(true); // throws unless host promoted
@@ -142,7 +169,18 @@ export function MySpace({ spaceId }: { spaceId: string }) {
   return (
     <div>
       {!join && <button onClick={listen}>Listen</button>}
-      {join && !isAuthed && <button onClick={signIn}>Sign in to participate</button>}
+      {join && !isAuthed && !approvalUrl && (
+        <button onClick={signIn}>Sign in to participate</button>
+      )}
+      {approvalUrl && (
+        <div>
+          {qrDataUrl && <img src={qrDataUrl} alt="Scan with Farcaster" />}
+          <a href={approvalUrl} target="_blank" rel="noopener noreferrer">
+            I&apos;m on my mobile device
+          </a>
+          <button onClick={cancelSignIn}>Cancel</button>
+        </div>
+      )}
       {isAuthed && (
         <>
           <button onClick={react}>👏</button>
@@ -155,9 +193,35 @@ export function MySpace({ spaceId }: { spaceId: string }) {
 }
 ```
 
-### Why SIWN uses postMessage, not a callback URL
+### Why SIWN uses a managed signer + QR
 
-Juke opens the SIWN popup at a Neynar-hosted URL. When the user signs in, the popup posts a message back to the opener window with `{ fid, signer_uuid }`. The SDK exports `isTrustedSiwnMessage()` and `parseSiwnPayload()` so you can validate the origin and shape before calling `completeSiwn()`. Always validate — the popup origin is whitelisted to Neynar/Warpcast/your own origin only.
+Earlier versions of Juke opened the Neynar web SIWN popup and waited
+for it to `postMessage` back. That flow stopped working reliably in
+practice — the popup either fails to post back or expects to deeplink
+into a Farcaster mobile client, which renders blank in a desktop
+browser tab.
+
+The current flow is Neynar's canonical **developer-managed signer**
+pattern (`createSigner` → `registerSignedKey` → poll `lookupSigner`).
+The backend signs the signer's public_key with Juke's custody account,
+mints an approval deeplink, and the SDK exposes:
+
+- `startManagedSignerFlow()` — returns `{ signerUuid, signerApprovalUrl }`
+- `pollSignerStatus(signerUuid, { signal })` — resolves when
+  `status === "approved"`, gives you `{ signerUuid, fid }`
+- `completeManagedSignerLogin(approved)` — finalizes the Juke session
+
+Do **not** open `signerApprovalUrl` in a desktop popup — it is a
+Farcaster deeplink (`client.farcaster.xyz/deeplinks/signed-key-request?...`)
+that needs a Farcaster client. Show a QR code so desktop users scan it
+with their phone, plus a tap-to-deeplink fallback for visitors already
+on mobile. This is what Juke's own dashboard and hosted iframe render.
+
+The user-visible app name on Neynar's approval screen is "Juke" (we
+sponsor with our `FARCASTER_APP_FID`), so the user sees they're
+approving a Juke signer specifically. Don't reuse the same `signerUuid`
+across visitors — `startManagedSignerFlow()` is cheap and isolates each
+sign-in attempt.
 
 ### Inside a Farcaster miniapp
 
@@ -177,7 +241,7 @@ Follow this order. It exists because requiring sign-in before listening is the s
 2. **Let visitors listen anonymously.** One click, no popup, no sign-in.
 3. **Prompt "Sign in to participate" only when they try to interact.** Reactions, replies, hand raise.
 4. **Choose the right auth method for the context:**
-   - Ordinary webpage → SIWN popup
+   - Ordinary webpage → managed-signer SIWN (QR scan + mobile deeplink)
    - Farcaster miniapp → Quick Auth
    - Native iOS app → native Neynar SIWN
 5. **Request browser mic permission only after the host promotes the listener** to speaker/co-host/host. Browsers prompt aggressively, so asking before the user can actually speak is wasted goodwill.
@@ -211,16 +275,23 @@ Base URL: `https://your-api-host.example.com`
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/v1/rooms/{spaceId}` | none | Public room metadata + participant list |
+| GET | `/v1/rooms/{spaceId}/embed-policy` | none | Per-room `allowed_origins` for CSP `frame-ancestors` (null when the room has no owning developer app) |
 | POST | `/v1/rooms/{spaceId}/anonymous-join` | none | Listener-only LiveKit token |
 | POST | `/v1/rooms/{spaceId}/join` | Bearer | Authenticated join, role-scoped LiveKit token |
 | POST | `/v1/rooms/{spaceId}/leave` | Bearer | Mark left, clean up participant row |
 | POST | `/v1/rooms/{spaceId}/token` | Bearer | Refresh expiring LiveKit token |
 | POST | `/v1/rooms/{spaceId}/raise-hand` | Bearer | Toggle hand-raise (`{"raised": bool}`) |
-| GET | `/v1/auth/neynar-auth-url` | none | SIWN authorization URL |
-| POST | `/v1/auth/login` | none | Exchange `{fid, signer_uuid}` for Juke JWT |
-| POST | `/v1/auth/refresh` | Bearer | Refresh Juke JWT |
+| POST | `/v1/auth/signer/create` | none | Mint a managed Neynar signer + signed key. Returns `{signer_uuid, signer_approval_url}`. The approval URL is a Farcaster deeplink — render as QR. Rate-limited 5/min per IP. |
+| GET | `/v1/auth/signer/status?signer_uuid=...` | none | Poll a signer's status. Returns `{status, fid}` where `status` is `generated`/`pending_approval`/`approved`/`revoked`. Rate-limited 120/min per IP. |
+| POST | `/v1/auth/login` | none | Exchange `{fid, signer_uuid}` for a Juke JWT. Accepts `use_cookie: true` to set an HttpOnly refresh cookie instead of returning the refresh token in the body. |
+| POST | `/v1/auth/refresh` | Bearer | Refresh Juke JWT. Reads the refresh token from `juke_refresh` cookie when present, or from the request body otherwise. |
+| POST | `/v1/auth/logout` | none | Clears the `juke_refresh` cookie and revokes the refresh token in Redis. |
 
-The SDK calls all of these for you. Reach for raw HTTP only if you can't use the SDK (e.g., from a server, from a non-JS runtime).
+Legacy endpoint kept for backward compatibility but not used by the
+current SDK: `GET /v1/auth/neynar-auth-url`.
+
+The SDK calls all of these for you. Reach for raw HTTP only if you
+can't use the SDK (e.g., from a server, from a non-JS runtime).
 
 ## Developer API keys
 
@@ -238,13 +309,15 @@ End-to-end setup flow:
 8. Embed hosted spaces without a key when the site only needs public listening.
 9. Call protected Juke developer APIs from a backend process only.
 
-Protected developer API calls use both a Juke user/session bearer token and the server-held Juke API key:
+Two distinct auth paths:
+
+- **`/v1/developer/spaces`** (server-side room creation) is **key-only**. Send `X-Juke-Api-Key`; do not send a bearer JWT. The room owner is derived from the key's owning developer app.
+- **`/v1/developer/apps/*`** (dashboard routes — list, create, rotate, revoke, reveal) require a bearer JWT scoped to the signed-in developer. Dangerous mutations additionally require a recent SIWN within 5 minutes (`401 Recent sign-in required.` + `WWW-Authenticate: ReAuth`). The dashboard handles this; server integrations rarely need these endpoints.
 
 ```ts
 await fetch("https://your-api-host.example.com/v1/developer/spaces", {
   method: "POST",
   headers: {
-    Authorization: `Bearer ${process.env.JUKE_USER_TOKEN}`,
     "X-Juke-Api-Key": process.env.JUKE_API_KEY!,
     "Content-Type": "application/json",
   },
@@ -257,7 +330,9 @@ await fetch("https://your-api-host.example.com/v1/developer/spaces", {
 });
 ```
 
-The bearer token determines the room host. Never include a host identifier or any host override in developer API requests.
+The room host is derived from the API key (the key's owning developer app's `owner_fid`). Never include a host identifier or host override in the request body.
+
+If the request includes an `Origin` header and the developer app has `allowed_origins` configured, the Origin must match one of the listed entries. Server-to-server requests without an `Origin` header are not subject to this check.
 
 Secret handling:
 
@@ -374,8 +449,20 @@ NEYNAR_CLIENT_ID=
 LIVEKIT_API_KEY=
 LIVEKIT_API_SECRET=
 LIVEKIT_WS_URL=
+
+# Custody account used to sign managed-signer key requests via EIP-712.
+FARCASTER_APP_FID=
+FARCASTER_APP_MNEMONIC=
+
+# Developer API key cryptography. Generate once per environment and back
+# up in a secret manager — rotation is destructive (see below).
+JUKE_API_KEY_PEPPER=          # ≥32 bytes random; peppers stored key hashes
+JUKE_API_KEY_ENCRYPTION_KEY=  # exactly 32 bytes base64; AES-256-GCM key
+JUKE_API_AUDIT_SECRET=        # ≥32 bytes random; HMAC for audit trail (optional)
+
 QUICKAUTH_ALLOWED_AUDIENCES=juke.audio
 CORS_ORIGINS='["https://your-domain"]'
+ENVIRONMENT=production        # enables Secure cookies + strict secret length checks
 ```
 
 The Next.js landing/embed needs:
@@ -387,6 +474,12 @@ NEXT_PUBLIC_SITE_URL=https://your-domain
 
 LiveKit can be self-hosted or use LiveKit Cloud. Neynar can't be swapped — Farcaster identity is the auth substrate.
 
+**Do not rotate** `JUKE_API_KEY_PEPPER` or `JUKE_API_KEY_ENCRYPTION_KEY`
+without a planned migration. Pepper rotation invalidates every stored
+API key hash (every developer's keys stop working). Encryption key
+rotation makes every un-revealed secret undecryptable. Treat both as
+primary key material.
+
 ---
 
 ## Troubleshooting
@@ -396,7 +489,9 @@ LiveKit can be self-hosted or use LiveKit Cloud. Neynar can't be swapped — Far
 | Iframe shows "Space not found" | Wrong spaceId or room ended | Verify the UUID and `room.status === "active"` |
 | No audio after clicking Listen | Browser blocked autoplay | The embed unlocks audio on user gesture — make sure the click handler isn't wrapped in something that breaks the gesture chain |
 | `enableMicrophone` throws | User isn't a speaker yet | Host must promote them via the Juke app |
-| SIWN popup blocked | Popup blocker | `startSiwn()` returns `popup: null` — surface a "click here to retry" affordance |
+| QR shows but never resolves | User hasn't approved in their Farcaster client, or approval expired | Surface the "I'm on my mobile device" deeplink as a fallback; user can re-trigger sign-in to mint a fresh signer |
+| `pollSignerStatus` throws "Sign-in cancelled" | The AbortController was triggered | Expected when the user cancels — swallow the rejection if `signal.aborted` |
+| `pollSignerStatus` throws "Signer was revoked" | User revoked the signer in Farcaster | Mint a new signer with `startManagedSignerFlow()` and prompt again |
 | Reactions silently fail | Not authenticated | `sendReaction` throws `JukeEmbedAuthError` — gate the UI on `sdk.isAuthenticated` |
 | Mic permission prompt appears too early | UI requested mic before host promotion | Move `enableMicrophone(true)` behind the post-promotion "Unmute" button only |
 
