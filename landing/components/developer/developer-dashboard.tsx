@@ -243,7 +243,11 @@ export function DeveloperDashboard({
 
   async function submitApplication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    // Capture the form element before any `await` — React nulls
+    // `event.currentTarget` once the handler yields, which makes
+    // `event.currentTarget.reset()` throw on the success path.
+    const formEl = event.currentTarget;
+    const form = new FormData(formEl);
     setPendingAction("Submitting application");
     setError(null);
     try {
@@ -258,7 +262,7 @@ export function DeveloperDashboard({
         });
         setDashboard(next);
       }
-      event.currentTarget.reset();
+      formEl.reset();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -268,7 +272,8 @@ export function DeveloperDashboard({
 
   async function createApp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = event.currentTarget;
+    const form = new FormData(formEl);
     const allowedOrigins = String(form.get("allowedOrigins") || "")
       .split(/\s*,\s*/)
       .map((origin) => origin.trim())
@@ -300,7 +305,7 @@ export function DeveloperDashboard({
       setDashboard((current) =>
         current ? { ...current, apps: [app, ...current.apps] } : current,
       );
-      event.currentTarget.reset();
+      formEl.reset();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -310,7 +315,8 @@ export function DeveloperDashboard({
 
   async function createKey(appId: string, event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = event.currentTarget;
+    const form = new FormData(formEl);
     const name = String(form.get("keyName") || "");
     await runKeyMutation("Creating key", async () => {
       const response = previewStatus
@@ -318,7 +324,7 @@ export function DeveloperDashboard({
         : await clientRef.current!.createKey(appId, { name });
       addOrReplaceKey(appId, response.key);
       setSecretReveal(response);
-      event.currentTarget.reset();
+      formEl.reset();
     });
   }
 
