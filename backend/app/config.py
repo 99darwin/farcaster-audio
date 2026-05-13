@@ -30,8 +30,10 @@ class Settings(BaseSettings):
     # Expected `domain` field in SIWF (EIP-4361) sign-in messages. Bound at
     # verify time so a SIWE message signed for someone else's app cannot
     # be replayed against Juke. Defaults to the production domain; override
-    # for staging or local dev (e.g. "localhost:3000").
-    SIWF_DOMAIN: str = "juke.audio"
+    # for staging or local dev (e.g. "localhost:3000"). Accepts a comma-
+    # separated allowlist so apex + www variants both work
+    # ("juke.audio,www.juke.audio").
+    SIWF_DOMAIN: str = "juke.audio,www.juke.audio"
     LOG_LEVEL: str = "INFO"
     AWS_S3_BUCKET_NAME: str = ""
     AWS_DEFAULT_REGION: str = "us-east-1"
