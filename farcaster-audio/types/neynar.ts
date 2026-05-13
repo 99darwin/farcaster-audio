@@ -106,6 +106,12 @@ export interface NeynarCast {
   channel?: NeynarChannel | null;
   thread_hash: string | null;
   parent_hash: string | null;
+  parent_author?: {
+    fid: number;
+    username?: string;
+    display_name?: string;
+    pfp_url?: string | null;
+  };
 }
 
 export type NeynarCastWithReplies = NeynarCast & {

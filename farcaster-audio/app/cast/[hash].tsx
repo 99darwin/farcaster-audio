@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { FlatList, View, Text, RefreshControl } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
@@ -7,7 +7,9 @@ import { useCastThread } from "@/hooks/useCastThread";
 import { CastCard } from "@/components/feed/CastCard";
 import {
   ThreadedReplies,
+  ThreadSlopFooter,
   findTopLevelIndexContaining,
+  partitionSpamFromTree,
 } from "@/components/feed/ThreadedReplies";
 import { ComposeModal } from "@/components/feed/ComposeModal";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
@@ -87,11 +89,16 @@ export default function CastThreadScreen() {
     hasFocusScrolledRef.current = false;
   }, [hash, focusHash]);
 
+  const { cleanReplies, spamReplies } = useMemo(() => {
+    const { clean, spam } = partitionSpamFromTree(replies);
+    return { cleanReplies: clean, spamReplies: spam };
+  }, [replies]);
+
   const attemptFocusScroll = useCallback(() => {
     if (hasFocusScrolledRef.current) return;
-    if (!focusHash || replies.length === 0) return;
+    if (!focusHash || cleanReplies.length === 0) return;
     if (rootCast?.hash === focusHash) return; // header already visible
-    const index = findTopLevelIndexContaining(replies, focusHash);
+    const index = findTopLevelIndexContaining(cleanReplies, focusHash);
     if (index < 0) return;
     hasFocusScrolledRef.current = true;
     flatListRef.current?.scrollToIndex({
@@ -99,7 +106,7 @@ export default function CastThreadScreen() {
       animated: true,
       viewPosition: 0.05,
     });
-  }, [focusHash, replies, rootCast?.hash]);
+  }, [focusHash, cleanReplies, rootCast?.hash]);
 
   const handleScrollToIndexFailed = useCallback(
     (info: {
@@ -228,7 +235,7 @@ export default function CastThreadScreen() {
       <FlatList<NeynarCastWithReplies>
         {...LIST_PERF_PROPS}
         ref={flatListRef}
-        data={replies}
+        data={cleanReplies}
         keyExtractor={(item) => item.hash}
         onScrollToIndexFailed={handleScrollToIndexFailed}
         onContentSizeChange={attemptFocusScroll}
@@ -275,6 +282,20 @@ export default function CastThreadScreen() {
               <Text style={styles.emptyText}>No replies yet</Text>
             </View>
           ) : null
+        }
+        ListFooterComponent={
+          <ThreadSlopFooter
+            spam={spamReplies}
+            myFid={myFid}
+            onLike={handleLike}
+            onRecast={handleRecast}
+            onBookmark={handleBookmark}
+            onQuoteCast={handleQuoteCast}
+            onReply={handleReply}
+            onBlockAuthor={handleBlockAuthor}
+            onCastPress={handleCastPress}
+            focusHash={focusHash}
+          />
         }
       />
       <ComposeModal

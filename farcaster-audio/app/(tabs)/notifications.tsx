@@ -3,6 +3,7 @@ import { View, FlatList, Text, ActivityIndicator } from "react-native";
 import { useNavigation } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useAuthStore } from "@/stores/authStore";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { NotificationItem } from "@/components/notifications/NotificationItem";
 import { ComposeModal } from "@/components/feed/ComposeModal";
@@ -15,6 +16,7 @@ import type { NeynarCast, NeynarNotification } from "@/types/neynar";
 export default function NotificationsScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
+  const myFid = useAuthStore((s) => s.user?.fid) ?? 0;
   const {
     notifications,
     isLoading,
@@ -116,6 +118,7 @@ export default function NotificationsScreen() {
       <NotificationItem
         notification={item}
         isUnread={isUnread(item)}
+        myFid={myFid}
         onLike={handleLike}
         onRecast={handleRecast}
         onBookmark={handleBookmark}
@@ -123,7 +126,15 @@ export default function NotificationsScreen() {
         onQuoteCast={openQuoteCast}
       />
     ),
-    [isUnread, handleLike, handleRecast, handleBookmark, openReply, openQuoteCast],
+    [
+      isUnread,
+      myFid,
+      handleLike,
+      handleRecast,
+      handleBookmark,
+      openReply,
+      openQuoteCast,
+    ],
   );
 
   const handleEndReached = useCallback(() => {
