@@ -593,6 +593,49 @@ async def test_siwf_login_rate_limit_returns_429(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_verify_siwf_message_with_real_signature():
+    """Exercise siwe-py's real verify path end-to-end.
+
+    The login-route tests mock `verify_siwf_message`, so a regression
+    in the underlying call shape (e.g. awaiting a sync function) would
+    slip through. This test actually signs a SIWE message with
+    eth_account and runs it through `verify_siwf_message`, asserting
+    the returned address matches the signer.
+    """
+    from datetime import datetime, timezone
+    from eth_account import Account
+    from siwe import SiweMessage
+
+    from app.services.siwf_service import verify_siwf_message
+
+    acct = Account.create()
+    nonce = "realnoncetest123"
+    domain = "juke.audio"
+    msg = SiweMessage(
+        domain=domain,
+        address=acct.address,
+        statement="Farcaster Auth",
+        uri=f"https://{domain}/developers",
+        version="1",
+        chain_id=10,
+        nonce=nonce,
+        issued_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
+    rendered = msg.prepare_message()
+    signed = acct.sign_message(
+        __import__("eth_account").messages.encode_defunct(text=rendered)
+    )
+
+    recovered = await verify_siwf_message(
+        message=rendered,
+        signature=signed.signature.hex(),
+        expected_domain=domain,
+        expected_nonce=nonce,
+    )
+    assert recovered.lower() == acct.address.lower()
+
+
+@pytest.mark.asyncio
 async def test_signer_endpoints_are_gone(client):
     """The legacy managed-signer endpoints from PR #160 Stream A no longer exist.
 
