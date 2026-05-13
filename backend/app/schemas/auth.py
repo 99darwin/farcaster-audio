@@ -11,6 +11,18 @@ class UserResponse(BaseModel):
     is_admin: bool = False
 
 
+class AuthUrlResponse(BaseModel):
+    """Neynar-hosted SIWN authorization URL.
+
+    Returned by GET /v1/auth/neynar-auth-url. Used by the native iOS app
+    (`farcaster-audio/`), which opens this URL in a popup for the
+    classic SIWN flow. The web/embed/dashboard surfaces use SIWF
+    instead (POST /v1/auth/siwf/*); see `SiwfLoginRequest`.
+    """
+
+    authorization_url: str
+
+
 class LoginRequest(BaseModel):
     signer_uuid: str
     fid: int
