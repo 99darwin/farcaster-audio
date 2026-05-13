@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     LIVEKIT_WS_URL: str = "wss://localhost.livekit.cloud"
     ENVIRONMENT: str = "development"
     CORS_ORIGINS: list[str] = []
+    # Expected `domain` field in SIWF (EIP-4361) sign-in messages. Bound at
+    # verify time so a SIWE message signed for someone else's app cannot
+    # be replayed against Juke. Defaults to the production domain; override
+    # for staging or local dev (e.g. "localhost:3000").
+    SIWF_DOMAIN: str = "juke.audio"
     LOG_LEVEL: str = "INFO"
     AWS_S3_BUCKET_NAME: str = ""
     AWS_DEFAULT_REGION: str = "us-east-1"

@@ -46,9 +46,10 @@ async function fetchEmbedPolicy(spaceId: string): Promise<EmbedPolicy | null> {
     const res = await fetch(
       `${API_BASE_URL}/v1/rooms/${encodeURIComponent(spaceId)}/embed-policy`,
       {
-        // Edge runtime honors `next.revalidate`; the room → app linkage
-        // is immutable once set, so caching is safe and cheap.
-        next: { revalidate: 300 },
+        // Edge runtime honors `next.revalidate`. Kept short so a
+        // developer app's suspension or origin change propagates
+        // quickly — the backend's Cache-Control is similarly tight.
+        next: { revalidate: 60 },
       },
     );
     if (!res.ok) return null;

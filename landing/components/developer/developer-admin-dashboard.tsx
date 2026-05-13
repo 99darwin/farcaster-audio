@@ -96,15 +96,17 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
     setError(null);
     setSignerApprovalUrl(null);
     try {
-      const { signerUuid, signerApprovalUrl: approvalUrl } =
-        await clientRef.current!.startManagedSignerFlow();
-      setSignerApprovalUrl(approvalUrl);
+      const { channelToken, url } = await clientRef.current!.startSiwfFlow();
+      setSignerApprovalUrl(url);
       setPendingAction("Waiting for Farcaster approval");
-      const approved = await clientRef.current!.pollSignerStatus(signerUuid, {
+      const approved = await clientRef.current!.pollSiwfStatus(channelToken, {
         signal: abort.signal,
       });
       setPendingAction("Completing sign in");
-      await clientRef.current!.completeManagedSignerLogin(approved);
+      await clientRef.current!.completeSiwfLogin({
+        message: approved.message,
+        signature: approved.signature,
+      });
       setSignerApprovalUrl(null);
       await loadUsers();
     } catch (err) {

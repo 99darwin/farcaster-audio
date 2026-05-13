@@ -40,7 +40,7 @@ https://juke.audio/developers
 ```
 
 Developer access states:
-- signed out: prompt Farcaster SIWN before loading developer apps
+- signed out: prompt Farcaster SIWF before loading developer apps
 - pending: no keys yet; hosted iframe still works without keys
 - approved: create apps, create keys, rotate keys, revoke keys
 - suspended: custom API key calls are disabled; hosted public embeds can remain
@@ -52,16 +52,12 @@ Use this when the developer wants spaces live quickly and accepts Juke-owned UI.
 
 ```html
 <iframe
-  src="https://juke.audio/embed/{spaceId}?mode=compact&participation=speak-request"
+  src="https://juke.audio/embed/{spaceId}"
   title="Juke live audio space"
   allow="autoplay; microphone"
   style="width: 100%; max-width: 420px; height: 620px; border: 0; border-radius: 24px;"
 ></iframe>
 ```
-
-Parameters:
-- `mode`: `full` or `compact`
-- `participation`: `listen`, `social`, or `speak-request`
 
 Behavior:
 - no auth is required to render public metadata
@@ -83,13 +79,28 @@ import { createJukeEmbedSdk } from "@juke/audio-sdk";
 const juke = createJukeEmbedSdk();
 const space = await juke.getSpace(spaceId);
 
+// 1. Anonymous listening — no sign-in required.
 const anonymousJoin = await juke.joinAnonymousListener(spaceId);
 await juke.connectAudio(anonymousJoin);
 
-// Later, only if the visitor wants to participate:
-await juke.startSiwn();
-// completeSiwn is called from the popup callback payload.
-await juke.joinAuthenticated(spaceId);
+// 2. When the visitor opts into participation, run Sign In With Farcaster.
+//    The SDK fetches a single-use nonce from the backend, opens a SIWF
+//    channel via the Farcaster auth relay, and returns a deeplink the
+//    user opens in their Farcaster client.
+const { channelToken, url } = await juke.startSiwfFlow();
+
+// 3. Render `url` (a `farcaster://connect?...` deeplink) as a QR code
+//    on desktop or as a tap button on mobile. The user approves in
+//    their Farcaster client, which displays the signing domain on the
+//    approval screen.
+const approved = await juke.pollSiwfStatus(channelToken);
+
+// 4. Finish login and join the room as an authenticated participant.
+//    The backend re-verifies the signature, the domain, and the nonce
+//    before issuing a Juke JWT.
+await juke.completeSiwfLogin(approved);
+const authedJoin = await juke.joinAuthenticated(spaceId);
+await juke.connectAudio(authedJoin);
 await juke.raiseHand(spaceId, true);
 await juke.sendReaction("clap");
 ```
@@ -97,8 +108,11 @@ await juke.sendReaction("clap");
 SDK capabilities:
 - `getSpace(id)`
 - `joinAnonymousListener(id)`
-- `startSiwn()`
-- `completeSiwn(callbackPayload)`
+- `startSiwfFlow()` — returns `{channelToken, url}`; render `url` as a
+  QR for desktop scan or as a tap button on mobile.
+- `pollSiwfStatus(channelToken, { signal? })` — resolves to
+  `{message, signature, fid}` when the user signs; rejects on abort.
+- `completeSiwfLogin({message, signature})` — finalizes the Juke session.
 - `joinAuthenticated(id, token?)`
 - `leaveSpace(id)`
 - `refreshToken(id)`
@@ -106,6 +120,12 @@ SDK capabilities:
 - `raiseHand(id, raised)`
 - `connectAudio(joinResponse)`
 - `enableMicrophone()` only after host approval
+
+Do not open the SIWF `url` in a desktop popup — it is a Farcaster
+deeplink (`farcaster://connect?...`) and renders blank in a normal
+browser tab. Show a QR code so the user can scan it with their
+Farcaster app, plus a tap-to-deeplink button for visitors already on
+mobile.
 
 If building custom UI, keep visible Juke attribution and link to the canonical
 space page: `https://juke.audio/space/{spaceId}`.
@@ -120,7 +140,7 @@ client-side error monitoring.
 End-to-end flow:
 
 1. Open `https://juke.audio/developers`.
-2. Sign in with Farcaster using SIWN.
+2. Sign in with Farcaster using SIWF.
 3. Request developer access with the app/use-case details.
 4. Wait for Juke admin approval.
 5. Create an app with the production origins where the integration runs.
@@ -130,10 +150,20 @@ End-to-end flow:
 8. Embed hosted spaces without a key when you only need public listening.
 9. Call protected developer APIs from your backend only.
 
-Protected developer API calls require both credentials:
-- `Authorization: Bearer <juke_jwt>` identifies the signed-in Juke/Farcaster
-  user making the request
-- `X-Juke-Api-Key: <juke_api_key>` identifies the approved developer app
+Two distinct auth paths:
+
+- **`/v1/developer/spaces`** (room creation from a server) — **key only**.
+  Send `X-Juke-Api-Key: <juke_api_key>`; do not send a bearer JWT. The
+  room owner is derived from the key's owning developer app
+  (`app.owner_fid`). This is the real machine credential.
+
+- **`/v1/developer/apps/*`** (dashboard routes: list apps, list keys,
+  create app, etc.) — **JWT only**, scoped to the developer's signed-in
+  session. Dangerous mutations (rotate, revoke, reveal, delete-app)
+  additionally require a recent SIWF within the last 5 minutes; the
+  server signals this with `401 "Recent sign-in required."` and a
+  `WWW-Authenticate: ReAuth` header. The dashboard handles this for you
+  — server integrations rarely need these endpoints.
 
 Example server-side call:
 
@@ -141,7 +171,6 @@ Example server-side call:
 const response = await fetch("https://your-api-host.example.com/v1/developer/spaces", {
   method: "POST",
   headers: {
-    "Authorization": `Bearer ${process.env.JUKE_USER_TOKEN}`,
     "X-Juke-Api-Key": process.env.JUKE_API_KEY!,
     "Content-Type": "application/json",
   },
@@ -158,8 +187,14 @@ if (!response.ok) {
 }
 ```
 
-The room host is always derived from the bearer token. Do not send any host
-identifier or host override in developer API requests.
+The room host is derived from the API key — specifically, the key's owning
+developer app's `owner_fid`. Do not send any host identifier or host
+override in developer API requests.
+
+If the `Origin` header is sent (browser-initiated requests) and the
+developer app has `allowed_origins` configured, the Origin must match
+one of the listed origins. Server-to-server requests with no `Origin`
+header are not subject to this check.
 
 Secret handling:
 - Juke shows a key secret only once at creation or rotation time
@@ -188,10 +223,17 @@ POST /v1/developer/spaces
 
 1. Public metadata: no auth.
 2. Anonymous listen: `POST /v1/rooms/{spaceId}/anonymous-join`.
-3. Human participation on ordinary web: optional SIWN via Neynar.
-4. Farcaster miniapps: Quick Auth.
-5. Native Juke app: existing Neynar SIWN.
-6. Speaking: only after host/co-host promotion grants LiveKit publish permission.
+3. Human participation on ordinary web: Sign In With Farcaster (SIWF).
+   SDK calls `startSiwfFlow()` → renders the resulting
+   `farcaster://connect` deeplink as a QR for desktop scan or a tap
+   button on mobile → polls `pollSiwfStatus()` until signed →
+   `completeSiwfLogin()`. The signing domain is bound into the SIWE
+   message and displayed to the user at approval.
+4. Farcaster miniapps: Quick Auth via `@farcaster/miniapp-sdk`.
+5. Native Juke iOS app: on-device secp256k1 auth address registered via
+   the developer-managed signed key API (separate from the web SDK).
+6. Speaking: only after host/co-host promotion grants LiveKit publish
+   permission.
 
 Anonymous listener tokens are short-lived and subscribe-only:
 - `can_subscribe=true`
@@ -236,24 +278,56 @@ POST https://your-api-host.example.com/v1/rooms/{spaceId}/token
 Authorization: Bearer {jukeJwt}
 ```
 
-## Self-Hosting Or Local Development
+## What You Actually Need (SDK / iframe integration)
 
-Only self-hosters or Juke-compatible backend developers need provider keys.
+The hosted Juke backend runs all the infrastructure for you. SDK and
+iframe integrators do **not** need to provision Neynar API keys, LiveKit
+keys, JWT secrets, databases, Redis, or anything else.
 
-Backend env keys:
-- `DATABASE_URL`
-- `REDIS_URL`
-- `JWT_SECRET`
-- `JWT_ALGORITHM`
-- `JWT_EXPIRY_HOURS`
-- `JWT_REFRESH_EXPIRY_DAYS`
-- `NEYNAR_API_KEY`
-- `NEYNAR_CLIENT_ID`
-- `LIVEKIT_API_KEY`
-- `LIVEKIT_API_SECRET`
-- `LIVEKIT_WS_URL`
-- `QUICKAUTH_ALLOWED_AUDIENCES`
-- `CORS_ORIGINS`
+- **Hosted iframe**: no env vars, no secrets, no setup.
+- **Server-side integrations** calling protected developer APIs: exactly
+  one env var on your server — `JUKE_API_KEY`, the `secret_key` shown
+  once when you create a key in the Juke developer dashboard. Store it
+  somewhere private (cloud secret manager, vault, sealed env). It is
+  never used in the browser.
+
+That's it. Skip the next section unless you are running your own Juke
+backend stack.
+
+## Self-Hosting (rare — only if you're running the Juke backend yourself)
+
+You only need this if you are forking Juke and operating your own
+backend, e.g. for compliance, air-gapped deployment, or contributing
+to the project. SDK consumers integrating Juke into their own site do
+not need any of these.
+
+Backend env keys (the Juke server stack):
+- `DATABASE_URL` (Postgres 16)
+- `REDIS_URL` (Redis 7)
+- `JWT_SECRET`, `JWT_ALGORITHM`, `JWT_EXPIRY_HOURS`,
+  `JWT_REFRESH_EXPIRY_DAYS`
+- `NEYNAR_API_KEY`, `NEYNAR_CLIENT_ID`
+- `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_WS_URL`
+- `FARCASTER_APP_FID`, `FARCASTER_APP_MNEMONIC` (used by the miniapp
+  auth-address registration and snap signing — SIWF login does not
+  require these; the user's own Farcaster custody signs)
+- `SIWF_DOMAIN` (the domain the backend will require in SIWF signed
+  messages; e.g. `juke.audio`)
+- `JUKE_API_KEY_PEPPER` (≥32 bytes random; peppers stored API key
+  hashes)
+- `JUKE_API_KEY_ENCRYPTION_KEY` (exactly 32 bytes base64; AES-256-GCM
+  key for the once-only revealable secret blob)
+- `JUKE_API_AUDIT_SECRET` (≥32 bytes random; HMAC key for audit
+  trail entries — optional but recommended)
+- `QUICKAUTH_ALLOWED_AUDIENCES`, `CORS_ORIGINS`
+- `ENVIRONMENT` (`development` or `production`; the backend enforces
+  stricter pepper/key length and Secure-cookie/Domain checks when set
+  to `production`)
+
+Pepper and encryption key rotation is destructive — rotating the pepper
+invalidates every stored key hash; rotating the encryption key makes
+every un-revealed secret undecryptable. Generate once per environment
+and back up in a secret manager.
 
 Landing env keys:
 - `NEXT_PUBLIC_API_BASE_URL`

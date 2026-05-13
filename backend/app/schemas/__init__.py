@@ -4,7 +4,6 @@ from app.schemas.common import (
     StatusResponse,
 )
 from app.schemas.auth import (
-    AuthUrlResponse,
     LoginRequest,
     LoginResponse,
     RefreshRequest,
@@ -42,7 +41,6 @@ __all__ = [
     "PaginatedResponse",
     "StatusResponse",
     # auth
-    "AuthUrlResponse",
     "LoginRequest",
     "LoginResponse",
     "RefreshRequest",

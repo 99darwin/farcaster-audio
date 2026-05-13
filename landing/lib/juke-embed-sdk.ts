@@ -1,5 +1,6 @@
 "use client";
 
+import { createAppClient, viemConnector } from "@farcaster/auth-client";
 import {
   Room,
   RoomEvent,
@@ -13,6 +14,11 @@ import {
   type JoinSpaceResponse,
   type SpaceDetailResponse,
 } from "@/lib/spaces";
+
+const siwfAppClient = createAppClient({
+  relay: "https://relay.farcaster.xyz",
+  ethereum: viemConnector(),
+});
 
 type AuthSession = {
   jwt: string;
@@ -28,37 +34,23 @@ type LoginResponse = {
   user: { fid: number };
 };
 
-export type SiwnPayload = {
-  fid: number | string;
-  signer_uuid: string;
-  nonce: string;
+// Sign In With Farcaster — EIP-4361 / SIWE. The signed message
+// includes the requesting `domain`, which the Farcaster client
+// surfaces to the user at approval time, closing the QR phishing
+// vector the legacy `createSigner` flow couldn't defend against.
+export type StartSiwfFlowResult = {
+  channelToken: string;
+  url: string;
 };
 
-export type StartSiwnResult = {
-  authorizationUrl: string;
-  popup: Window | null;
-  nonce: string;
-};
-
-export type SiwnExpectation = { nonce: string; source: Window | null };
-
-export type StartManagedSignerResult = {
-  signerUuid: string;
-  signerApprovalUrl: string;
-};
-
-export type SignerStatus =
-  | "generated"
-  | "pending_approval"
-  | "approved"
-  | "revoked";
-
-export type ApprovedSigner = {
-  signerUuid: string;
+export type SiwfApproved = {
+  message: string;
+  signature: string;
   fid: number;
 };
 
-export const SIGNER_POLL_INTERVAL_MS = 2000;
+export const SIWF_POLL_INTERVAL_MS = 2000;
+const SIWF_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type TokenRefreshResponse = {
   livekit_token: string;
@@ -112,125 +104,98 @@ export class JukeEmbedSdk {
     return parseJsonResponse<JoinSpaceResponse>(res, "Could not join space");
   }
 
-  async startSiwn(options?: { openPopup?: boolean }): Promise<StartSiwnResult> {
-    const res = await fetch(`${API_BASE_URL}/v1/auth/neynar-auth-url`, {
-      cache: "no-store",
-    });
-    const body = await parseJsonResponse<{ authorization_url: string }>(
-      res,
-      "Could not start sign in",
-    );
-
-    const nonce = generateSiwnNonce();
-    const authorizationUrl = appendSiwnCallback(body.authorization_url, nonce);
-    const popup =
-      options?.openPopup === false
-        ? null
-        : window.open(
-            authorizationUrl,
-            "_blank",
-            "popup=yes,width=430,height=720",
-          );
-
-    return { authorizationUrl, popup, nonce };
-  }
-
-  async completeSiwn(payload: SiwnPayload): Promise<AuthSession> {
-    const fid =
-      typeof payload.fid === "string" ? Number.parseInt(payload.fid, 10) : payload.fid;
-    if (!Number.isFinite(fid) || fid <= 0 || !payload.signer_uuid) {
-      throw new Error("Invalid sign-in response");
-    }
-
-    const res = await fetch(`${API_BASE_URL}/v1/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fid, signer_uuid: payload.signer_uuid }),
-    });
-    const body = await parseJsonResponse<LoginResponse>(
-      res,
-      "Could not complete sign in",
-    );
-
-    this.authSession = {
-      jwt: body.jwt,
-      refreshToken: body.refresh_token,
-      expiresAt: body.expires_at,
-      fid: body.user.fid,
-    };
-    return this.authSession;
-  }
-
   /**
-   * Managed-signer SIWN flow for the embed. The backend mints a Neynar
-   * signer + signs its public_key; we render `signer_approval_url` as a
-   * QR (in `<SignerApprovalPrompt>`) for desktop or a tap-to-deeplink
-   * for mobile, then poll for approval and complete login.
+   * Sign In With Farcaster (SIWF) for the embed. Same protocol as the
+   * dashboard — see `landing/lib/developer-api.ts` for the long-form
+   * rationale. The signed SIWE message includes the requesting
+   * `domain`, which the Farcaster client displays at approval time.
    *
    * Unlike the dashboard, the embed lives in a cross-origin iframe
    * where third-party storage partitioning makes HttpOnly cookies
-   * unreliable — so we keep the refresh_token in JS memory (same model
-   * as the legacy `completeSiwn`).
+   * unreliable — so `completeSiwfLogin` keeps the refresh token in
+   * JS memory rather than asking for the cookie path.
    */
-  async startManagedSignerFlow(): Promise<StartManagedSignerResult> {
-    const res = await fetch(`${API_BASE_URL}/v1/auth/signer/create`, {
+  async startSiwfFlow(): Promise<StartSiwfFlowResult> {
+    const nonceRes = await fetch(`${API_BASE_URL}/v1/auth/siwf/nonce`, {
       method: "POST",
     });
-    const body = await parseJsonResponse<{
-      signer_uuid: string;
-      signer_approval_url: string;
-    }>(res, "Could not start sign in");
-    if (!body?.signer_uuid || !body?.signer_approval_url) {
+    const nonceBody = await parseJsonResponse<{ nonce: string }>(
+      nonceRes,
+      "Could not start sign in",
+    );
+    if (!nonceBody?.nonce) {
+      throw new Error("Could not start sign in");
+    }
+    const channel = await siwfAppClient.createChannel({
+      siweUri: `${window.location.origin}/embed`,
+      domain: window.location.hostname,
+      nonce: nonceBody.nonce,
+    });
+    if (!channel.data?.channelToken || !channel.data?.url) {
       throw new Error("Could not start sign in");
     }
     return {
-      signerUuid: body.signer_uuid,
-      signerApprovalUrl: body.signer_approval_url,
+      channelToken: channel.data.channelToken,
+      url: channel.data.url,
     };
   }
 
-  async pollSignerStatus(
-    signerUuid: string,
-    options?: { signal?: AbortSignal; intervalMs?: number },
-  ): Promise<ApprovedSigner> {
-    const interval = options?.intervalMs ?? SIGNER_POLL_INTERVAL_MS;
-    while (true) {
-      if (options?.signal?.aborted) {
-        throw new Error("Sign-in cancelled");
-      }
-      const url = `${API_BASE_URL}/v1/auth/signer/status?signer_uuid=${encodeURIComponent(signerUuid)}`;
-      const res = await fetch(url, { cache: "no-store" });
-      const body = await parseJsonResponse<{
-        status: SignerStatus;
-        fid: number | null;
-      }>(res, "Could not check signer status");
-
-      if (body.status === "approved" && typeof body.fid === "number" && body.fid > 0) {
-        return { signerUuid, fid: body.fid };
-      }
-      if (body.status === "revoked") {
-        throw new Error("Signer was revoked");
-      }
-      await new Promise<void>((resolve, reject) => {
-        const t = window.setTimeout(resolve, interval);
-        options?.signal?.addEventListener("abort", () => {
-          window.clearTimeout(t);
-          reject(new Error("Sign-in cancelled"));
-        });
+  async pollSiwfStatus(
+    channelToken: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<SiwfApproved> {
+    if (options?.signal?.aborted) {
+      throw new Error("Sign-in cancelled");
+    }
+    let aborted = false;
+    const abortHandler = () => {
+      aborted = true;
+    };
+    options?.signal?.addEventListener("abort", abortHandler);
+    try {
+      const result = await siwfAppClient.watchStatus({
+        channelToken,
+        timeout: SIWF_TIMEOUT_MS,
+        interval: SIWF_POLL_INTERVAL_MS,
+        onResponse: () => {
+          if (aborted) throw new Error("Sign-in cancelled");
+        },
       });
+      if (aborted) throw new Error("Sign-in cancelled");
+      const data = result.data;
+      if (data.state !== "completed") {
+        throw new Error("Sign-in did not complete");
+      }
+      if (!data.message || !data.signature || !data.fid) {
+        throw new Error("Incomplete SIWF response");
+      }
+      return {
+        message: data.message,
+        signature: data.signature,
+        fid: data.fid,
+      };
+    } finally {
+      options?.signal?.removeEventListener("abort", abortHandler);
     }
   }
 
-  async completeManagedSignerLogin(
-    payload: ApprovedSigner,
+  async completeSiwfLogin(
+    payload: { message: string; signature: string },
   ): Promise<AuthSession> {
-    if (!Number.isFinite(payload.fid) || payload.fid <= 0 || !payload.signerUuid) {
+    if (!payload.message || !payload.signature) {
       throw new Error("Invalid sign-in response");
     }
-    const res = await fetch(`${API_BASE_URL}/v1/auth/login`, {
+    const res = await fetch(`${API_BASE_URL}/v1/auth/siwf/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fid: payload.fid, signer_uuid: payload.signerUuid }),
+      body: JSON.stringify({
+        message: payload.message,
+        signature: payload.signature,
+        // The embed iframe context can't reliably use HttpOnly cookies
+        // (third-party storage partitioning), so opt into the
+        // body-token response shape.
+        use_cookie: false,
+      }),
     });
     const body = await parseJsonResponse<LoginResponse>(
       res,
@@ -451,78 +416,6 @@ export class JukeEmbedSdk {
 
 export function createJukeEmbedSdk(): JukeEmbedSdk {
   return new JukeEmbedSdk();
-}
-
-// Neynar's web SIWN flow posts the auth payload to `window.opener` directly
-// from the popup running on `app.neynar.com` — it does NOT redirect to the
-// `deeplink_url` we pass (that's for mobile/WebView flows). The popup is
-// captured in `expected.source`; the `event.source` check below binds the
-// message to the specific window we opened, so even though we accept
-// messages from Neynar's origin, only the popup at the auth URL we
-// constructed can be the actual sender. See developer-api.ts for the
-// fuller writeup.
-const TRUSTED_SIWN_ORIGINS = new Set([
-  "https://app.neynar.com",
-  "https://farcaster.xyz",
-  "https://client.farcaster.xyz",
-]);
-
-export function isTrustedSiwnMessage(
-  event: MessageEvent,
-  expected: SiwnExpectation,
-): boolean {
-  if (typeof window === "undefined") return false;
-  if (!expected.source || event.source !== expected.source) return false;
-  const ownOrigin = window.location.origin;
-  const isOwnOrigin = event.origin === ownOrigin;
-  if (!isOwnOrigin && !TRUSTED_SIWN_ORIGINS.has(event.origin)) return false;
-  const payload = parseSiwnPayload(event.data);
-  if (!payload) return false;
-  // Nonce binding only applies when the message came through our own
-  // /embed/auth/callback page (mobile/WebView fallback). Neynar's direct
-  // postMessage doesn't include our URL params.
-  if (isOwnOrigin && payload.nonce !== expected.nonce) return false;
-  return true;
-}
-
-export function parseSiwnPayload(data: unknown): SiwnPayload | null {
-  let payload = data;
-  if (typeof payload === "string") {
-    try {
-      payload = JSON.parse(payload);
-    } catch {
-      return null;
-    }
-  }
-  if (typeof payload !== "object" || payload === null) return null;
-  const candidate = payload as Partial<SiwnPayload> & {
-    is_authenticated?: boolean;
-    nonce?: unknown;
-  };
-  if (!candidate.signer_uuid || candidate.fid === undefined) return null;
-  if (candidate.is_authenticated === false) return null;
-  return {
-    signer_uuid: candidate.signer_uuid,
-    fid: candidate.fid,
-    nonce:
-      typeof candidate.nonce === "string" && candidate.nonce
-        ? candidate.nonce
-        : "",
-  };
-}
-
-function appendSiwnCallback(rawUrl: string, nonce: string): string {
-  const url = new URL(rawUrl);
-  if (typeof window !== "undefined") {
-    const callback = new URL("/embed/auth/callback", window.location.origin);
-    callback.searchParams.set("nonce", nonce);
-    url.searchParams.set("deeplink_url", callback.toString());
-  }
-  return url.toString();
-}
-
-function generateSiwnNonce(): string {
-  return crypto.randomUUID();
 }
 
 function supportsWebRtc(): boolean {

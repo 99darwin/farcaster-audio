@@ -50,7 +50,7 @@ Drop this into any HTML page. Replace `{spaceId}` with the Juke space UUID.
 That's it. The iframe handles:
 - public room metadata fetch
 - anonymous listening (no sign-in)
-- "Sign in to participate" via SIWN popup
+- "Sign in to participate" via SIWF (QR + mobile deeplink)
 - reactions, hand raise, mic (after host promotion)
 - LiveKit connection and reconnection
 - Juke attribution
@@ -85,18 +85,20 @@ This is the canonical flow. Adapt the JSX to the developer's design system; keep
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode"; // any QR library works
 import {
   createJukeEmbedSdk,
-  isTrustedSiwnMessage,
-  parseSiwnPayload,
   type JukeEmbedSdk,
 } from "@/lib/juke-embed-sdk";
 import type { JoinSpaceResponse } from "@/lib/spaces";
 
 export function MySpace({ spaceId }: { spaceId: string }) {
   const sdkRef = useRef<JukeEmbedSdk>();
+  const signerAbortRef = useRef<AbortController | null>(null);
   const [join, setJoin] = useState<JoinSpaceResponse | null>(null);
   const [isAuthed, setIsAuthed] = useState(false);
+  const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   if (!sdkRef.current) sdkRef.current = createJukeEmbedSdk();
 
@@ -107,34 +109,62 @@ export function MySpace({ spaceId }: { spaceId: string }) {
     setJoin(j);
   }
 
-  // 2. Sign in only when the user opts into participation.
+  // 2. Sign In With Farcaster (SIWF): backend issues a nonce, the SDK
+  //    opens a SIWF channel via the Farcaster auth relay, and returns
+  //    a `farcaster://connect` deeplink the user approves in their
+  //    Farcaster client. The signed message includes our domain.
   async function signIn() {
-    await sdkRef.current!.startSiwn(); // opens popup
-    // The popup posts a message back when the user finishes SIWN.
-    // The listener below picks it up.
-  }
+    // Cancel any previous in-flight attempt.
+    signerAbortRef.current?.abort();
+    const abort = new AbortController();
+    signerAbortRef.current = abort;
 
-  // 3. Handle the SIWN postMessage callback.
-  useEffect(() => {
-    const handler = async (event: MessageEvent) => {
-      if (!isTrustedSiwnMessage(event)) return;
-      const payload = parseSiwnPayload(event.data);
-      if (!payload) return;
+    const { channelToken, url } = await sdkRef.current!.startSiwfFlow();
+    setApprovalUrl(url);
 
-      await sdkRef.current!.completeSiwn(payload);
+    // Render the SIWF deeplink as a QR for desktop scan. Mobile users
+    // tap the "I'm on my mobile device" link instead.
+    QRCode.toDataURL(url).then(setQrDataUrl);
+
+    try {
+      // 3. Poll until the user approves in their Farcaster client.
+      const approved = await sdkRef.current!.pollSiwfStatus(channelToken, {
+        signal: abort.signal,
+      });
+
+      // 4. Complete login and join as an authenticated participant.
+      await sdkRef.current!.completeSiwfLogin({
+        message: approved.message,
+        signature: approved.signature,
+      });
       const j = await sdkRef.current!.joinAuthenticated(spaceId);
       await sdkRef.current!.connectAudio(j);
+
+      setApprovalUrl(null);
+      setQrDataUrl(null);
       setJoin(j);
       setIsAuthed(true);
-    };
-    window.addEventListener("message", handler);
-    return () => {
-      window.removeEventListener("message", handler);
-      sdkRef.current?.leaveSpace().catch(() => {});
-    };
-  }, [spaceId]);
+    } catch (err) {
+      if (!abort.signal.aborted) throw err;
+    } finally {
+      if (signerAbortRef.current === abort) signerAbortRef.current = null;
+    }
+  }
 
-  // 4. Authenticated actions.
+  function cancelSignIn() {
+    signerAbortRef.current?.abort();
+    signerAbortRef.current = null;
+    setApprovalUrl(null);
+    setQrDataUrl(null);
+  }
+
+  // Clean up the audio connection on unmount.
+  useEffect(() => () => {
+    signerAbortRef.current?.abort();
+    sdkRef.current?.leaveSpace().catch(() => {});
+  }, []);
+
+  // 5. Authenticated actions.
   const react = () => sdkRef.current!.sendReaction("clap");
   const raiseHand = () => sdkRef.current!.raiseHand(spaceId, true);
   const speak = () => sdkRef.current!.enableMicrophone(true); // throws unless host promoted
@@ -142,7 +172,18 @@ export function MySpace({ spaceId }: { spaceId: string }) {
   return (
     <div>
       {!join && <button onClick={listen}>Listen</button>}
-      {join && !isAuthed && <button onClick={signIn}>Sign in to participate</button>}
+      {join && !isAuthed && !approvalUrl && (
+        <button onClick={signIn}>Sign in to participate</button>
+      )}
+      {approvalUrl && (
+        <div>
+          {qrDataUrl && <img src={qrDataUrl} alt="Scan with Farcaster" />}
+          <a href={approvalUrl} target="_blank" rel="noopener noreferrer">
+            I&apos;m on my mobile device
+          </a>
+          <button onClick={cancelSignIn}>Cancel</button>
+        </div>
+      )}
       {isAuthed && (
         <>
           <button onClick={react}>👏</button>
@@ -155,17 +196,27 @@ export function MySpace({ spaceId }: { spaceId: string }) {
 }
 ```
 
-### Why SIWN uses postMessage, not a callback URL
+### Why SIWF (not a managed signer)
 
-Juke opens the SIWN popup at a Neynar-hosted URL. When the user signs in, the popup posts a message back to the opener window with `{ fid, signer_uuid }`. The SDK exports `isTrustedSiwnMessage()` and `parseSiwnPayload()` so you can validate the origin and shape before calling `completeSiwn()`. Always validate — the popup origin is whitelisted to Neynar/Warpcast/your own origin only.
+Juke uses [Sign In With Farcaster (SIWF)](https://docs.farcaster.xyz/developers/siwf) — Farcaster's EIP-4361 / SIWE-based auth flow — to authenticate web users. We previously shipped Neynar's `createSigner + registerSignedKey` "managed signer" pattern; we migrated off it because SIWF is purpose-built for *authentication* (proving FID ownership) and has a security property the managed-signer flow lacks: **the signed message includes the requesting `domain`, and the Farcaster client displays that domain to the user at approval time.**
+
+That domain binding is what closes the QR-phishing window. A victim scanning a QR generated by `evil.com` sees `evil.com wants you to sign in` in their Farcaster client — not just the registered app name. They can refuse before approving. The managed-signer flow couldn't surface the origin because the SignedKeyRequest EIP-712 schema has no slot for one.
+
+How it works in the SDK:
+
+- `startSiwfFlow()` — gets a server-issued nonce from `/v1/auth/siwf/nonce`, asks the Farcaster auth relay (`relay.farcaster.xyz`) to open a channel, returns `{ channelToken, url }`. The url is a `farcaster://connect?channelToken=...` deeplink.
+- `pollSiwfStatus(channelToken, { signal })` — waits via `@farcaster/auth-client` until the user approves and the relay returns the signed SIWE message + signature.
+- `completeSiwfLogin({ message, signature })` — POSTs to our backend, which cryptographically verifies the signature, confirms domain + nonce, resolves the recovered custody address → FID via Neynar, and mints a Juke JWT.
+
+Render the `url` as a QR (desktop) plus a tap-to-deeplink button (mobile). Both code paths trigger the same Farcaster client approval screen which displays the domain.
 
 ### Inside a Farcaster miniapp
 
-Skip SIWN. Use Farcaster Quick Auth (the `@farcaster/miniapp-sdk` client). Exchange the miniapp JWT for a Juke JWT via the backend's miniapp login route. The SDK's `joinAuthenticated(spaceId)` works the same way once you've set the auth session.
+Skip SIWF and use Farcaster Quick Auth (the `@farcaster/miniapp-sdk` client). Exchange the miniapp JWT for a Juke JWT via the backend's miniapp login route. The SDK's `joinAuthenticated(spaceId)` works the same way once you've set the auth session.
 
 ### Inside the native Juke iOS app
 
-Use the app's own Neynar SIWN flow. Don't pop a web popup inside a React Native WebView — handle SIWN natively and inject the resulting auth session.
+Use the app's own on-device auth-address flow (separate from SIWF — the iOS app generates a secp256k1 keypair on-device and registers it via Neynar's developer-managed signed key API). Don't pop a web popup or render a QR inside a React Native WebView.
 
 ---
 
@@ -177,9 +228,9 @@ Follow this order. It exists because requiring sign-in before listening is the s
 2. **Let visitors listen anonymously.** One click, no popup, no sign-in.
 3. **Prompt "Sign in to participate" only when they try to interact.** Reactions, replies, hand raise.
 4. **Choose the right auth method for the context:**
-   - Ordinary webpage → SIWN popup
+   - Ordinary webpage → SIWF (QR scan + mobile deeplink)
    - Farcaster miniapp → Quick Auth
-   - Native iOS app → native Neynar SIWN
+   - Native iOS app → on-device auth-address (Neynar developer-managed signed key API)
 5. **Request browser mic permission only after the host promotes the listener** to speaker/co-host/host. Browsers prompt aggressively, so asking before the user can actually speak is wasted goodwill.
 
 If a developer asks you to gate listening behind sign-in, push back once and explain the cost. If they insist, do it — it's their product.
@@ -204,6 +255,26 @@ Anonymous listeners are counted in the aggregate `listener_count`. They are not 
 
 ---
 
+## Security considerations: domain binding
+
+The SIWF flow (`startSiwfFlow` → user approves in Farcaster → `pollSiwfStatus` → `completeSiwfLogin`) is built on EIP-4361 (Sign In With Ethereum), adapted by Farcaster as Sign In With Farcaster. The signed message includes the requesting **domain** as a first-class field, and the Farcaster client displays that domain on the approval screen. This closes the QR-phishing class of attacks that affected the prior managed-signer flow.
+
+**How the trust boundary works.** When the SDK starts a sign-in, it constructs a SIWE message with `domain = window.location.hostname` and submits it through Farcaster's auth relay. The user's Farcaster client renders an approval screen that names the exact domain that issued the request. A QR generated by `juke-audio.com` will show `juke-audio.com` at approval — not `juke.audio`. The user sees, in their trusted Farcaster client, the actual origin they are about to authenticate to.
+
+**Server-side verification.** On `/v1/auth/siwf/login` the backend re-parses the signed message, checks the signature against the user's Farcaster custody address (via Neynar's bulk-by-address lookup), and verifies that the message's `domain` and `nonce` match what the backend issued. A signature that authenticated to a different domain will not validate against `juke.audio`.
+
+**Defense-in-depth still in place:**
+
+- **Single-use nonces** — every login burns a server-issued nonce (10-minute TTL). Replays fail.
+- **Per-IP rate limits** — 30/min on `/v1/auth/siwf/nonce`, 10/min on `/v1/auth/siwf/login`.
+- **Custody-address binding** — the fid is resolved from the signature's recovered address through Neynar, not provided by the client.
+
+**What integrators should do.** Render the SIWF QR/deeplink inside the same browser context that the user trusts. The Farcaster client will surface that origin to the user at approval, so the only requirement is that your embedding domain truthfully represents the experience.
+
+**Reference.** Farcaster's SIWF specification: [docs.farcaster.xyz/developers/siwf](https://docs.farcaster.xyz/developers/siwf).
+
+---
+
 ## API surface (REST)
 
 Base URL: `https://your-api-host.example.com`
@@ -211,16 +282,19 @@ Base URL: `https://your-api-host.example.com`
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/v1/rooms/{spaceId}` | none | Public room metadata + participant list |
+| GET | `/v1/rooms/{spaceId}/embed-policy` | none | Per-room `allowed_origins` for CSP `frame-ancestors` (null when the room has no owning developer app) |
 | POST | `/v1/rooms/{spaceId}/anonymous-join` | none | Listener-only LiveKit token |
 | POST | `/v1/rooms/{spaceId}/join` | Bearer | Authenticated join, role-scoped LiveKit token |
 | POST | `/v1/rooms/{spaceId}/leave` | Bearer | Mark left, clean up participant row |
 | POST | `/v1/rooms/{spaceId}/token` | Bearer | Refresh expiring LiveKit token |
 | POST | `/v1/rooms/{spaceId}/raise-hand` | Bearer | Toggle hand-raise (`{"raised": bool}`) |
-| GET | `/v1/auth/neynar-auth-url` | none | SIWN authorization URL |
-| POST | `/v1/auth/login` | none | Exchange `{fid, signer_uuid}` for Juke JWT |
-| POST | `/v1/auth/refresh` | Bearer | Refresh Juke JWT |
+| POST | `/v1/auth/siwf/nonce` | none | Issues a single-use SIWE nonce (10-minute TTL). Rate-limited 30/min per IP. |
+| POST | `/v1/auth/siwf/login` | none | Verifies a signed SIWF message and exchanges it for a Juke JWT. Body: `{message, signature, use_cookie?}`. Accepts `use_cookie: true` to set an HttpOnly refresh cookie instead of returning the refresh token in the body. Rate-limited 10/min per IP. |
+| POST | `/v1/auth/refresh` | Bearer | Refresh Juke JWT. Reads the refresh token from `juke_refresh` cookie when present, or from the request body otherwise. |
+| POST | `/v1/auth/logout` | none | Clears the `juke_refresh` cookie and revokes the refresh token in Redis. |
 
-The SDK calls all of these for you. Reach for raw HTTP only if you can't use the SDK (e.g., from a server, from a non-JS runtime).
+The SDK calls all of these for you. Reach for raw HTTP only if you
+can't use the SDK (e.g., from a server, from a non-JS runtime).
 
 ## Developer API keys
 
@@ -238,13 +312,15 @@ End-to-end setup flow:
 8. Embed hosted spaces without a key when the site only needs public listening.
 9. Call protected Juke developer APIs from a backend process only.
 
-Protected developer API calls use both a Juke user/session bearer token and the server-held Juke API key:
+Two distinct auth paths:
+
+- **`/v1/developer/spaces`** (server-side room creation) is **key-only**. Send `X-Juke-Api-Key`; do not send a bearer JWT. The room owner is derived from the key's owning developer app.
+- **`/v1/developer/apps/*`** (dashboard routes — list, create, rotate, revoke, reveal) require a bearer JWT scoped to the signed-in developer. Dangerous mutations additionally require a recent SIWF sign-in within 5 minutes (`401 Recent sign-in required.` + `WWW-Authenticate: ReAuth`). The dashboard handles this; server integrations rarely need these endpoints.
 
 ```ts
 await fetch("https://your-api-host.example.com/v1/developer/spaces", {
   method: "POST",
   headers: {
-    Authorization: `Bearer ${process.env.JUKE_USER_TOKEN}`,
     "X-Juke-Api-Key": process.env.JUKE_API_KEY!,
     "Content-Type": "application/json",
   },
@@ -257,7 +333,9 @@ await fetch("https://your-api-host.example.com/v1/developer/spaces", {
 });
 ```
 
-The bearer token determines the room host. Never include a host identifier or any host override in developer API requests.
+The room host is derived from the API key (the key's owning developer app's `owner_fid`). Never include a host identifier or host override in the request body.
+
+If the request includes an `Origin` header and the developer app has `allowed_origins` configured, the Origin must match one of the listed entries. Server-to-server requests without an `Origin` header are not subject to this check.
 
 Secret handling:
 
@@ -349,7 +427,7 @@ No client-side recording in the embed. Recording is a host-side setting on the r
 Yes, but only worth it for compliance or air-gapped deployments. See the self-hosting section below.
 
 ### "Does this work in a Farcaster miniapp?"
-Yes — use the SDK path, swap SIWN for Quick Auth, register the embed origin in your miniapp manifest.
+Yes — use the SDK path, swap SIWF for Quick Auth, register the embed origin in your miniapp manifest.
 
 ### "Does this work in React Native?"
 Use the SDK pattern (REST + LiveKit), but the LiveKit client is `@livekit/react-native`, not `livekit-client`. The HTTP calls are the same.
@@ -374,8 +452,25 @@ NEYNAR_CLIENT_ID=
 LIVEKIT_API_KEY=
 LIVEKIT_API_SECRET=
 LIVEKIT_WS_URL=
+
+# App custody account (used by miniapp auth-address registration and snap signing).
+# SIWF login does not require these — the user's own Farcaster custody signs.
+FARCASTER_APP_FID=
+FARCASTER_APP_MNEMONIC=
+
+# SIWF domain the backend will require in signed messages. Must match the
+# origin where the SDK is embedded (e.g. juke.audio, or your hosted domain).
+SIWF_DOMAIN=juke.audio
+
+# Developer API key cryptography. Generate once per environment and back
+# up in a secret manager — rotation is destructive (see below).
+JUKE_API_KEY_PEPPER=          # ≥32 bytes random; peppers stored key hashes
+JUKE_API_KEY_ENCRYPTION_KEY=  # exactly 32 bytes base64; AES-256-GCM key
+JUKE_API_AUDIT_SECRET=        # ≥32 bytes random; HMAC for audit trail (optional)
+
 QUICKAUTH_ALLOWED_AUDIENCES=juke.audio
 CORS_ORIGINS='["https://your-domain"]'
+ENVIRONMENT=production        # enables Secure cookies + strict secret length checks
 ```
 
 The Next.js landing/embed needs:
@@ -387,6 +482,12 @@ NEXT_PUBLIC_SITE_URL=https://your-domain
 
 LiveKit can be self-hosted or use LiveKit Cloud. Neynar can't be swapped — Farcaster identity is the auth substrate.
 
+**Do not rotate** `JUKE_API_KEY_PEPPER` or `JUKE_API_KEY_ENCRYPTION_KEY`
+without a planned migration. Pepper rotation invalidates every stored
+API key hash (every developer's keys stop working). Encryption key
+rotation makes every un-revealed secret undecryptable. Treat both as
+primary key material.
+
 ---
 
 ## Troubleshooting
@@ -396,7 +497,9 @@ LiveKit can be self-hosted or use LiveKit Cloud. Neynar can't be swapped — Far
 | Iframe shows "Space not found" | Wrong spaceId or room ended | Verify the UUID and `room.status === "active"` |
 | No audio after clicking Listen | Browser blocked autoplay | The embed unlocks audio on user gesture — make sure the click handler isn't wrapped in something that breaks the gesture chain |
 | `enableMicrophone` throws | User isn't a speaker yet | Host must promote them via the Juke app |
-| SIWN popup blocked | Popup blocker | `startSiwn()` returns `popup: null` — surface a "click here to retry" affordance |
+| QR shows but never resolves | User hasn't approved in their Farcaster client, or the channel expired | Surface the `farcaster://connect` deeplink as a fallback; user can re-trigger `startSiwfFlow()` to mint a fresh channel |
+| `pollSiwfStatus` throws "Sign-in cancelled" | The AbortController was triggered | Expected when the user cancels — swallow the rejection if `signal.aborted` |
+| `/v1/auth/siwf/login` returns 400 "invalid_nonce" or "domain_mismatch" | Message domain doesn't match the embedding origin, or the nonce was already used / expired | Re-run `startSiwfFlow()` to get a fresh nonce + channel |
 | Reactions silently fail | Not authenticated | `sendReaction` throws `JukeEmbedAuthError` — gate the UI on `sdk.isAuthenticated` |
 | Mic permission prompt appears too early | UI requested mic before host promotion | Move `enableMicrophone(true)` behind the post-promotion "Unmute" button only |
 
