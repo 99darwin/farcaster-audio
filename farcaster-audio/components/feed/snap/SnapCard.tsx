@@ -39,6 +39,7 @@ import {
   registerSnapSigner,
   signSnapSubmit,
   signSnapSubmitV1,
+  type SnapSurface,
 } from "@/services/snapSigner";
 import { useSnapSignerStatus } from "@/hooks/useSnapSignerStatus";
 import {
@@ -147,9 +148,14 @@ function reducer(state: State, action: Action): State {
 interface SnapCardProps {
   url: string;
   response: SnapResponse;
+  castContext?: { hash: string; authorFid: number };
 }
 
-export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
+export function SnapCard({
+  url,
+  response: initialResponse,
+  castContext,
+}: SnapCardProps) {
   const fid = useAuthStore((s) => s.user?.fid ?? 0);
   const { colors } = useTheme();
   const styles = useStyles();
@@ -315,9 +321,19 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       // so a replay against another v1 server becomes trivial).
       const initialVersion = state.response.version;
 
+      const surface: SnapSurface = castContext
+        ? {
+            type: "cast",
+            cast: {
+              hash: castContext.hash,
+              author: { fid: castContext.authorFid },
+            },
+          }
+        : { type: "standalone" };
+
       dispatch({ type: "submit-start" });
       try {
-        const jfs = await signSnapSubmit(fid, inputs, { audience });
+        const jfs = await signSnapSubmit(fid, inputs, { audience, surface });
         const next = await submitSnap(target, jfs, { expectVersion: "2.0" });
         dispatch({ type: "submit-success", response: next });
       } catch (err) {
@@ -373,6 +389,7 @@ export function SnapCard({ url, response: initialResponse }: SnapCardProps) {
       state.response.ui.elements,
       url,
       buttonIndexMap,
+      castContext,
     ],
   );
 

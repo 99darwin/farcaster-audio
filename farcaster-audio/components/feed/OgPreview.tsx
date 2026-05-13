@@ -240,7 +240,17 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
   if (!url) return null;
 
   if (snap) {
-    return <SnapCard url={url} response={snap} />;
+    return (
+      <SnapCard
+        url={url}
+        response={snap}
+        castContext={
+          castContext
+            ? { hash: castContext.hash, authorFid: castContext.authorFid }
+            : undefined
+        }
+      />
+    );
   }
 
   const imageUrl = getOgImage(embed);
