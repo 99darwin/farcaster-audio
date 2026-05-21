@@ -9,6 +9,34 @@ on:
     paths: ['backend/**']
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install lint tools
+        run: pip install ruff==0.6.9 black==24.10.0
+
+      # Lint is advisory until backend codebase is reformatted in a follow-up.
+      # Tracking: 49 files need `black .` and 46 ruff issues to clean up.
+      # Once cleaned, drop `continue-on-error` to make this a hard gate.
+      - name: Ruff
+        run: ruff check .
+        continue-on-error: true
+
+      - name: Black
+        run: black --check .
+        continue-on-error: true
+
   test:
     runs-on: ubuntu-latest
     defaults:

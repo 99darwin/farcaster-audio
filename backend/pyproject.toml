@@ -8,6 +8,20 @@ requires-python = ">=3.12"
 line-length = 88
 target-version = ["py312"]
 
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+# Start conservative: pyflakes (F) + a subset of pycodestyle (E) only.
+# Avoids churn while still catching real bugs (unused imports, undefined names,
+# obvious style issues). Codebase can opt into more rules later.
+select = ["E", "F", "W"]
+ignore = [
+  "E501",  # line length handled by black
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
