@@ -29,17 +29,20 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = []
     # Expected `domain` field in SIWF (EIP-4361) sign-in messages. Bound at
     # verify time so a SIWE message signed for someone else's app cannot
-    # be replayed against Juke. Defaults to the production domain; override
-    # for staging or local dev (e.g. "localhost:3000"). Accepts a comma-
-    # separated allowlist so apex + www variants both work
-    # ("juke.audio,www.juke.audio").
-    SIWF_DOMAIN: str = "juke.audio,www.juke.audio"
+    # be replayed against this deployment. Operators MUST set this to their
+    # own domain(s) — empty disables SIWF login entirely (no message will
+    # match the empty allowlist). Accepts a comma-separated allowlist so
+    # apex + www variants both work (e.g. "example.com,www.example.com").
+    SIWF_DOMAIN: str = ""
     LOG_LEVEL: str = "INFO"
     AWS_S3_BUCKET_NAME: str = ""
     AWS_DEFAULT_REGION: str = "us-east-1"
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
-    AWS_ENDPOINT_URL: str = "https://your-s3-endpoint.example.com"
+    # Custom S3-compatible endpoint (e.g. Tigris, Cloudflare R2, MinIO).
+    # Leave empty to fall back to AWS default endpoints; set explicitly
+    # for non-AWS object storage providers.
+    AWS_ENDPOINT_URL: str = ""
     DEEPGRAM_API_KEY: str = ""
     RECORDING_ENABLED: bool = False
     SENTRY_DSN: str = ""
@@ -64,9 +67,10 @@ class Settings(BaseSettings):
 
     # Farcaster Quick Auth — https://miniapps.farcaster.xyz/docs/sdk/quick-auth
     # Comma-separated list of allowed `aud` values in incoming Quick Auth JWTs.
-    # The host sets `aud` to the domain rendering the miniapp, so we must list
-    # prod + any preview/staging domains that should be able to sign users in.
-    QUICKAUTH_ALLOWED_AUDIENCES: str = "juke.audio"
+    # The host sets `aud` to the domain rendering the miniapp, so operators
+    # must list prod + any preview/staging domains that should be able to
+    # sign users in. Empty disables Quick Auth (no audience will match).
+    QUICKAUTH_ALLOWED_AUDIENCES: str = ""
     QUICKAUTH_ISSUER: str = "https://auth.farcaster.xyz"
     QUICKAUTH_JWKS_URL: str = "https://auth.farcaster.xyz/.well-known/jwks.json"
 

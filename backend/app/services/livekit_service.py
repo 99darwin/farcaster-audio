@@ -223,6 +223,13 @@ class LiveKitService:
         )
 
     async def close(self) -> None:
-        """Cleanup API client."""
-        if self._api is not None:
-            await self._api.aclose()
+        """Cleanup API client.
+
+        Safe to call when the API client was never instantiated — this is the
+        common case for request handlers that short-circuit before any LiveKit
+        call (auth rejection, validation error, anonymous read endpoints) and
+        for tests that exercise routes without real LIVEKIT_* env vars set.
+        """
+        if self._api is None:
+            return
+        await self._api.aclose()

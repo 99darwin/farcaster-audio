@@ -124,9 +124,14 @@ def extract_recording_s3_key(recording_url: str) -> str | None:
 
 class StorageService:
     def __init__(self) -> None:
+        # boto3 distinguishes endpoint_url=None (fall back to AWS-default
+        # regional endpoint) from endpoint_url="" (use a literal empty
+        # endpoint, which raises). Normalize empty config to None so
+        # operators using AWS S3 don't need to set this variable.
+        endpoint_url = settings.AWS_ENDPOINT_URL or None
         self._client = boto3.client(
             "s3",
-            endpoint_url=settings.AWS_ENDPOINT_URL,
+            endpoint_url=endpoint_url,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
             region_name=settings.AWS_DEFAULT_REGION,
