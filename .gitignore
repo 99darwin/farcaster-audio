@@ -33,3 +33,14 @@ farcaster-audio/.expo/
 coverage/
 .pytest_cache/
 htmlcov/
+
+# Internal tooling and drafts (not for public release)
+/remotion/
+juke-sdk-e2e-runbook.md
+juke-voice-notes-spec.md
+juke-calendar-notifications-channels-spec.md
+juke-*-runbook.md
+juke-voice-notes-*.md
+juke-calendar-*-spec.md
+NSE_PFP_DEBUG.md
+MINIAPP-AUTH.md
