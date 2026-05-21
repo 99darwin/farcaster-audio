@@ -1,4 +1,3 @@
-import logging
 
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock

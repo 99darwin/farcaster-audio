@@ -33,7 +33,6 @@ jobs:
 
       - name: Lint
         run: npm run lint -- --max-warnings 0
-        continue-on-error: true
 
   test:
     runs-on: ubuntu-latest

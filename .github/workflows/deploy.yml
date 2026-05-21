@@ -26,13 +26,11 @@ jobs:
       - name: Install lint tools
         run: pip install ruff==0.6.9 black==24.10.0
 
-      # Lint is advisory until backend codebase is reformatted in a follow-up.
-      # Tracking: 49 files need `black .` and 46 ruff issues to clean up.
-      # Once cleaned, drop `continue-on-error` to make this a hard gate.
       - name: Ruff
         run: ruff check .
-        continue-on-error: true
 
+      # Black is advisory pending a one-shot `black .` reformat across 49
+      # files. Drop `continue-on-error` once that lands.
       - name: Black
         run: black --check .
         continue-on-error: true

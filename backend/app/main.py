@@ -73,10 +73,18 @@ async def lifespan(app: FastAPI):
             "JWT_SECRET must be changed from the default value in non-development environments"
         )
 
-    # Warn loudly on a weak admin secret. We don't fail startup so local dev
-    # and test envs can run with a placeholder, but anything < 32 chars in
-    # prod is almost certainly too short to withstand brute-force.
-    if settings.ADMIN_SECRET and len(settings.ADMIN_SECRET) < 32:
+    # ADMIN_SECRET gates /v1/admin/recordings/cleanup and similar shared-secret
+    # ops endpoints. In production a weak or unset value is a real exposure, so
+    # we fail closed there. Local dev / tests can boot with a placeholder so
+    # contributors don't need to generate a 32-byte token to run pytest.
+    if settings.ENVIRONMENT != "development":
+        if not settings.ADMIN_SECRET or len(settings.ADMIN_SECRET) < 32:
+            raise RuntimeError(
+                "ADMIN_SECRET must be set and at least 32 characters in "
+                "non-development environments. Generate with "
+                "`python -c 'import secrets; print(secrets.token_urlsafe(48))'`."
+            )
+    elif settings.ADMIN_SECRET and len(settings.ADMIN_SECRET) < 32:
         logger.warning(
             "ADMIN_SECRET is shorter than 32 characters (len=%d). Rotate to a "
             "longer random value before relying on admin ops endpoints.",

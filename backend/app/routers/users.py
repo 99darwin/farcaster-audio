@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.config import settings
 from app.dependencies import (
     get_current_user,
     get_db,

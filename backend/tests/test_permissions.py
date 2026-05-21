@@ -1,4 +1,3 @@
-import pytest
 from app.services.permission_service import (
     can_publish_audio,
     can_self_mute,

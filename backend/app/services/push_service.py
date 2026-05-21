@@ -3,7 +3,6 @@ Push notification service — device token management, preference lookup,
 and Expo push delivery.
 """
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone

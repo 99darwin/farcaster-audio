@@ -1,6 +1,8 @@
 import logging
 import re
+import secrets
 import time
+from datetime import datetime, timedelta, timezone
 
 from eth_account.messages import encode_defunct
 from eth_account import Account
@@ -12,8 +14,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 import redis.asyncio as aioredis
-
-logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.dependencies import get_db, get_redis
@@ -53,6 +53,8 @@ from app.services.siwf_service import (
     verify_siwf_message,
 )
 from app.dependencies import DEMO_SIGNER_UUID, get_current_user, require_non_demo_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
@@ -794,9 +796,6 @@ async def invalidate_auth_address(
 # ---------------------------------------------------------------------------
 # Miniapp SIWF token exchange
 # ---------------------------------------------------------------------------
-
-import secrets
-from datetime import datetime, timedelta, timezone
 
 
 class MiniAppNonceResponse(BaseModel):
