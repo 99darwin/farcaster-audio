@@ -22,6 +22,13 @@ ignore = [
   "E501",  # line length handled by black
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests use `pytest.importorskip(...)` to bail out when an optional
+# dependency is missing (aiosqlite, etc.) before importing modules that
+# would otherwise crash. That's a legitimate top-level call between
+# imports, so E402 is suppressed here.
+"tests/**" = ["E402"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
