@@ -8,7 +8,7 @@ import * as api from "@/services/api";
 import * as storage from "@/services/storage";
 import { getNotificationRoute } from "@/utils/notificationRouting";
 
-const PROJECT_ID = "YOUR_EAS_PROJECT_ID";
+const PROJECT_ID = process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? "";
 
 // Show notifications when app is in foreground
 Notifications.setNotificationHandler({
@@ -77,6 +77,15 @@ export function usePushNotifications() {
     }
 
     if (Platform.OS !== "ios") return;
+
+    if (!PROJECT_ID) {
+      if (__DEV__) {
+        console.log(
+          "[Push] Skipping — EXPO_PUBLIC_EAS_PROJECT_ID not configured",
+        );
+      }
+      return;
+    }
 
     // Check existing token to avoid redundant registration
     const existingToken = await storage.getPushToken();

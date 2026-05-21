@@ -21,7 +21,7 @@
     "@noble/hashes": "^2.0.1",
     "@react-native-community/datetimepicker": "^9.1.0",
     "@sentry/react-native": "^8.5.0",
-    "axios": "^1.7.0",
+    "axios": "^1.15.2",
     "expo": "~55.0.0",
     "expo-audio": "~55.0.13",
     "expo-blur": "~55.0.10",
@@ -60,6 +60,7 @@
     "@testing-library/react-native": "^13.2.0",
     "@types/react": "~19.2.10",
     "eslint": "^8.0.0",
+    "eslint-config-expo": "~55.0.1",
     "jest": "^29.0.0",
     "jest-expo": "~55.0.0",
     "react-test-renderer": "19.2.4",
@@ -70,5 +71,9 @@
     "transformIgnorePatterns": [
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|@livekit)"
     ]
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.13",
+    "node-forge": "^1.4.0"
   }
 }
