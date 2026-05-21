@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API_BASE_URL = process.env.API_BASE_URL || "https://your-api-host.example.com";
+const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:8000";
 const WEBHOOK_SECRET = process.env.MINIAPP_WEBHOOK_SECRET || "";
 
 /**

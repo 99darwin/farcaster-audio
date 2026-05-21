@@ -5,8 +5,7 @@ export const alt = "Juke — Live Audio Space";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-const API_BASE_URL =
-  "https://your-api-host.example.com";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 type RoomData = {
   room: {

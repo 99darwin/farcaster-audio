@@ -1,5 +1,5 @@
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export interface Recording {
   room_id: string;

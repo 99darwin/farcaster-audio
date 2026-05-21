@@ -5,7 +5,7 @@ export const alt = "Juke Voice Note";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-const API_BASE_URL = process.env.API_BASE_URL || "https://your-api-host.example.com";
+const API_BASE_URL = process.env.API_BASE_URL || "http://localhost:8000";
 
 interface VoiceNote {
   id: string;

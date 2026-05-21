@@ -14,7 +14,7 @@ import {
 } from "@/lib/voice-notes";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const APP_STORE_URL =
   "https://testflight.apple.com/join/YOUR_TESTFLIGHT_CODE";
 const PLAY_TRACK_DELAY_MS = 3000;
