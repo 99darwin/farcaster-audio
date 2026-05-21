@@ -256,10 +256,20 @@ export class DeveloperApiClient {
       throw new DeveloperApiError("Could not start sign in", 500);
     }
 
+    // `acceptAuthAddress: false` forces the Farcaster client to sign
+    // with the custody key. The default flipped to `true` in
+    // @farcaster/auth-client 0.7.0, but our backend resolves the
+    // recovered signer via Neynar's bulk-by-address endpoint, which
+    // only indexes custody + verified-wallet addresses — not
+    // auth-addresses (FIP #225, key type 2). Accepting an auth-address
+    // signature would 401 the login post-verify. Also empirically
+    // unblocks desktop-QR-from-mobile-app sign-ins for users whose
+    // FID already has an auth-address registered.
     const channel = await siwfAppClient.createChannel({
       siweUri: `${window.location.origin}/developers`,
       domain: window.location.hostname,
       nonce: nonceBody.nonce,
+      acceptAuthAddress: false,
     });
 
     if (!channel.data?.channelToken || !channel.data?.url) {

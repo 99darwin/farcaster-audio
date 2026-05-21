@@ -126,10 +126,15 @@ export class JukeEmbedSdk {
     if (!nonceBody?.nonce) {
       throw new Error("Could not start sign in");
     }
+    // See developer-api.ts for the rationale — our backend can't
+    // resolve auth-address (FIP #225) signatures via Neynar's
+    // bulk-by-address lookup, and forcing custody also dodges the
+    // desktop-QR sign-in failure observed in the Farcaster app.
     const channel = await siwfAppClient.createChannel({
       siweUri: `${window.location.origin}/embed`,
       domain: window.location.hostname,
       nonce: nonceBody.nonce,
+      acceptAuthAddress: false,
     });
     if (!channel.data?.channelToken || !channel.data?.url) {
       throw new Error("Could not start sign in");
