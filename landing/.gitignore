@@ -3,4 +3,5 @@ node_modules/
 out/
 .env
 .env.*
+!.env.example
 tsconfig.tsbuildinfo
