@@ -1,10 +1,10 @@
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 const PUBLIC_BASE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
-  "https://juke.audio";
+  "http://localhost:3000";
 
 if (
   typeof process !== "undefined" &&
@@ -15,7 +15,7 @@ if (
   // but it is almost always a misconfiguration in local dev.
   // eslint-disable-next-line no-console
   console.warn(
-    "[spaces] NEXT_PUBLIC_API_BASE_URL is unset; falling back to https://your-api-host.example.com",
+    "[spaces] NEXT_PUBLIC_API_BASE_URL is unset; falling back to http://localhost:8000",
   );
 }
 

@@ -1,7 +1,7 @@
 import sdk from "@farcaster/miniapp-sdk";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 if (
   typeof process !== "undefined" &&
@@ -12,7 +12,7 @@ if (
   // almost always a mistake — surface it early so developers notice.
   // eslint-disable-next-line no-console
   console.warn(
-    "[miniapp-auth] NEXT_PUBLIC_API_BASE_URL is unset; falling back to https://your-api-host.example.com",
+    "[miniapp-auth] NEXT_PUBLIC_API_BASE_URL is unset; falling back to http://localhost:8000",
   );
 }
 

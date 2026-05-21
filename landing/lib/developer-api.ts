@@ -3,7 +3,7 @@
 import { createAppClient, viemConnector } from "@farcaster/auth-client";
 
 export const DEVELOPER_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 const EXPIRY_SAFETY_MS = 60 * 1000;
 

@@ -6,8 +6,23 @@ import { NextResponse, type NextRequest } from "next/server";
 // legitimate asset is blocked. TODO(security): enforce.
 const CSP_HEADER = "Content-Security-Policy-Report-Only";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://your-api-host.example.com";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const LIVEKIT_WS_URL = process.env.NEXT_PUBLIC_LIVEKIT_WS_URL ?? "";
+
+// Build connect-src from env-derived origins. Empty entries are filtered
+// out so they cannot accidentally widen the policy (an empty string in a
+// CSP source list is silently ignored by browsers but we strip it
+// defensively). The wildcard `wss://*.livekit.cloud` is kept so
+// self-hosted LiveKit on the default Cloud subdomain still works.
+const connectSrc = [
+  "'self'",
+  API_BASE_URL,
+  LIVEKIT_WS_URL,
+  "wss://*.livekit.cloud",
+  "https://*.livekit.cloud",
+]
+  .filter(Boolean)
+  .join(" ");
 
 const CSP_BASE = [
   "default-src 'self'",
@@ -15,9 +30,10 @@ const CSP_BASE = [
   // now but should migrate to nonces when we move to strict CSP.
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  // API + LiveKit SFU. Backend config defaults to wss://*.livekit.cloud
-  // (see backend/app/config.py); tighten to a single host if we pin one.
-  "connect-src 'self' https://your-api-host.example.com wss://*.livekit.cloud https://*.livekit.cloud",
+  // API + LiveKit SFU. Origins come from NEXT_PUBLIC_API_BASE_URL and
+  // NEXT_PUBLIC_LIVEKIT_WS_URL so self-hosted deployments can point at
+  // their own infra without patching this file.
+  `connect-src ${connectSrc}`,
   "img-src 'self' https: data:",
   "media-src 'self' blob: https:",
   "base-uri 'self'",
