@@ -4,7 +4,7 @@
 
 If you believe you've found a security vulnerability in Juke, please report it privately.
 
-**Email:** `nick@diviproject.org`
+**Email:** `nicksapsales@gmail.com`
 
 Include in your report:
 

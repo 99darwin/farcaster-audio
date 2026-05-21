@@ -89,7 +89,6 @@ Before opening a PR:
 - [ ] Tests pass locally for the app(s) you touched (`pytest`, `npx jest`, `npm run build`)
 - [ ] Lint passes (`ruff check`, `npm run lint`)
 - [ ] For UI changes: include screenshots or a short screen recording
-- [ ] PR description references the relevant section of `SPEC.md` if applicable
 
 Keep PRs focused. Aim for under 300 lines of diff when possible. Split unrelated work into separate PRs.
 

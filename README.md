@@ -19,7 +19,7 @@ farcaster-audio-client/
 - **`farcaster-audio/`** — Expo bare workflow iOS client. Joins/hosts audio rooms while browsing the Farcaster feed. LiveKit WebRTC, Neynar SIWN auth, push notifications.
 - **`landing/`** — Next.js public site at juke.audio. Renders the Farcaster miniapp surface, marketing pages, and OG-image generation.
 
-See [`SPEC.md`](./SPEC.md) for the full product spec and [`CLAUDE.md`](./CLAUDE.md) for the agent-facing project config.
+See [`CLAUDE.md`](./CLAUDE.md) for the agent-facing project config.
 
 ## Prerequisites
 

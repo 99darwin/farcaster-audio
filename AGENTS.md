@@ -35,7 +35,6 @@ Farcaster Audio Spaces Client is an iOS app combining the Farcaster social feed 
 
 ```
 farcaster-audio-client/
-├── SPEC.md                         # Source of truth — product spec
 ├── AGENTS.md                       # This file
 ├── backend/                        # FastAPI backend
 │   ├── app/
@@ -152,7 +151,6 @@ EXPO_PUBLIC_LIVEKIT_WS_URL
 
 | File | Purpose |
 |------|---------|
-| `SPEC.md` | Source of truth — full product specification |
 | `backend/app/services/room_service.py` | Core orchestrator: room lifecycle, LiveKit token issuance, participant management |
 | `farcaster-audio/hooks/useSpace.ts` | Central frontend hook — joins/leaves spaces, manages audio state, syncs participants |
 | `landing/app/page.tsx` | Landing page at juke.audio — hero, features, CTA |
