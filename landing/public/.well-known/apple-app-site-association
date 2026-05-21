@@ -2,7 +2,7 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["YOUR_APPLE_TEAM_ID.xyz.juke.app"],
+        "appIDs": ["YOUR_APPLE_TEAM_ID.your.app.bundle.id"],
         "components": [
           { "/": "/space/*", "comment": "Open space links in app" }
         ]

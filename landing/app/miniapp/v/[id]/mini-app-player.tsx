@@ -15,8 +15,7 @@ import {
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-const APP_STORE_URL =
-  "https://testflight.apple.com/join/YOUR_TESTFLIGHT_CODE";
+const APP_STORE_URL = process.env.NEXT_PUBLIC_APP_DOWNLOAD_URL ?? "";
 const PLAY_TRACK_DELAY_MS = 3000;
 const SPEED_OPTIONS = [1, 1.25, 1.5, 2] as const;
 

@@ -7,7 +7,7 @@ import {
   type SpaceDetailResponse,
 } from "@/lib/spaces";
 
-const TESTFLIGHT_URL = "https://testflight.apple.com/join/YOUR_TESTFLIGHT_CODE";
+const TESTFLIGHT_URL = process.env.NEXT_PUBLIC_APP_DOWNLOAD_URL ?? "";
 
 async function fetchRoom(id: string): Promise<SpaceDetailResponse | null> {
   return getSpaceDetail(id);

@@ -3,7 +3,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import Image from "next/image";
 
-const TESTFLIGHT_URL = "https://testflight.apple.com/join/YOUR_TESTFLIGHT_CODE";
+const TESTFLIGHT_URL = process.env.NEXT_PUBLIC_APP_DOWNLOAD_URL ?? "";
 
 /* ── iPhone Frame ── */
 function IPhoneFrame() {
