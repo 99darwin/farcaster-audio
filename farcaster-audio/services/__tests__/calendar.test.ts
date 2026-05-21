@@ -1,5 +1,20 @@
 import { describe, expect, it, jest } from "@jest/globals";
 
+jest.mock("@/constants/config", () => ({
+  Config: {
+    API_BASE_URL: "http://localhost:8000",
+    SENTRY_DSN: "",
+    LIVEKIT_WS_URL: "",
+    RECORDING_ENABLED: false,
+    MAX_SPEAKERS: 10,
+    MAX_LISTENERS: 500,
+    RECONNECT_MAX_ATTEMPTS: 5,
+    RECONNECT_BASE_DELAY_MS: 1000,
+    TOKEN_REFRESH_BUFFER_SEC: 300,
+    WEB_BASE_URL: "https://juke.audio",
+  },
+}));
+
 jest.mock("expo-calendar", () => ({
   Availability: { BUSY: "busy" },
   PermissionStatus: { GRANTED: "granted" },

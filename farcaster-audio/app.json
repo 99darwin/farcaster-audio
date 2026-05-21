@@ -34,9 +34,6 @@
       }
     },
     "runtimeVersion": "0.1.0",
-    "updates": {
-      "url": "https://u.expo.dev/YOUR_EAS_PROJECT_ID"
-    },
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -69,11 +66,7 @@
       "package": "xyz.juke.app"
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
-      }
-    },
-    "owner": "your-expo-owner"
+      "router": {}
+    }
   }
 }
