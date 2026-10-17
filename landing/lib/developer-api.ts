@@ -1,36 +1,11 @@
 "use client";
 
-import { createAppClient, viemConnector } from "@farcaster/auth-client";
+import type { LoginResponse as ApiLoginResponse } from "@/lib/api/types";
 
 export const DEVELOPER_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 const EXPIRY_SAFETY_MS = 60 * 1000;
-
-// Sign In With Farcaster — EIP-4361 / SIWE. The signed message
-// includes the requesting `domain`, which the Farcaster client
-// displays to the user at approval time. That structurally closes
-// the QR phishing chain that the old `createSigner` flow couldn't
-// defend against.
-export type StartSiwfFlowResult = {
-  channelToken: string;
-  url: string;
-};
-
-export type SiwfApproved = {
-  message: string;
-  signature: string;
-  fid: number;
-};
-
-export const SIWF_POLL_INTERVAL_MS = 2000;
-// AuthKit relay times its channels out at 10 minutes — match.
-const SIWF_TIMEOUT_MS = 10 * 60 * 1000;
-
-const siwfAppClient = createAppClient({
-  relay: "https://relay.farcaster.xyz",
-  ethereum: viemConnector(),
-});
 
 let memorySession: DeveloperSession | null = null;
 
@@ -97,6 +72,24 @@ export type DeveloperApiKey = {
   lastUsedAt?: string | null;
   revokedAt?: string | null;
   rotatedFromKeyId?: string | null;
+};
+
+/**
+ * A developer-owned bot registered for hosting Farcaster-native spaces.
+ * `auth_mode: "app_key"` = Juke-held encrypted Ed25519 key (managed signer);
+ * `auth_mode: "custody_env"` = legacy custody key stored in backend env.
+ * `ready: true` is the single gate field — poll GET until set before creating rooms.
+ */
+export type DeveloperBot = {
+  id: string;
+  fid: number;
+  label: string;
+  isActive: boolean;
+  authMode: "app_key" | "custody_env";
+  signerStatus: "pending_approval" | "approved" | "revoked" | "fid_mismatch" | null;
+  signerPublicKey: string | null;
+  approvalUrl: string | null;
+  ready: boolean;
 };
 
 export type CreateDeveloperAppInput = {
@@ -180,6 +173,10 @@ type DeveloperUserListResponse = {
   users: DeveloperAccessUser[];
 };
 
+type DeveloperBotListResponse = {
+  bots: DeveloperBot[] | null;
+};
+
 export class DeveloperApiError extends Error {
   status: number;
 
@@ -191,7 +188,7 @@ export class DeveloperApiError extends Error {
 }
 
 /**
- * Thrown when the server requires a recent SIWN re-authentication for a
+ * Thrown when the server requires a recent sign-in re-authentication for a
  * dangerous mutation (rotate / revoke / reveal / delete-app). The session
  * is NOT cleared — the user just needs to sign in again to lift the
  * step-up. UI surfaces this distinctly from "your session expired".
@@ -217,146 +214,49 @@ export class DeveloperApiClient {
   }
 
   /**
-   * Sign In With Farcaster (SIWF) — EIP-4361 / SIWE.
-   *
-   * Why this and not the legacy `createSigner + registerSignedKey`
-   * flow we shipped originally: SIWF binds the requesting `domain`
-   * into the signed message, and the Farcaster client displays that
-   * domain to the user at approval time. A victim scanning a QR
-   * generated on `evil.com` sees `evil.com wants you to sign in`
-   * rather than just the registered app name — structurally closes
-   * the QR phishing chain.
-   *
-   * Flow:
-   * 1. `startSiwfFlow()` fetches a server-issued nonce from
-   *    `/v1/auth/siwf/nonce` and asks the Farcaster auth relay to
-   *    open a channel. Returns `{channelToken, url}` — the url is a
-   *    `farcaster://connect?channelToken=...` deeplink to render as
-   *    a QR or tap-to-open on mobile.
-   * 2. `pollSiwfStatus(channelToken)` waits via the auth-client SDK
-   *    until the user approves and the relay returns the signed SIWE
-   *    message + signature.
-   * 3. `completeSiwfLogin({message, signature})` POSTs to our backend
-   *    which cryptographically verifies the signature, confirms the
-   *    domain + nonce, resolves the custody address to a FID via
-   *    Neynar, and mints a Juke JWT.
+   * Adopt a session minted by `FarcasterSignIn` (Protocol Auth via
+   * `POST /v1/auth/protocol` with `use_cookie: true`, which also set the
+   * HttpOnly refresh cookie). Only the short-lived JWT is kept, in memory.
    */
-  async startSiwfFlow(): Promise<StartSiwfFlowResult> {
-    // Server-issued nonce — gives us replay protection and lets us
-    // bound a single sign-in attempt to a short window.
-    const nonceRes = await fetch(
-      `${DEVELOPER_API_BASE_URL}/v1/auth/siwf/nonce`,
-      { method: "POST" },
-    );
-    const nonceBody = await parseJsonResponse<{ nonce: string }>(
-      nonceRes,
-      "Could not start sign in",
-    );
-    if (!nonceBody?.nonce) {
-      throw new DeveloperApiError("Could not start sign in", 500);
+  completeLogin(response: ApiLoginResponse): DeveloperSession {
+    if (!response?.jwt || typeof response.user?.fid !== "number") {
+      throw new Error("Invalid sign-in response");
     }
-
-    // `acceptAuthAddress: false` forces the Farcaster client to sign
-    // with the custody key. The default flipped to `true` in
-    // @farcaster/auth-client 0.7.0, but our backend resolves the
-    // recovered signer via Neynar's bulk-by-address endpoint, which
-    // only indexes custody + verified-wallet addresses — not
-    // auth-addresses (FIP #225, key type 2). Accepting an auth-address
-    // signature would 401 the login post-verify. Also empirically
-    // unblocks desktop-QR-from-mobile-app sign-ins for users whose
-    // FID already has an auth-address registered.
-    const channel = await siwfAppClient.createChannel({
-      siweUri: `${window.location.origin}/developers`,
-      domain: window.location.hostname,
-      nonce: nonceBody.nonce,
-      acceptAuthAddress: false,
+    this.session = normalizeLogin({
+      jwt: response.jwt,
+      expiresAt: response.expires_at,
+      user: { fid: response.user.fid },
     });
-
-    if (!channel.data?.channelToken || !channel.data?.url) {
-      throw new DeveloperApiError("Could not start sign in", 502);
-    }
-    return {
-      channelToken: channel.data.channelToken,
-      url: channel.data.url,
-    };
+    memorySession = this.session;
+    return this.session;
   }
 
   /**
-   * Wait for the Farcaster relay to report completion. Resolves to
-   * the SIWE message + signature when the user approves. Callers
-   * pass an AbortSignal so the polling stops on user cancel /
-   * component unmount.
+   * Rehydrate a session on cold start from the HttpOnly `juke_refresh`
+   * cookie. Unlike `getFreshSession`, this does NOT require an existing
+   * in-memory session or bearer JWT — the backend looks the FID up from
+   * the refresh token directly. Returns `null` (without throwing) when no
+   * valid cookie is present, so callers can render the signed-out UI
+   * without a spurious error toast.
    */
-  async pollSiwfStatus(
-    channelToken: string,
-    options?: { signal?: AbortSignal },
-  ): Promise<SiwfApproved> {
-    if (options?.signal?.aborted) {
-      throw new DeveloperApiError("Sign-in cancelled", 0);
+  async restoreSession(): Promise<DeveloperSession | null> {
+    const res = await fetch(`${DEVELOPER_API_BASE_URL}/v1/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (res.status === 401) {
+      // No valid cookie (logged out, expired, or never signed in). Treat
+      // as a clean unauthenticated state — caller renders sign-in UI.
+      // Deliberately do NOT call signOut() here: we don't want to clear
+      // a possibly-still-valid cookie just because the user is signing
+      // in for the first time.
+      return null;
     }
-    // The auth-client SDK does the polling; we just race against
-    // the abort signal so cancel happens quickly. The SDK exposes
-    // an `onResponse` callback we use to bail out promptly when the
-    // user cancels (rather than waiting for the next status poll).
-    let aborted = false;
-    const abortHandler = () => {
-      aborted = true;
-    };
-    options?.signal?.addEventListener("abort", abortHandler);
-    try {
-      const result = await siwfAppClient.watchStatus({
-        channelToken,
-        timeout: SIWF_TIMEOUT_MS,
-        interval: SIWF_POLL_INTERVAL_MS,
-        onResponse: () => {
-          if (aborted) throw new DeveloperApiError("Sign-in cancelled", 0);
-        },
-      });
-      if (aborted) {
-        throw new DeveloperApiError("Sign-in cancelled", 0);
-      }
-      const data = result.data;
-      if (data.state !== "completed") {
-        throw new DeveloperApiError("Sign-in did not complete", 408);
-      }
-      if (!data.message || !data.signature || !data.fid) {
-        throw new DeveloperApiError("Incomplete SIWF response", 502);
-      }
-      return {
-        message: data.message,
-        signature: data.signature,
-        fid: data.fid,
-      };
-    } finally {
-      options?.signal?.removeEventListener("abort", abortHandler);
-    }
-  }
-
-  /** Finish SIWF login. Submits the signed SIWE message to the
-   *  backend, which verifies the signature + resolves fid via Neynar,
-   *  and returns a Juke session. Sets the HttpOnly refresh cookie. */
-  async completeSiwfLogin(
-    payload: { message: string; signature: string },
-  ): Promise<DeveloperSession> {
-    if (!payload.message || !payload.signature) {
-      throw new Error("Invalid sign-in response");
-    }
-    const res = await fetch(
-      `${DEVELOPER_API_BASE_URL}/v1/auth/siwf/login`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          message: payload.message,
-          signature: payload.signature,
-          use_cookie: true,
-        }),
-      },
-    );
     const body = await parseJsonResponse<LoginResponse>(
       res,
-      "Could not complete sign in",
+      "Could not restore session",
     );
     this.session = normalizeLogin(body);
     memorySession = this.session;
@@ -408,6 +308,19 @@ export class DeveloperApiClient {
       }),
     );
     return { profile, apps };
+  }
+
+  /**
+   * Lists bots registered under a developer app. Uses the JWT-authed
+   * `GET /v1/developer/apps/{appId}/bots` mirror endpoint (dashboard
+   * never holds API keys, so we can't use key-auth here).
+   * Returns an empty array when the app has no bots.
+   */
+  async listBots(appId: string): Promise<DeveloperBot[]> {
+    const response = await this.request<DeveloperBotListResponse>(
+      `/v1/developer/apps/${encodeURIComponent(appId)}/bots`,
+    );
+    return response.bots ?? [];
   }
 
   async submitApplication(
@@ -534,7 +447,7 @@ export class DeveloperApiClient {
 
     if (res.status === 401) {
       // Distinguish "session expired" (sign-out) from "step-up required"
-      // (keep session; user just needs to SIWN again). The backend signals
+      // (keep session; user just needs to sign in again). The backend signals
       // step-up via the detail string "Recent sign-in required." and
       // WWW-Authenticate: ReAuth. Peek at the body without consuming it
       // for the success path.
@@ -620,7 +533,7 @@ function normalizeApp(app: Omit<DeveloperApp, "keys">): Omit<DeveloperApp, "keys
 
 function normalizeLogin(body: LoginResponse): DeveloperSession {
   // refresh_token is intentionally not stored on the client — the dashboard
-  // uses cookie-based refresh (see completeSiwfLogin) so the refresh
+  // uses cookie-based refresh (see completeLogin) so the refresh
   // token never touches JS-accessible storage.
   return {
     jwt: body.jwt,
@@ -629,13 +542,37 @@ function normalizeLogin(body: LoginResponse): DeveloperSession {
   };
 }
 
+// FastAPI returns errors as `{ detail: string }` for HTTPException and
+// `{ detail: [{ loc, msg, ... }] }` for Pydantic 422s. Render both shapes.
+function extractDetailMessage(body: unknown): string | null {
+  if (!body || typeof body !== "object" || !("detail" in body)) return null;
+  const detail = (body as { detail: unknown }).detail;
+  if (typeof detail === "string") return detail || null;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const msg = (entry as { msg?: unknown }).msg;
+        if (typeof msg !== "string" || !msg) return null;
+        const loc = (entry as { loc?: unknown }).loc;
+        const field =
+          Array.isArray(loc) && loc.length > 0
+            ? String(loc[loc.length - 1])
+            : null;
+        return field ? `${field}: ${msg}` : msg;
+      })
+      .filter((part): part is string => Boolean(part));
+    if (parts.length > 0) return parts.join("; ");
+  }
+  return null;
+}
+
 async function peekErrorDetail(res: Response): Promise<string | null> {
   // res.json() consumes the body; only call this on error paths where the
-  // caller is about to throw anyway. Returns null if the body isn't a
-  // FastAPI-shaped { detail: string } error.
+  // caller is about to throw anyway.
   try {
-    const body = (await res.clone().json()) as { detail?: unknown };
-    if (typeof body?.detail === "string") return body.detail;
+    const body = await res.clone().json();
+    return extractDetailMessage(body);
   } catch {
     // non-JSON body or already-consumed; treat as no detail
   }
@@ -649,10 +586,7 @@ async function parseJsonResponse<T>(res: Response, fallback: string): Promise<T>
   } catch {}
 
   if (!res.ok) {
-    const detail =
-      typeof body === "object" && body !== null && "detail" in body
-        ? String((body as { detail: unknown }).detail)
-        : fallback;
+    const detail = extractDetailMessage(body) ?? fallback;
     throw new DeveloperApiError(detail, res.status);
   }
 

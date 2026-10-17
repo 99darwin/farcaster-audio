@@ -1,7 +1,15 @@
 import { useState } from "react";
-import { View, Text, Image, Pressable, Alert } from "react-native";
+import {
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
 import { Redirect } from "expo-router";
-import { SignInButton } from "@/components/auth/SignInButton";
+import { SignerLinkFlow } from "@/components/auth/SignerLinkFlow";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthStore } from "@/stores/authStore";
@@ -27,7 +35,6 @@ export default function LoginScreen() {
       const response = await api.devLogin();
       await useAuthStore.getState().setAuth(response);
     } catch (err) {
-      console.error("Dev login failed:", err);
       Alert.alert("Dev Login Failed", api.getErrorMessage(err));
     } finally {
       setDevLoading(false);
@@ -35,7 +42,10 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <View style={styles.header} accessibilityRole="header">
         <Image
           source={require("@/assets/logo.png")}
@@ -45,8 +55,8 @@ export default function LoginScreen() {
         />
         <Text style={styles.subtitle}>Live audio spaces for Farcaster</Text>
       </View>
-      <View style={styles.buttonContainer}>
-        <SignInButton />
+      <View style={styles.flowContainer}>
+        <SignerLinkFlow mode="login" />
         <Pressable
           onPress={devLogin}
           style={styles.devButton}
@@ -57,7 +67,7 @@ export default function LoginScreen() {
           </Text>
         </Pressable>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -72,19 +82,20 @@ const useStyles = () =>
     },
     header: {
       alignItems: "center",
-      marginBottom: 32,
+      marginBottom: 24,
     },
     logo: {
-      width: 280,
-      height: 280,
-      marginBottom: -20,
+      width: 220,
+      height: 220,
+      marginBottom: -16,
     },
     subtitle: {
       color: colors.text.secondary,
       fontSize: 16,
     },
-    buttonContainer: {
+    flowContainer: {
       width: "100%",
+      maxWidth: 420,
       alignItems: "center",
     },
     devButton: {

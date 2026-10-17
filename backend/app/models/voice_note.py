@@ -48,7 +48,9 @@ class VoiceNote(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("duration_ms > 0 AND duration_ms <= 60000", name="ck_voice_notes_duration"),
+        CheckConstraint(
+            "duration_ms > 0 AND duration_ms <= 60000", name="ck_voice_notes_duration"
+        ),
         Index(
             "idx_voice_notes_fid_created",
             "fid",
@@ -72,9 +74,7 @@ class VoiceNote(Base):
 class VoiceNotePlay(Base):
     __tablename__ = "voice_note_plays"
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, Identity(), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     voice_note_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("voice_notes.id", ondelete="CASCADE"),
@@ -89,9 +89,7 @@ class VoiceNotePlay(Base):
     source: Mapped[str] = mapped_column(String(20), nullable=False)
     user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    __table_args__ = (
-        Index("idx_voice_note_plays_vnid", "voice_note_id"),
-    )
+    __table_args__ = (Index("idx_voice_note_plays_vnid", "voice_note_id"),)
 
 
 class VoiceNoteReaction(Base):

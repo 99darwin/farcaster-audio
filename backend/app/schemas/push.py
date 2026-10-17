@@ -5,7 +5,9 @@ from pydantic import BaseModel, Field
 
 class DeviceTokenRequest(BaseModel):
     expo_push_token: str = Field(
-        ..., min_length=1, max_length=512,
+        ...,
+        min_length=1,
+        max_length=512,
         pattern=r"^Expo(nent)?PushToken\[.+\]$",
     )
     device_id: str | None = Field(default=None, max_length=256)

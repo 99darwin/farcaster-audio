@@ -1,8 +1,14 @@
 import { create } from "zustand";
-import type { NeynarCast } from "@/types/neynar";
+import type { FarcasterCast } from "@/types/farcaster";
+import {
+  appendUniqueCasts,
+  removeCastsByAuthor,
+  updateCastBookmark,
+  updateCastReaction,
+} from "@/utils/castUpdates";
 
 interface FeedStore {
-  casts: NeynarCast[];
+  casts: FarcasterCast[];
   cursor: string | null;
   isLoading: boolean;
   isRefreshing: boolean;
@@ -10,8 +16,8 @@ interface FeedStore {
   error: string | null;
 
   // Actions
-  setCasts: (casts: NeynarCast[], cursor: string | null) => void;
-  appendCasts: (casts: NeynarCast[], cursor: string | null) => void;
+  setCasts: (casts: FarcasterCast[], cursor: string | null) => void;
+  appendCasts: (casts: FarcasterCast[], cursor: string | null) => void;
   setLoading: (loading: boolean) => void;
   setRefreshing: (refreshing: boolean) => void;
   setError: (error: string | null) => void;
@@ -46,7 +52,7 @@ export const useFeedStore = create<FeedStore>((set) => ({
 
   appendCasts: (newCasts, cursor) =>
     set((state) => ({
-      casts: [...state.casts, ...newCasts],
+      casts: appendUniqueCasts(state.casts, newCasts),
       cursor,
       hasMore: cursor !== null,
       isLoading: false,
@@ -59,56 +65,16 @@ export const useFeedStore = create<FeedStore>((set) => ({
 
   updateCastReaction: (hash, type, added, myFid) =>
     set((state) => ({
-      casts: state.casts.map((cast) => {
-        if (cast.hash !== hash) return cast;
-        const reactions = { ...cast.reactions };
-        const viewerContext = {
-          liked: false,
-          recasted: false,
-          ...cast.viewer_context,
-        };
-        if (type === "like") {
-          reactions.likes_count = added
-            ? reactions.likes_count + 1
-            : Math.max(0, reactions.likes_count - 1);
-          reactions.likes = added
-            ? [...reactions.likes, { fid: myFid }]
-            : reactions.likes.filter((l) => l.fid !== myFid);
-          viewerContext.liked = added;
-        } else {
-          reactions.recasts_count = added
-            ? reactions.recasts_count + 1
-            : Math.max(0, reactions.recasts_count - 1);
-          reactions.recasts = added
-            ? [...reactions.recasts, { fid: myFid }]
-            : reactions.recasts.filter((r) => r.fid !== myFid);
-          viewerContext.recasted = added;
-        }
-        return { ...cast, reactions, viewer_context: viewerContext };
-      }),
+      casts: updateCastReaction(state.casts, { hash, type, added, myFid }),
     })),
 
   updateCastBookmark: (hash, bookmarked) =>
     set((state) => ({
-      casts: state.casts.map((cast) =>
-        cast.hash === hash
-          ? {
-              ...cast,
-              viewer_context: {
-                liked: false,
-                recasted: false,
-                ...cast.viewer_context,
-                bookmarked,
-              },
-            }
-          : cast,
-      ),
+      casts: updateCastBookmark(state.casts, hash, bookmarked),
     })),
 
   removeAuthor: (fid) =>
-    set((state) => ({
-      casts: state.casts.filter((cast) => cast.author.fid !== fid),
-    })),
+    set((state) => ({ casts: removeCastsByAuthor(state.casts, fid) })),
 
   reset: () =>
     set({

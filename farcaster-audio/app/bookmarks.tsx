@@ -7,7 +7,7 @@ import { useBookmarks } from "@/hooks/useBookmarks";
 import { FeedList } from "@/components/feed/FeedList";
 import { ComposeModal } from "@/components/feed/ComposeModal";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
-import type { NeynarCast } from "@/types/neynar";
+import type { FarcasterCast } from "@/types/farcaster";
 
 export default function BookmarksScreen() {
   const user = useAuthStore((s) => s.user);
@@ -31,8 +31,8 @@ export default function BookmarksScreen() {
   useScrollToTop(listRef);
 
   const [isComposeVisible, setIsComposeVisible] = useState(false);
-  const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+  const [replyTarget, setReplyTarget] = useState<FarcasterCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<FarcasterCast | null>(
     null,
   );
   const composeDraft = useComposeStore((s) => s.draft);
@@ -42,13 +42,13 @@ export default function BookmarksScreen() {
     fetch();
   }, [fetch]);
 
-  const openReply = useCallback((cast: NeynarCast) => {
+  const openReply = useCallback((cast: FarcasterCast) => {
     setReplyTarget(cast);
     setQuoteCastTarget(null);
     setIsComposeVisible(true);
   }, []);
 
-  const openQuoteCast = useCallback((cast: NeynarCast) => {
+  const openQuoteCast = useCallback((cast: FarcasterCast) => {
     setQuoteCastTarget(cast);
     setReplyTarget(null);
     setIsComposeVisible(true);

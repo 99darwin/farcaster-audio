@@ -3,11 +3,15 @@ import tempfile
 import time
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+import redis.asyncio as aioredis
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from starlette.datastructures import FormData, UploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_redis
 from app.services.media_embed import build_video_hls_url
+from app.services.rate_limit import RateLimit, enforce_rate_limits
 
 router = APIRouter(prefix="/v1/media", tags=["media"])
 
@@ -28,6 +32,17 @@ ALLOWED_CONTENT_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_VIDEO_SIZE = 50 * 1024 * 1024  # 50 MB
+
+UPLOAD_FIELD_NAME = "file"
+# The only multipart part we accept is the file; bound the parser's work on
+# junk fields so an authenticated client can't make it spool many parts.
+MAX_FORM_FILES = 1
+MAX_FORM_FIELDS = 4
+# A cast carries at most a few media attachments.
+UPLOAD_RATE_LIMITS = (
+    ("media_upload:rl:min:{fid}", RateLimit(limit=20, window_seconds=60)),
+    ("media_upload:rl:day:{fid}", RateLimit(limit=300, window_seconds=24 * 60 * 60)),
+)
 
 # Magic byte signatures for allowed image types
 _IMAGE_MAGIC_BYTES = {
@@ -70,17 +85,62 @@ def _generate_signature(params: dict[str, str], api_secret: str) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
+async def _read_upload_file(request: Request) -> tuple[FormData, UploadFile]:
+    """Parse the multipart body (only after auth + rate limit have passed)."""
+    try:
+        form = await request.form(max_files=MAX_FORM_FILES, max_fields=MAX_FORM_FIELDS)
+    except StarletteHTTPException:
+        # Includes the body-size cap's 413 and Starlette's own 400 for a
+        # malformed multipart body (FastAPI's HTTPException subclasses it).
+        raise
+    except Exception as exc:  # anything else the parser trips over
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Expected a multipart/form-data body with a 'file' part",
+        ) from exc
+    file = form.get(UPLOAD_FIELD_NAME)
+    if not isinstance(file, UploadFile):
+        await form.close()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Missing 'file' upload",
+        )
+    return form, file
+
+
 @router.post("/upload")
 async def upload_media(
-    file: UploadFile,
+    request: Request,
     fid: int = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Upload an image or video to Cloudinary. Returns the public URL."""
+    """Upload an image or video to Cloudinary. Returns the public URL.
+
+    The body is deliberately not a declared ``UploadFile`` parameter:
+    FastAPI parses (and spools) declared bodies before running
+    dependencies, which would let unauthenticated clients make us buffer
+    50 MB. Auth and the per-fid rate limit run first; the multipart body is
+    read afterwards (and is capped globally by ``BodySizeLimitMiddleware``).
+    """
     if not settings.CLOUDINARY_CLOUD_NAME:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Media uploads are not configured",
         )
+    await enforce_rate_limits(
+        redis,
+        [(template.format(fid=fid), rule) for template, rule in UPLOAD_RATE_LIMITS],
+        detail="Upload rate limit exceeded. Try again later.",
+    )
+    form, file = await _read_upload_file(request)
+    try:
+        return await _forward_upload(file, fid)
+    finally:
+        await form.close()
+
+
+async def _forward_upload(file: UploadFile, fid: int) -> dict[str, str]:
+    """Validate ``file`` and forward it to Cloudinary."""
 
     # Validate declared content type
     if file.content_type not in ALLOWED_CONTENT_TYPES:

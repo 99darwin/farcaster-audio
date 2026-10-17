@@ -1,11 +1,11 @@
 import { useState, useCallback } from "react";
 import * as api from "@/services/api";
 import { haptic } from "@/utils/haptics";
-import type { NeynarUser, NeynarCast } from "@/types/neynar";
+import type { FarcasterUser, FarcasterCast } from "@/types/farcaster";
 
 interface ProfileState {
-  user: NeynarUser | null;
-  casts: NeynarCast[];
+  user: FarcasterUser | null;
+  casts: FarcasterCast[];
   isLoading: boolean;
   isCastsLoading: boolean;
   hasMoreCasts: boolean;

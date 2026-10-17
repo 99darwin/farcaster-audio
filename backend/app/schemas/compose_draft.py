@@ -1,6 +1,13 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
+
+from app.schemas.common import CAST_HASH_PATTERN
+
+# Recorders emit 200 normalized (0..1) peaks; leave a little headroom.
+MAX_WAVEFORM_PEAKS = 256
+WaveformPeak = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
+WaveformPeaks = Annotated[list[WaveformPeak], Field(max_length=MAX_WAVEFORM_PEAKS)]
 
 
 class DraftCastAuthor(BaseModel):
@@ -11,14 +18,14 @@ class DraftCastAuthor(BaseModel):
 
 
 class DraftCastSnapshot(BaseModel):
-    hash: str = Field(..., pattern=r"^0x[a-fA-F0-9]+$")
+    hash: str = Field(..., pattern=CAST_HASH_PATTERN)
     author: DraftCastAuthor
     text: str = Field(default="", max_length=10000)
 
 
 class DraftQuoteCast(BaseModel):
     fid: int
-    hash: str = Field(..., pattern=r"^0x[a-fA-F0-9]+$")
+    hash: str = Field(..., pattern=CAST_HASH_PATTERN)
     author: DraftCastAuthor | None = None
     text: str = Field(default="", max_length=10000)
 
@@ -34,7 +41,7 @@ class DraftVoiceMetadata(BaseModel):
     duration_ms: int = Field(..., gt=0, le=60000)
     audio_size: int = Field(default=0, ge=0)
     content_type: str = Field(default="audio/mp4", pattern=r"^audio/(mp4|aac|mp3)$")
-    waveform_peaks: list[float] | None = None
+    waveform_peaks: WaveformPeaks | None = None
 
 
 class ComposeDraftBase(BaseModel):
@@ -43,7 +50,7 @@ class ComposeDraftBase(BaseModel):
         default=None,
         pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$",
     )
-    parent_cast_hash: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
+    parent_cast_hash: str | None = Field(default=None, pattern=CAST_HASH_PATTERN)
     parent_cast: DraftCastSnapshot | None = None
     quote_cast: DraftQuoteCast | None = None
     media_embeds: list[DraftMediaEmbed] = Field(default_factory=list, max_length=4)
@@ -76,7 +83,7 @@ class ComposeDraftUpdate(BaseModel):
         default=None,
         pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$",
     )
-    parent_cast_hash: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]+$")
+    parent_cast_hash: str | None = Field(default=None, pattern=CAST_HASH_PATTERN)
     parent_cast: DraftCastSnapshot | None = None
     quote_cast: DraftQuoteCast | None = None
     media_embeds: list[DraftMediaEmbed] | None = Field(default=None, max_length=4)
@@ -98,7 +105,7 @@ class ComposeDraftListResponse(BaseModel):
 class DraftVoiceUploadUrlRequest(BaseModel):
     duration_ms: int = Field(..., gt=0, le=60000)
     content_type: str = Field(default="audio/mp4", pattern=r"^audio/(mp4|aac|mp3)$")
-    waveform_peaks: list[float] | None = None
+    waveform_peaks: WaveformPeaks | None = None
 
 
 class DraftVoiceUploadUrlResponse(BaseModel):

@@ -14,7 +14,9 @@ class RoomRsvp(Base):
     room_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False
     )
-    fid: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.fid"), nullable=False)
+    fid: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.fid"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

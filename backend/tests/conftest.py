@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app import database
 from app.config import settings
 from app.main import app
 
@@ -92,6 +93,21 @@ def livekit_stub():
     return _StubLiveKitService()
 
 
+@pytest.fixture(autouse=True)
+async def _dispose_db_engine_between_tests():
+    """Dispose the module-scoped async engine after every test.
+
+    ``app.database.engine`` is created once at import, but ``pytest-asyncio``
+    (``asyncio_mode = "auto"``) runs each test on a fresh function-scoped
+    event loop. A pooled asyncpg connection first opened on one test's loop
+    and later reused on another raises "got Future attached to a different
+    loop". Disposing the pool after each test forces a fresh connection bound
+    to the next test's loop, making DB-touching tests order-independent.
+    """
+    yield
+    await database.engine.dispose()
+
+
 @pytest.fixture
 async def client():
     # Mock Redis since lifespan doesn't run in test transport
@@ -112,6 +128,7 @@ async def client():
     mock_redis.zrevrange = AsyncMock(return_value=[])
     mock_redis.hdel = AsyncMock()
     mock_redis.delete = AsyncMock()
+    mock_redis.getdel = AsyncMock(return_value=None)
     mock_redis.publish = AsyncMock()
     mock_redis.close = AsyncMock()
     # Rate limiters that call redis.incr(...) directly (signer create/status,
@@ -133,3 +150,32 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+def registered_route_pairs(application) -> set[tuple[str, str | None]]:
+    """Flatten the app's route table into ``(path, method)`` pairs.
+
+    Starlette >= 1.3 stores ``include_router``'d routers as single
+    ``_IncludedRouter`` nodes in ``app.routes`` instead of splicing
+    their routes into the table, so naive ``r.path`` iteration only
+    sees the handful of statically-decorated routes (/health, /docs,
+    /v1/agent/SKILL.md). Walk both layouts: unwrap included routers
+    via ``original_router`` and recurse into nested ``routes`` so
+    route-registration asserts keep working across Starlette versions.
+    """
+    pairs: set[tuple[str, str | None]] = set()
+
+    def _walk(routes) -> None:
+        for route in routes:
+            inner = getattr(route, "original_router", None)
+            if inner is not None:
+                _walk(inner.routes)
+                continue
+            path = getattr(route, "path", None)
+            if path is not None:
+                for method in getattr(route, "methods", None) or {None}:
+                    pairs.add((path, method))
+            _walk(getattr(route, "routes", None) or [])
+
+    _walk(application.routes)
+    return pairs

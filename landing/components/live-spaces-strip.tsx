@@ -1,53 +1,47 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { safeImageUrl } from "@/lib/safe-url";
-import { getActiveSpaces, type Space } from "@/lib/spaces";
+/**
+ * Horizontal scrolling strip of currently-live Juke-hosted spaces.
+ *
+ * Migrated to `useSpacesDiscovery()` — data comes from the shared
+ * `spacesDiscoveryStore` (refcounted WS + 30s poll) rather than a local
+ * setInterval. No duplicate socket is opened; mounting multiple consumers of
+ * `useSpacesDiscovery` is safe.
+ *
+ * Renders nothing when there are no active Juke spaces so the home feed stays
+ * clean. Skeleton while `!hydrated`.
+ *
+ * Below ≥1280px this strip is wrapped in `xl:hidden` by the shell; the panel
+ * becomes the primary discovery surface. Both consume the same store so there
+ * is no double-fetch.
+ */
 
-const POLL_INTERVAL_MS = 30_000;
+import { useSpacesDiscovery } from "@/lib/hooks/useSpacesDiscovery";
+import type { JukeHostedDiscoverySpace } from "@/lib/spaces";
+import { LiveSpaceCard } from "@/components/spaces/cards";
 
 /**
- * Horizontal scrolling strip of currently-live spaces.
- *
- * Renders nothing when there are no active spaces so the home feed stays
- * clean. Polls every 30s while mounted; stops on unmount.
+ * Horizontal scrolling strip of currently-live Juke-hosted spaces.
+ * Renders nothing when there are no active Juke spaces.
  */
 export function LiveSpacesStrip() {
-  const [spaces, setSpaces] = useState<Space[]>([]);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { live, hydrated } = useSpacesDiscovery();
 
-  useEffect(() => {
-    let cancelled = false;
+  // Only show Juke-hosted live spaces in this strip.
+  const jukeSpaces = live.filter(
+    (item): item is JukeHostedDiscoverySpace => !item.isFarcasterNative,
+  );
 
-    async function fetchSpaces() {
-      try {
-        const res = await getActiveSpaces();
-        if (cancelled) return;
-        setSpaces(res.rooms);
-      } catch {
-        // Silent failure — strip simply stays empty if backend is unreachable.
-      } finally {
-        if (!cancelled) setIsInitialLoad(false);
-      }
-    }
-
-    fetchSpaces();
-    pollTimerRef.current = setInterval(fetchSpaces, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  // Skeleton while we wait for the first fetch — matches the voice-note
+  // Skeleton while we wait for the first hydration — matches the voice-note
   // skeleton rhythm so the page doesn't jank.
-  if (isInitialLoad) {
+  //
+  // Guard: show skeleton only when we have NO data yet AND the store hasn't
+  // finished its first refresh. The store updates each list independently as
+  // fetches complete, so Juke data can arrive before the global `hydrated` flag
+  // if Farcaster proxies are slower (the flag is set after all 4 fetches). This
+  // prevents the skeleton from stalling on the miniapp page, which only mounts
+  // this strip (no panel) and only cares about Juke live spaces.
+  if (!hydrated && jukeSpaces.length === 0) {
     return (
       <div className="border-b border-white/10 px-4 py-3">
         <div className="mb-2 flex items-center gap-1.5">
@@ -66,7 +60,7 @@ export function LiveSpacesStrip() {
     );
   }
 
-  if (spaces.length === 0) return null;
+  if (jukeSpaces.length === 0) return null;
 
   return (
     <section
@@ -82,56 +76,15 @@ export function LiveSpacesStrip() {
       </h2>
 
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {spaces.map((space) => (
-          <LiveSpaceCard key={space.id} space={space} />
+        {jukeSpaces.map((item) => (
+          // isFarcasterNative is false here — narrowed above
+          <LiveSpaceCard
+            key={item.space.id}
+            space={item.space}
+            layout="rail"
+          />
         ))}
       </div>
     </section>
-  );
-}
-
-function LiveSpaceCard({ space }: { space: Space }) {
-  const listenerLabel =
-    space.listener_count === 1
-      ? "1 listener"
-      : `${space.listener_count.toLocaleString()} listeners`;
-
-  return (
-    <Link
-      href={`/miniapp/spaces/${space.id}`}
-      className="group relative flex h-24 w-44 shrink-0 flex-col justify-between overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 transition-colors hover:border-white/20 hover:bg-white/[0.06]"
-    >
-      <div className="flex items-center gap-2">
-        {safeImageUrl(space.host.pfp_url) ? (
-          <img
-            src={safeImageUrl(space.host.pfp_url) as string}
-            alt=""
-            width={24}
-            height={24}
-            referrerPolicy="no-referrer"
-            className="h-6 w-6 shrink-0 rounded-full object-cover"
-          />
-        ) : (
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[10px] font-bold">
-            {space.host.display_name.charAt(0).toUpperCase()}
-          </div>
-        )}
-        <span className="truncate text-[11px] font-medium text-white/60">
-          @{space.host.username}
-        </span>
-      </div>
-
-      <p className="line-clamp-2 text-xs font-semibold leading-tight text-white/90">
-        {space.title}
-      </p>
-
-      <div className="flex items-center gap-1.5 font-mono text-[10px] text-white/40">
-        <span className="relative flex h-1 w-1">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-          <span className="relative inline-flex h-1 w-1 rounded-full bg-red-500" />
-        </span>
-        <span className="tabular-nums">{listenerLabel}</span>
-      </div>
-    </Link>
   );
 }

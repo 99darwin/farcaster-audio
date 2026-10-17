@@ -114,10 +114,20 @@ public class JukeVoiceRecorder: Module {
         }
 
         AsyncFunction("trimRecording") { (filePath: String, startMs: Int, endMs: Int) -> [String: Any] in
+            // Canonicalize both sides before the containment check: a raw
+            // `hasPrefix` on the caller's string accepts `<tmp>/../Documents/x`
+            // and symlinks out of the temp dir, and a prefix without a
+            // trailing slash accepts sibling dirs like `<tmp>-evil/`.
             let sourceURL = URL(fileURLWithPath: filePath)
-
-            let tempDir = FileManager.default.temporaryDirectory.path
-            guard filePath.hasPrefix(tempDir) else {
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            let tempDirURL = FileManager.default.temporaryDirectory
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            let tempDirPrefix = tempDirURL.path.hasSuffix("/")
+                ? tempDirURL.path
+                : tempDirURL.path + "/"
+            guard sourceURL.path.hasPrefix(tempDirPrefix) else {
                 throw NSError(domain: "JukeVoiceRecorder", code: 6,
                     userInfo: [NSLocalizedDescriptionKey: "Invalid file path: must be in temp directory"])
             }

@@ -186,7 +186,7 @@ export function MiniAppPlayer({ data }: MiniAppPlayerProps) {
     if (audio) audio.playbackRate = SPEED_OPTIONS[next];
   }, [speedIndex]);
 
-  // Auth via SIWF (shared helper; see lib/miniapp-auth.ts).
+  // Auth via Protocol Auth (shared helper; see lib/miniapp-auth.ts).
   // Uses the cached variant so consecutive reactions don't re-prompt.
   const authenticate = useCallback(async () => {
     const result = await getCachedMiniappAuth();

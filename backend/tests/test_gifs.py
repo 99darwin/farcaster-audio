@@ -18,9 +18,7 @@ def _make_auth_header(fid: int = 12345) -> dict:
     token = jwt.encode(
         {
             "fid": fid,
-            "exp": int(
-                (datetime.now(timezone.utc) + timedelta(hours=72)).timestamp()
-            ),
+            "exp": int((datetime.now(timezone.utc) + timedelta(hours=72)).timestamp()),
         },
         settings.JWT_SECRET,
         algorithm=settings.JWT_ALGORITHM,
@@ -133,9 +131,7 @@ async def test_trending_returns_transformed_shape(client, monkeypatch):
     monkeypatch.setattr(settings, "GIPHY_API_KEY", "test-key")
     _stub_rate_limit_pass()
 
-    client_cls, get_mock = _patch_httpx(
-        _giphy_payload(offset=24, count=24, total=40)
-    )
+    client_cls, get_mock = _patch_httpx(_giphy_payload(offset=24, count=24, total=40))
     with patch("app.routers.gifs.httpx.AsyncClient", client_cls):
         response = await client.get(
             "/v1/gifs/trending",
@@ -279,13 +275,12 @@ async def test_api_key_not_in_locals_when_httpx_raises(client, monkeypatch):
     canary = "leak-canary-key"
     for frame in captured["frames"]:
         for name, value in frame.f_locals.items():
-            assert value != canary, (
-                f"api_key leaked into frame local {frame.f_code.co_name}.{name}"
-            )
+            assert (
+                value != canary
+            ), f"api_key leaked into frame local {frame.f_code.co_name}.{name}"
             if isinstance(value, dict):
                 assert "api_key" not in value, (
-                    f"api_key leaked into dict local "
-                    f"{frame.f_code.co_name}.{name}"
+                    f"api_key leaked into dict local " f"{frame.f_code.co_name}.{name}"
                 )
                 for v in value.values():
                     assert canary not in str(v), (

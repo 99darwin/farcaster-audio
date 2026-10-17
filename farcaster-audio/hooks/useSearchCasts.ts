@@ -12,8 +12,9 @@ import {
   recastCast,
   removeLike,
   removeRecast,
-} from "@/services/neynar";
-import type { NeynarCast } from "@/types/neynar";
+} from "@/services/feed";
+import type { FarcasterCast } from "@/types/farcaster";
+import { updateCastBookmark, updateCastReaction } from "@/utils/castUpdates";
 import type { CastSearchMeta } from "@/types/api";
 import type { FeedItem } from "@/types/voiceNote";
 
@@ -22,64 +23,6 @@ type CastSort = "popular" | "recent";
 interface UseSearchCastsOptions {
   /** When false, the hook will not auto-fetch on (query, sort) change. */
   enabled?: boolean;
-}
-
-function updateReaction(
-  casts: NeynarCast[],
-  hash: string,
-  type: "like" | "recast",
-  added: boolean,
-  myFid: number,
-): NeynarCast[] {
-  return casts.map((cast) => {
-    if (cast.hash !== hash) return cast;
-    const reactions = { ...cast.reactions };
-    const viewerContext = {
-      liked: false,
-      recasted: false,
-      ...cast.viewer_context,
-    };
-
-    if (type === "like") {
-      reactions.likes_count = added
-        ? reactions.likes_count + 1
-        : Math.max(0, reactions.likes_count - 1);
-      reactions.likes = added
-        ? [...reactions.likes, { fid: myFid }]
-        : reactions.likes.filter((l) => l.fid !== myFid);
-      viewerContext.liked = added;
-    } else {
-      reactions.recasts_count = added
-        ? reactions.recasts_count + 1
-        : Math.max(0, reactions.recasts_count - 1);
-      reactions.recasts = added
-        ? [...reactions.recasts, { fid: myFid }]
-        : reactions.recasts.filter((r) => r.fid !== myFid);
-      viewerContext.recasted = added;
-    }
-
-    return { ...cast, reactions, viewer_context: viewerContext };
-  });
-}
-
-function updateBookmark(
-  casts: NeynarCast[],
-  hash: string,
-  bookmarked: boolean,
-): NeynarCast[] {
-  return casts.map((cast) =>
-    cast.hash === hash
-      ? {
-          ...cast,
-          viewer_context: {
-            liked: false,
-            recasted: false,
-            ...cast.viewer_context,
-            bookmarked,
-          },
-        }
-      : cast,
-  );
 }
 
 /**
@@ -95,7 +38,7 @@ export function useSearchCasts(
 ) {
   const { enabled = true } = options;
   const user = useAuthStore((s) => s.user);
-  const [casts, setCasts] = useState<NeynarCast[]>([]);
+  const [casts, setCasts] = useState<FarcasterCast[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [meta, setMeta] = useState<CastSearchMeta | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -213,14 +156,24 @@ export function useSearchCasts(
     async (castHash: string, isLiked: boolean) => {
       if (!user) return;
       setCasts((prev) =>
-        updateReaction(prev, castHash, "like", !isLiked, user.fid),
+        updateCastReaction(prev, {
+          hash: castHash,
+          type: "like",
+          added: !isLiked,
+          myFid: user.fid,
+        }),
       );
       try {
         if (isLiked) await removeLike(castHash);
         else await likeCast(castHash);
       } catch {
         setCasts((prev) =>
-          updateReaction(prev, castHash, "like", isLiked, user.fid),
+          updateCastReaction(prev, {
+          hash: castHash,
+          type: "like",
+          added: isLiked,
+          myFid: user.fid,
+        }),
         );
       }
     },
@@ -231,14 +184,24 @@ export function useSearchCasts(
     async (castHash: string, isRecasted: boolean) => {
       if (!user) return;
       setCasts((prev) =>
-        updateReaction(prev, castHash, "recast", !isRecasted, user.fid),
+        updateCastReaction(prev, {
+          hash: castHash,
+          type: "recast",
+          added: !isRecasted,
+          myFid: user.fid,
+        }),
       );
       try {
         if (isRecasted) await removeRecast(castHash);
         else await recastCast(castHash);
       } catch {
         setCasts((prev) =>
-          updateReaction(prev, castHash, "recast", isRecasted, user.fid),
+          updateCastReaction(prev, {
+          hash: castHash,
+          type: "recast",
+          added: isRecasted,
+          myFid: user.fid,
+        }),
         );
       }
     },
@@ -247,12 +210,12 @@ export function useSearchCasts(
 
   const handleBookmark = useCallback(
     async (castHash: string, isBookmarked: boolean) => {
-      setCasts((prev) => updateBookmark(prev, castHash, !isBookmarked));
+      setCasts((prev) => updateCastBookmark(prev, castHash, !isBookmarked));
       try {
         if (isBookmarked) await removeBookmark(castHash);
         else await bookmarkCast(castHash);
       } catch {
-        setCasts((prev) => updateBookmark(prev, castHash, isBookmarked));
+        setCasts((prev) => updateCastBookmark(prev, castHash, isBookmarked));
       }
     },
     [],

@@ -1,0 +1,50 @@
+{
+  "result": {
+    "users": [
+      {
+        "fid": 2002,
+        "username": "bob",
+        "displayName": "Bob",
+        "profile": {
+          "bio": {
+            "text": "gm"
+          }
+        },
+        "followerCount": 42,
+        "followingCount": 7,
+        "pfp": {
+          "url": "https://i.imgur.com/bob.png",
+          "verified": false
+        }
+      },
+      {
+        "fid": 3003,
+        "username": "carol",
+        "displayName": "Carol",
+        "profile": {
+          "bio": {
+            "text": "gm"
+          }
+        },
+        "followerCount": 42,
+        "followingCount": 7
+      },
+      {
+        "fid": 1001,
+        "username": "alice",
+        "displayName": "Alice",
+        "profile": {
+          "bio": {
+            "text": "gm"
+          }
+        },
+        "followerCount": 42,
+        "followingCount": 7,
+        "pfp": {
+          "url": "https://i.imgur.com/alice.png",
+          "verified": false
+        }
+      }
+    ]
+  }
+}

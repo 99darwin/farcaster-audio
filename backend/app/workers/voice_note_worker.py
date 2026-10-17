@@ -1,169 +1,102 @@
 """
-Background tasks for voice note processing: waveform generation and transcription.
+Background processing for voice notes: waveform backfill and transcription.
 
-Called via asyncio.create_task() from the API router — no separate worker process needed.
+Called via asyncio.create_task() from the API router — no separate worker
+process needed, so nothing here may block the event loop: S3 I/O runs in a
+thread and decoding runs in a bounded ffmpeg subprocess (see
+``app.services.audio_probe``).
 """
 
+import asyncio
 import logging
+import os
 import tempfile
 import uuid
 
 import httpx
+from sqlalchemy import select, update
 
 from app.config import settings
+from app.services.audio_probe import (
+    AnalyzedAudio,
+    analyze_audio,
+    compute_waveform_peaks,
+    content_type_for_key,
+    pcm_to_wav,
+)
+from app.services.voice_upload_service import MAX_VOICE_UPLOAD_SIZE_BYTES
 
 logger = logging.getLogger(__name__)
 
-MAX_WORKER_FILE_SIZE_BYTES = 10_485_760  # 10 MB
+DEEPGRAM_LISTEN_URL = "https://api.deepgram.com/v1/listen"
+DEEPGRAM_TIMEOUT_SECONDS = 60.0
 
 
-async def generate_waveform(voice_note_id: str) -> None:
-    """Download audio from S3, extract 200 peaks via pydub, update DB."""
-    from pydub import AudioSegment
-
+async def _load_voice_note(voice_note_id: str):
     from app.database import async_session
     from app.models.voice_note import VoiceNote
-    from app.services.storage_service import StorageService
 
-    logger.info("[worker] Generating waveform for voice note %s", voice_note_id)
-
-    storage = StorageService()
-
-    # Fetch the voice note record to get the object key
     async with async_session() as db:
-        from sqlalchemy import select
-
         result = await db.execute(
             select(VoiceNote).where(VoiceNote.id == uuid.UUID(voice_note_id))
         )
-        vn = result.scalar_one_or_none()
-        if not vn:
-            logger.error("[worker] Voice note %s not found", voice_note_id)
-            return
-        object_key = vn.audio_url
+        return result.scalar_one_or_none()
 
-    # Verify file size before downloading
-    try:
-        file_size = storage.get_object_size(object_key)
-        if file_size > MAX_WORKER_FILE_SIZE_BYTES:
-            logger.error("[worker] File %s too large (%d bytes), skipping waveform", object_key, file_size)
-            return
-    except Exception:
-        logger.error("[worker] Failed to HEAD %s from S3", object_key, exc_info=True)
-        return
 
-    # Download to temp file
-    with tempfile.NamedTemporaryFile(suffix=".m4a") as tmp:
-        try:
-            storage.download_file(object_key, tmp.name)
-        except Exception:
-            logger.error("[worker] Failed to download %s from S3", object_key, exc_info=True)
-            return
+async def _update_voice_note(voice_note_id: str, **values) -> None:
+    from app.database import async_session
+    from app.models.voice_note import VoiceNote
 
-        # Extract waveform peaks
-        try:
-            audio = AudioSegment.from_file(tmp.name)
-            samples = audio.get_array_of_samples()
-            num_peaks = 200
-            chunk_size = max(len(samples) // num_peaks, 1)
-            peaks: list[float] = []
-            for i in range(num_peaks):
-                chunk = samples[i * chunk_size : (i + 1) * chunk_size]
-                if chunk:
-                    peak = max(abs(s) for s in chunk)
-                    peaks.append(float(peak))
-            max_peak = max(peaks) if peaks else 1.0
-            peaks = [p / max_peak for p in peaks]
-        except Exception:
-            logger.error("[worker] Failed to process audio for %s", voice_note_id, exc_info=True)
-            return
-
-    # Update DB
     async with async_session() as db:
-        from sqlalchemy import update
-
         await db.execute(
             update(VoiceNote)
             .where(VoiceNote.id == uuid.UUID(voice_note_id))
-            .values(waveform_peaks=peaks)
+            .values(**values)
         )
         await db.commit()
 
-    logger.info("[worker] Waveform generated for %s (%d peaks)", voice_note_id, len(peaks))
 
-
-async def transcribe(voice_note_id: str) -> None:
-    """Download audio from S3, POST to Deepgram Nova-3, update DB."""
-    from app.database import async_session
-    from app.models.voice_note import VoiceNote
+async def _download_and_analyze(object_key: str) -> AnalyzedAudio | None:
+    """Fetch ``object_key`` and decode it through the allowlisted pipeline."""
     from app.services.storage_service import StorageService
 
-    if not settings.DEEPGRAM_API_KEY:
-        logger.warning("[worker] DEEPGRAM_API_KEY not set, skipping transcription for %s", voice_note_id)
-        return
-
-    logger.info("[worker] Transcribing voice note %s", voice_note_id)
+    content_type = content_type_for_key(object_key)
+    if content_type is None:
+        logger.error("[worker] Unrecognized voice object key %s", object_key)
+        return None
 
     storage = StorageService()
-
-    # Fetch the voice note record
-    async with async_session() as db:
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(VoiceNote).where(VoiceNote.id == uuid.UUID(voice_note_id))
-        )
-        vn = result.scalar_one_or_none()
-        if not vn:
-            logger.error("[worker] Voice note %s not found", voice_note_id)
-            return
-        object_key = vn.audio_url
-
-    # Verify file size before downloading
     try:
-        file_size = storage.get_object_size(object_key)
-        if file_size > MAX_WORKER_FILE_SIZE_BYTES:
-            logger.error("[worker] File %s too large (%d bytes), skipping transcription", object_key, file_size)
-            return
+        file_size = await asyncio.to_thread(storage.get_object_size, object_key)
     except Exception:
         logger.error("[worker] Failed to HEAD %s from S3", object_key, exc_info=True)
-        return
+        return None
+    if file_size > MAX_VOICE_UPLOAD_SIZE_BYTES:
+        logger.error(
+            "[worker] File %s too large (%d bytes), skipping", object_key, file_size
+        )
+        return None
 
-    # Download to temp file, convert M4A → WAV for Deepgram compatibility
-    import os
-    from pydub import AudioSegment
-
-    m4a_path = None
-    wav_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tmp:
-            m4a_path = tmp.name
-        storage.download_file(object_key, m4a_path)
+        # Private directory per file: no readable siblings for mp4 data refs.
+        with tempfile.TemporaryDirectory(prefix="voice-note-") as work_dir:
+            local_path = os.path.join(work_dir, "audio")
+            await asyncio.to_thread(storage.download_file, object_key, local_path)
+            return await analyze_audio(local_path, content_type)
+    except Exception as exc:
+        logger.error(
+            "[worker] Failed to process %s: %s", object_key, type(exc).__name__
+        )
+        return None
 
-        # Convert to WAV — Deepgram has known issues with some M4A containers
-        wav_path = m4a_path.replace(".m4a", ".wav")
-        audio = AudioSegment.from_file(m4a_path)
-        audio.export(wav_path, format="wav")
 
-        with open(wav_path, "rb") as f:
-            audio_bytes = f.read()
-        logger.info("[worker] Converted %s to WAV (%d bytes) for transcription", object_key, len(audio_bytes))
-    except Exception:
-        logger.error("[worker] Failed to download/convert %s from S3", object_key, exc_info=True)
-        return
-    finally:
-        for p in (m4a_path, wav_path):
-            if p:
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
-
-    # Call Deepgram
+async def _transcribe(voice_note_id: str, audio: AnalyzedAudio) -> None:
+    """POST (at most 60s of) the decoded audio to Deepgram Nova-3."""
+    wav_bytes = pcm_to_wav(audio.pcm)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://api.deepgram.com/v1/listen",
+                DEEPGRAM_LISTEN_URL,
                 params={
                     "model": "nova-3",
                     "smart_format": "true",
@@ -174,71 +107,87 @@ async def transcribe(voice_note_id: str) -> None:
                     "Content-Type": "audio/wav",
                     "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
                 },
-                content=audio_bytes,
-                timeout=60.0,
+                content=wav_bytes,
+                timeout=DEEPGRAM_TIMEOUT_SECONDS,
             )
         if resp.status_code != 200:
-            logger.error("[worker] Deepgram returned %s: %s", resp.status_code, resp.text[:500])
+            logger.error(
+                "[worker] Deepgram returned %s: %s", resp.status_code, resp.text[:500]
+            )
             return
-
         data = resp.json()
     except Exception:
-        logger.error("[worker] Deepgram request failed for %s", voice_note_id, exc_info=True)
+        logger.error(
+            "[worker] Deepgram request failed for %s", voice_note_id, exc_info=True
+        )
         return
 
-    # Parse response
-    results = data.get("results", {})
-    channels = results.get("channels", [])
+    channels = data.get("results", {}).get("channels", [])
     if not channels:
-        logger.warning("[worker] No channels in Deepgram response for %s", voice_note_id)
+        logger.warning(
+            "[worker] No channels in Deepgram response for %s", voice_note_id
+        )
         return
-
     alternatives = channels[0].get("alternatives", [])
     if not alternatives:
-        logger.warning("[worker] No alternatives in Deepgram response for %s", voice_note_id)
+        logger.warning(
+            "[worker] No alternatives in Deepgram response for %s", voice_note_id
+        )
         return
 
     best = alternatives[0]
     transcript = best.get("transcript", "")
-    detected_language = results.get("channels", [{}])[0].get("detected_language") or channels[0].get("detected_language")
-
-    # Extract word-level timestamps
-    words = best.get("words", [])
     transcript_words = [
         {
             "word": w.get("word", ""),
             "start_ms": int(w.get("start", 0) * 1000),
             "end_ms": int(w.get("end", 0) * 1000),
         }
-        for w in words
+        for w in best.get("words", [])
     ]
-
-    # Update DB
-    async with async_session() as db:
-        from sqlalchemy import update
-
-        await db.execute(
-            update(VoiceNote)
-            .where(VoiceNote.id == uuid.UUID(voice_note_id))
-            .values(
-                transcript=transcript,
-                transcript_lang=detected_language,
-                transcript_words=transcript_words,
-            )
-        )
-        await db.commit()
-
-    logger.info("[worker] Transcription complete for %s (%d chars)", voice_note_id, len(transcript))
+    await _update_voice_note(
+        voice_note_id,
+        transcript=transcript,
+        transcript_lang=channels[0].get("detected_language"),
+        transcript_words=transcript_words,
+    )
+    logger.info(
+        "[worker] Transcription complete for %s (%d chars)",
+        voice_note_id,
+        len(transcript),
+    )
 
 
 async def process_voice_note(voice_note_id: str) -> None:
-    """Run waveform generation and transcription for a voice note."""
+    """Backfill the waveform if missing, then transcribe the voice note."""
     try:
-        await generate_waveform(voice_note_id)
-    except Exception:
-        logger.error("[worker] Waveform generation failed for %s", voice_note_id, exc_info=True)
+        vn = await _load_voice_note(voice_note_id)
+        if vn is None:
+            logger.error("[worker] Voice note %s not found", voice_note_id)
+            return
+        needs_waveform = not vn.waveform_peaks
+        needs_transcript = bool(settings.DEEPGRAM_API_KEY)
+        if not needs_transcript:
+            logger.warning(
+                "[worker] DEEPGRAM_API_KEY not set, skipping transcription for %s",
+                voice_note_id,
+            )
+        if not (needs_waveform or needs_transcript):
+            return
 
-    try:
-        await transcribe(voice_note_id)
+        audio = await _download_and_analyze(vn.audio_url)
+        if audio is None:
+            return
+
+        if needs_waveform:
+            peaks = compute_waveform_peaks(audio.pcm)
+            await _update_voice_note(voice_note_id, waveform_peaks=peaks)
+            logger.info(
+                "[worker] Waveform generated for %s (%d peaks)",
+                voice_note_id,
+                len(peaks),
+            )
+        if needs_transcript:
+            await _transcribe(voice_note_id, audio)
     except Exception:
-        logger.error("[worker] Transcription failed for %s", voice_note_id, exc_info=True)
+        logger.error("[worker] Processing failed for %s", voice_note_id, exc_info=True)

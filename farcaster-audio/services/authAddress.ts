@@ -1,18 +1,32 @@
 /**
- * Auth address management for miniapp signIn (SIWF).
+ * Device auth address management.
  *
- * Generates a secp256k1 keypair on device, registers it as an auth address
- * via the backend + Neynar, and uses it to sign SIWF messages.
+ * Generates a secp256k1 keypair on device and keeps it in SecureStore. The
+ * address is added on-chain to KeyRegistry (keyType 2) during the one-time
+ * recovery-phrase link, after which it signs Protocol Auth logins (see
+ * `services/deviceLogin.ts`) and miniapp SIWF messages.
  */
 
 import "@/utils/cryptoPolyfill";
 import * as SecureStore from "expo-secure-store";
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import {
+  generatePrivateKey,
+  privateKeyToAccount,
+  type PrivateKeyAccount,
+} from "viem/accounts";
 import { createSiweMessage } from "viem/siwe";
 import * as api from "@/services/api";
 
 const AUTH_ADDRESS_KEY_PREFIX = "auth_address_key_";
 const AUTH_ADDRESS_STATUS_PREFIX = "auth_address_status_";
+const PRIVATE_KEY_PATTERN = /^0x[0-9a-f]{64}$/i;
+/**
+ * The auth address key can log in as the user, so it must never migrate off
+ * the device via iCloud Keychain or encrypted backups.
+ */
+const AUTH_ADDRESS_KEY_OPTS: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+};
 
 // --- Key management ---
 
@@ -26,11 +40,18 @@ export async function getOrCreateAuthAddress(fid: number): Promise<{
   const existing = await SecureStore.getItemAsync(storageKey);
 
   if (existing) {
-    if (!/^0x[0-9a-f]{64}$/i.test(existing)) {
+    if (!PRIVATE_KEY_PATTERN.test(existing)) {
       // Corrupted key — delete and regenerate
       await SecureStore.deleteItemAsync(storageKey);
     } else {
       const privateKey = existing as `0x${string}`;
+      // Keys written before the Hypersnap migration used the backup-restorable
+      // default accessibility; overwriting re-applies THIS_DEVICE_ONLY.
+      await SecureStore.setItemAsync(
+        storageKey,
+        privateKey,
+        AUTH_ADDRESS_KEY_OPTS,
+      );
       const account = privateKeyToAccount(privateKey);
       return { address: account.address, privateKey, isNew: false };
     }
@@ -38,8 +59,35 @@ export async function getOrCreateAuthAddress(fid: number): Promise<{
 
   const privateKey = generatePrivateKey();
   const account = privateKeyToAccount(privateKey);
-  await SecureStore.setItemAsync(storageKey, privateKey);
+  await SecureStore.setItemAsync(storageKey, privateKey, AUTH_ADDRESS_KEY_OPTS);
   return { address: account.address, privateKey, isNew: true };
+}
+
+/**
+ * The existing auth address account for this FID, or null when the device
+ * has none (or it is corrupted). Never creates a key: a fresh key is only
+ * useful once it has been linked through the recovery-phrase flow.
+ */
+export async function getAuthAddressAccount(
+  fid: number,
+): Promise<PrivateKeyAccount | null> {
+  const existing = await SecureStore.getItemAsync(
+    `${AUTH_ADDRESS_KEY_PREFIX}${fid}`,
+  );
+  if (!existing || !PRIVATE_KEY_PATTERN.test(existing)) return null;
+  return privateKeyToAccount(existing as `0x${string}`);
+}
+
+/**
+ * Record that this FID's auth address is in KeyRegistry. Called after the
+ * on-chain link is approved so miniapp signIn skips its approval round-trip.
+ */
+export async function markAuthAddressApproved(fid: number): Promise<void> {
+  await SecureStore.setItemAsync(
+    `${AUTH_ADDRESS_STATUS_PREFIX}${fid}`,
+    "approved",
+    AUTH_ADDRESS_KEY_OPTS,
+  );
 }
 
 export type AuthAddressStatus = "none" | "pending_approval" | "approved";
@@ -68,7 +116,7 @@ export async function getAuthAddressStatus(
   const existing = await SecureStore.getItemAsync(storageKey);
   if (!existing) return "none";
 
-  if (!/^0x[0-9a-f]{64}$/i.test(existing)) {
+  if (!PRIVATE_KEY_PATTERN.test(existing)) {
     await SecureStore.deleteItemAsync(storageKey);
     return "none";
   }
@@ -81,6 +129,7 @@ export async function getAuthAddressStatus(
       await SecureStore.setItemAsync(
         `${AUTH_ADDRESS_STATUS_PREFIX}${fid}`,
         "approved",
+        AUTH_ADDRESS_KEY_OPTS,
       );
       return "approved";
     }
@@ -100,7 +149,7 @@ export async function invalidateAuthAddress(fid: number): Promise<void> {
   await SecureStore.deleteItemAsync(`${AUTH_ADDRESS_STATUS_PREFIX}${fid}`);
   const storageKey = `${AUTH_ADDRESS_KEY_PREFIX}${fid}`;
   const existing = await SecureStore.getItemAsync(storageKey);
-  if (!existing || !/^0x[0-9a-f]{64}$/i.test(existing)) return;
+  if (!existing || !PRIVATE_KEY_PATTERN.test(existing)) return;
   try {
     const account = privateKeyToAccount(existing as `0x${string}`);
     await api.invalidateAuthAddress(account.address);
@@ -109,33 +158,60 @@ export async function invalidateAuthAddress(fid: number): Promise<void> {
   }
 }
 
-// --- Registration ---
+// --- SIWF signing ---
 
-/** Register an auth address with Neynar. Returns the approval URL. */
-export async function registerAuthAddress(fid: number): Promise<{
-  address: string;
-  approvalUrl: string | null;
-  status: string;
-}> {
-  const { address } = await getOrCreateAuthAddress(fid);
+const SIWF_DEFAULT_VALIDITY_MS = 5 * 60 * 1000;
+/**
+ * Upper bound on how long a mini-app-requested SIWF signature stays valid.
+ * Without it a page could ask for an `expirationTime` years out and replay
+ * the signed message as a long-lived login token.
+ */
+export const SIWF_MAX_VALIDITY_MS = 10 * 60 * 1000;
 
-  const result = await api.registerAuthAddress(address);
-
-  if (result.status === "approved") {
-    await SecureStore.setItemAsync(
-      `${AUTH_ADDRESS_STATUS_PREFIX}${fid}`,
-      "approved",
-    );
+function parseSiwfDate(value: string, field: string): Date {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid ${field}`);
   }
-
-  return {
-    address: result.auth_address,
-    approvalUrl: result.approval_url,
-    status: result.status,
-  };
+  return date;
 }
 
-// --- SIWF signing ---
+/**
+ * Clamp the mini-app-supplied validity window: expiration is capped at
+ * now + SIWF_MAX_VALIDITY_MS (never extended), and must be in the future;
+ * notBefore must parse, may not sit beyond the cap, and may not follow the
+ * expiration.
+ */
+export function resolveSiwfValidityWindow(
+  { notBefore, expirationTime }: { notBefore?: string; expirationTime?: string },
+  now: Date = new Date(),
+): { notBefore: Date | undefined; expirationTime: Date } {
+  const nowMs = now.getTime();
+  const maxExpirationMs = nowMs + SIWF_MAX_VALIDITY_MS;
+
+  const requestedExpirationMs = expirationTime
+    ? parseSiwfDate(expirationTime, "expirationTime").getTime()
+    : nowMs + SIWF_DEFAULT_VALIDITY_MS;
+  if (requestedExpirationMs <= nowMs) {
+    throw new Error("expirationTime is in the past");
+  }
+  const expirationMs = Math.min(requestedExpirationMs, maxExpirationMs);
+
+  if (!notBefore) {
+    return { notBefore: undefined, expirationTime: new Date(expirationMs) };
+  }
+  const notBeforeMs = parseSiwfDate(notBefore, "notBefore").getTime();
+  if (notBeforeMs > maxExpirationMs) {
+    throw new Error("notBefore is too far in the future");
+  }
+  if (notBeforeMs >= expirationMs) {
+    throw new Error("notBefore must precede expirationTime");
+  }
+  return {
+    notBefore: new Date(notBeforeMs),
+    expirationTime: new Date(expirationMs),
+  };
+}
 
 /** Sign a SIWF message for miniapp signIn(). */
 export async function signSiwfMessage(
@@ -161,13 +237,19 @@ export async function signSiwfMessage(
     throw new Error("Invalid nonce format");
   }
 
+  const now = new Date();
+  const validity = resolveSiwfValidityWindow(
+    { notBefore: options.notBefore, expirationTime: options.expirationTime },
+    now,
+  );
+
   const storageKey = `${AUTH_ADDRESS_KEY_PREFIX}${fid}`;
   const privateKey = await SecureStore.getItemAsync(storageKey);
   if (!privateKey) {
     throw new Error("No auth address key found");
   }
 
-  if (!/^0x[0-9a-f]{64}$/i.test(privateKey)) {
+  if (!PRIVATE_KEY_PATTERN.test(privateKey)) {
     throw new Error("Corrupted auth address key");
   }
 
@@ -182,11 +264,9 @@ export async function signSiwfMessage(
     version: "1",
     statement: "Farcaster Auth",
     resources: [`farcaster://fid/${fid}`],
-    issuedAt: new Date(),
-    notBefore: options.notBefore ? new Date(options.notBefore) : undefined,
-    expirationTime: options.expirationTime
-      ? new Date(options.expirationTime)
-      : new Date(Date.now() + 5 * 60 * 1000),
+    issuedAt: now,
+    notBefore: validity.notBefore,
+    expirationTime: validity.expirationTime,
   });
 
   const signature = await account.signMessage({ message });

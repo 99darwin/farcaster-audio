@@ -1,5 +1,5 @@
-import uuid
-from typing import AsyncGenerator
+import logging
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 import redis.asyncio as aioredis
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -13,23 +13,15 @@ from app.middleware.auth import (
     get_agent_or_user,
     get_current_user,
     get_optional_current_user,
+    require_first_party_user,
 )  # re-export
-from app.models.user import User
+from app.models.user import SIGNER_STATUS_APPROVED, User
 from app.services.spam_service import SpamService
 
+if TYPE_CHECKING:
+    from app.services.farcaster_spaces_service import FarcasterSpacesService
+
 DEMO_SIGNER_UUID = "demo-readonly"
-
-
-def _is_valid_neynar_signer(signer_uuid: str | None) -> bool:
-    """A real Neynar signer is a UUIDv4 string. Any sentinel/legacy value
-    (demo-readonly, dev-signer, etc.) won't parse as a UUID."""
-    if not signer_uuid:
-        return False
-    try:
-        uuid.UUID(signer_uuid)
-    except (ValueError, TypeError, AttributeError):
-        return False
-    return True
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -41,6 +33,30 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def get_redis(request: Request) -> aioredis.Redis:
     """Return the shared Redis connection pool attached to app state."""
     return request.app.state.redis
+
+
+def pubsub_redis(app: Any) -> aioredis.Redis:
+    """Redis client for websocket pubsub (its own bounded pool).
+
+    Falls back to the command client when no pubsub pool is configured
+    (tests, scripts).
+    """
+    return getattr(app.state, "redis_pubsub", None) or app.state.redis
+
+
+def get_farcaster_spaces_service(request: Request) -> "FarcasterSpacesService":
+    """Process-wide ``FarcasterSpacesService`` (one shared httpx client).
+
+    Built eagerly at lifespan startup; tests using ASGITransport without
+    the startup hook get one created lazily here.
+    """
+    from app.services.farcaster_spaces_service import FarcasterSpacesService
+
+    service = getattr(request.app.state, "farcaster_spaces_service", None)
+    if service is None:
+        service = FarcasterSpacesService(settings)
+        request.app.state.farcaster_spaces_service = service
+    return service
 
 
 async def get_spam_service(
@@ -84,11 +100,41 @@ async def require_developer_api_key(
         origin=origin_header,
     )
     request.state.developer_api_key = verified
+    log_developer_key_use(request, verified)
     return verified
 
 
+# Dedicated logger so audit lines can be routed/retained separately.
+developer_audit_logger = logging.getLogger("juke.audit.developer_api")
+
+
+def log_developer_key_use(request: Request, verified) -> None:
+    """One structured line per key-authenticated request.
+
+    Identifiers only (the key's public ``key_id``, never the secret), plus
+    the ``audit_hmac`` tag over method/path/fid/key_id so a tampered line
+    is detectable by anyone holding ``JUKE_API_AUDIT_SECRET``. The path
+    excludes the query string.
+    """
+    fields = {
+        "method": request.method,
+        "path": request.url.path,
+        "fid": verified.fid,
+        "app_id": str(verified.app_id),
+        "key_id": verified.key_id,
+        "audit_hmac": verified.audit_hmac,
+    }
+    # Rendered as key=value for the plain-text formatter; also attached as
+    # record attributes for structured handlers.
+    developer_audit_logger.info(
+        "developer_api_request %s",
+        " ".join(f"{name}={value}" for name, value in fields.items()),
+        extra={"audit_event": "developer_api_request", **fields},
+    )
+
+
 async def require_recent_siwn(
-    fid: int = Depends(get_current_user),
+    fid: int = Depends(require_first_party_user),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> int:
     """Require a recent SIWN re-authentication for dangerous mutations.
@@ -98,6 +144,10 @@ async def require_recent_siwn(
     theft (rotate/reveal a secret) or denial of service (revoke a key, delete
     an app). The client surfaces the 401 + WWW-Authenticate header by
     re-running the Neynar SIWN flow rather than the silent refresh path.
+
+    Partner-minted JWTs (``source="partner"``) are rejected at the
+    ``require_first_party_user`` layer, so the Redis recency check below
+    is unreachable for them — fail-fast on the cheaper signal.
     """
     from app.services.redis_service import RedisService
 
@@ -114,14 +164,20 @@ DEMO_USER_FID = 1  # dev_login() issues JWTs scoped to this fid only
 
 
 async def require_non_demo_user(
-    fid: int = Depends(get_current_user),
+    fid: int = Depends(require_first_party_user),
     db: AsyncSession = Depends(get_db),
 ) -> int:
     """
     Reject writes from the shared demo-readonly signer in non-development environments.
-    The demo login issues a JWT for a real FID (currently @farcaster) with a sentinel
-    signer_uuid so anyone can explore the app without signing in — but they shouldn't
-    be able to post content or create rooms that attribute to that FID.
+    The demo login issues a JWT for a real FID (currently @farcaster) with
+    signer_status="demo" so anyone can explore the app without signing in,
+    but they shouldn't be able to post content or create rooms that
+    attribute to that FID.
+
+    Also rejects partner-minted JWTs (via ``require_first_party_user``):
+    user-attributed writes like room creation, recording start, etc.
+    must originate from the user's own session, not from an iframe-host
+    bearer that the user only consented to for in-room participation.
     """
     if settings.ENVIRONMENT == "development":
         return fid
@@ -129,18 +185,17 @@ async def require_non_demo_user(
     # cannot be the demo signer. Skip the DB read on the hot path.
     if fid != DEMO_USER_FID:
         return fid
-    result = await db.execute(select(User.signer_uuid).where(User.fid == fid))
-    signer_uuid = result.scalar_one_or_none()
-    if signer_uuid is None:
+    result = await db.execute(select(User.signer_status).where(User.fid == fid))
+    signer_status = result.scalar_one_or_none()
+    if signer_status is None:
         # Valid JWT for a fid that no longer exists — fail closed.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found.",
         )
-    # Any non-UUID signer for fid=1 is a demo/legacy sentinel (demo-readonly,
-    # dev-signer, etc.) and cannot actually cast to Neynar anyway. If @farcaster
-    # themselves sign in via SIWN, they'll have a real Neynar UUIDv4 signer.
-    if not _is_valid_neynar_signer(signer_uuid):
+    # fid=1 may only write once its owner has added a real app signer
+    # (``signer_status == "approved"``); the demo session is ``"demo"``.
+    if signer_status != SIGNER_STATUS_APPROVED:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sign in with Farcaster to post or host.",
@@ -151,6 +206,7 @@ async def require_non_demo_user(
 __all__ = [
     "get_db",
     "get_redis",
+    "pubsub_redis",
     "get_current_user",
     "get_admin_user",
     "get_agent_or_user",
@@ -161,5 +217,4 @@ __all__ = [
     "require_recent_siwn",
     "DEMO_SIGNER_UUID",
     "DEMO_USER_FID",
-    "_is_valid_neynar_signer",
 ]

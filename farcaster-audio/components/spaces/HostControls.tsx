@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,8 @@ import { useSpaceStore } from "@/stores/spaceStore";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import * as api from "@/services/api";
-import type { Participant } from "@/types/space";
+import { isSafeImageUrl } from "@/utils/url";
+import type { Participant, ParticipantRole } from "@/types/space";
 
 interface HostControlsProps {
   visible: boolean;
@@ -52,28 +53,84 @@ export function HostControls({
 }: HostControlsProps) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  // Refresh participants and hand queue from backend when modal opens
-  useEffect(() => {
-    if (!visible) return;
-    const roomId = useSpaceStore.getState().room?.id;
-    if (!roomId) return;
-    api
-      .getRoom(roomId)
-      .then((data) => {
+  const syncParticipants = useCallback(async () => {
+    const room = useSpaceStore.getState().room;
+    if (!room) return;
+    setIsSyncing(true);
+    try {
+      if (room.is_farcaster_native && room.farcaster_room_id) {
+        // Farcaster-native: fetch live participant list from upstream so
+        // the host sees users who joined via the Farcaster app (they
+        // don't go through Juke's join API, so they aren't in the store
+        // until explicitly fetched).
+        const upstream = await api.fetchFarcasterNativeSpaceParticipants(
+          room.farcaster_room_id,
+        );
+        if (!upstream.length) return;
+        const store = useSpaceStore.getState();
+        const seenFids = new Set(store.participants.map((p) => p.fid));
+        for (const p of upstream) {
+          const u = p.user;
+          if (!u?.fid) continue;
+          const role: ParticipantRole = ((): ParticipantRole => {
+            switch (p.role) {
+              case "host":
+                return "host";
+              case "cohost":
+                return "co_host";
+              case "speaker":
+                return "speaker";
+              default:
+                return "listener";
+            }
+          })();
+          if (seenFids.has(u.fid)) {
+            store.updateParticipant(u.fid, {
+              role,
+              display_name: u.display_name || u.username || `User ${u.fid}`,
+              ...(isSafeImageUrl(u.pfp_url) ? { pfp_url: u.pfp_url } : {}),
+              hand_raised: !!p.hand_raised,
+            });
+          } else {
+            store.addParticipant({
+              fid: u.fid,
+              role,
+              is_muted: role === "listener",
+              is_speaking: false,
+              hand_raised: !!p.hand_raised,
+              display_name: u.display_name || u.username || `User ${u.fid}`,
+              pfp_url: isSafeImageUrl(u.pfp_url) ? u.pfp_url : null,
+            });
+          }
+        }
+      } else {
+        // Juke-hosted: sync roles + pfps + hand queue from Juke's DB.
+        const data = await api.getRoom(room.id);
         const store = useSpaceStore.getState();
         store.setHandQueue(data.hand_queue ?? []);
-        // Sync participant roles from backend
         for (const p of data.participants) {
           store.updateParticipant(p.fid, { role: p.role, pfp_url: p.pfp_url });
         }
-      })
-      .catch(() => {});
-  }, [visible]);
+      }
+    } catch {
+      // best-effort
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    void syncParticipants();
+  }, [visible, syncParticipants]);
 
   const listeners = participants.filter((p) => p.role === "listener");
-  const handRaisedParticipants = participants.filter((p) =>
-    handQueue.includes(p.fid),
+  // Include hand_raised field (Farcaster-native) in addition to the
+  // hand queue (Juke-hosted) so the host sees all raised hands.
+  const handRaisedParticipants = participants.filter(
+    (p) => handQueue.includes(p.fid) || p.hand_raised,
   );
 
   const confirmEndSpace = () => {
@@ -134,7 +191,24 @@ export function HostControls({
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Host Controls</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Host Controls</Text>
+            <Pressable
+              onPress={() => void syncParticipants()}
+              style={styles.refreshButton}
+              disabled={isSyncing}
+              accessibilityLabel="Refresh participant list"
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name="refresh"
+                size={20}
+                color={
+                  isSyncing ? colors.text.placeholder : colors.text.secondary
+                }
+              />
+            </Pressable>
+          </View>
 
           <ScrollView style={styles.scrollContent}>
             {/* Hand Queue */}
@@ -232,6 +306,13 @@ export function HostControls({
                     />
                     <Text style={styles.participantName}>{p.display_name}</Text>
                     <View style={styles.actions}>
+                      {p.hand_raised && (
+                        <Ionicons
+                          name="hand-left"
+                          size={18}
+                          color={colors.accent}
+                        />
+                      )}
                       <Pressable
                         onPress={() => onPromote(p.fid)}
                         style={styles.iconButton}
@@ -346,12 +427,27 @@ const useStyles = () =>
       alignSelf: "center",
       marginTop: 12,
     },
+    titleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      marginVertical: 16,
+      paddingHorizontal: 16,
+    },
     title: {
       color: colors.text.primary,
       fontSize: 20,
       fontWeight: "700",
+      flex: 1,
       textAlign: "center",
-      marginVertical: 16,
+    },
+    refreshButton: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      position: "absolute",
+      right: 16,
     },
     scrollContent: { paddingHorizontal: 16 },
     section: { marginBottom: 24 },

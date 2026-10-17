@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -24,11 +24,14 @@ import {
   removeLike,
   recastCast,
   removeRecast,
-} from "@/services/neynar";
+} from "@/services/feed";
 import { bookmarkCast, removeBookmark } from "@/services/api";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
-import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
+import type {
+  FarcasterCast,
+  FarcasterCastWithReplies,
+} from "@/types/farcaster";
 
 interface SpaceChatProps {
   castHash: string;
@@ -54,6 +57,7 @@ export function SpaceChat({
   const [cursorPosition, setCursorPosition] = useState(0);
   const [isSending, setIsSending] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const inputRef = useRef<TextInput>(null);
 
   const handleSelectionChange = useCallback(
     (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
@@ -68,8 +72,15 @@ export function SpaceChat({
       const after = text.slice(cursorPosition);
       const inserted = `@${username} `;
       const newText = before + inserted + after;
+      const nextCursor = before.length + inserted.length;
       setText(newText);
-      setCursorPosition(before.length + inserted.length);
+      setCursorPosition(nextCursor);
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.setNativeProps({
+          selection: { start: nextCursor, end: nextCursor },
+        });
+      });
     },
     [text, cursorPosition],
   );
@@ -132,12 +143,12 @@ export function SpaceChat({
     [refreshThread],
   );
 
-  const handleReply = useCallback((_cast: NeynarCast) => {
+  const handleReply = useCallback((_cast: FarcasterCast) => {
     // Focus the compose bar — for space chat we keep replies flat to the root
   }, []);
 
   const handleQuoteCast = useCallback(
-    (cast: NeynarCast) => {
+    (cast: FarcasterCast) => {
       router.push(`/cast/${cast.hash}`);
     },
     [router],
@@ -156,7 +167,7 @@ export function SpaceChat({
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={keyboardVerticalOffset}
     >
-      <FlatList<NeynarCastWithReplies>
+      <FlatList<FarcasterCastWithReplies>
         data={replies}
         keyExtractor={(item) => item.hash}
         initialNumToRender={8}
@@ -190,7 +201,7 @@ export function SpaceChat({
         renderItem={({ item }) => (
           <ThreadedReplies
             replies={[item]}
-            maxDepth={1}
+            maxChainLength={1}
             myFid={viewerFid}
             onLike={handleLike}
             onRecast={handleRecast}
@@ -228,6 +239,7 @@ export function SpaceChat({
         ]}
       >
         <TextInput
+          ref={inputRef}
           style={styles.input}
           value={text}
           onChangeText={(t) => {
@@ -240,6 +252,7 @@ export function SpaceChat({
           multiline
           maxLength={1024}
           editable={!isSending}
+          accessibilityLabel="Reply to this space"
         />
         <Pressable
           onPress={handleSend}
@@ -314,9 +327,9 @@ const useStyles = () =>
       borderColor: glass.borderColor,
     },
     sendButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       alignItems: "center",
       justifyContent: "center",
     },

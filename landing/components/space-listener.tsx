@@ -10,7 +10,7 @@ import {
   type RemoteTrack,
 } from "livekit-client";
 import { getCachedMiniappAuth } from "@/lib/miniapp-auth";
-import { APP_STORE_URL, jukeSpaceUrl } from "@/lib/deeplink";
+import { ANDROID_BETA_URL, APP_STORE_URL, jukeSpaceUrl } from "@/lib/deeplink";
 import { safeImageUrl } from "@/lib/safe-url";
 import {
   joinSpaceAsListener,
@@ -25,7 +25,7 @@ interface SpaceListenerProps {
 
 type Phase =
   | "idle" // waiting for user tap
-  | "authenticating" // SIWF flow
+  | "authenticating" // Protocol Auth flow
   | "joining" // fetching LiveKit token
   | "connecting" // connecting to LiveKit
   | "listening" // connected, streaming audio
@@ -38,7 +38,7 @@ type Phase =
  *
  * Connection is deferred until the user taps "Listen" so the browser
  * treats the audio playback as a user-initiated gesture (required on iOS
- * webviews). The Warpcast silent-switch caveat is surfaced in the UI.
+ * webviews). The Farcaster app silent-switch caveat is surfaced in the UI.
  */
 export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -355,7 +355,7 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
         <div className="mt-auto mb-4 space-y-3">
           <p className="text-center text-[11px] leading-relaxed text-white/40">
             Audio may require your device&apos;s silent switch to be off,
-            depending on Warpcast&apos;s settings.
+            depending on the Farcaster app&apos;s settings.
           </p>
         </div>
       )}
@@ -386,7 +386,7 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
             Open in the Juke app
           </p>
           <p className="mb-4 text-[11px] leading-relaxed text-white/50">
-            Live spaces need the Juke app or Warpcast to sign you in.
+            Live spaces need the Juke app or Farcaster to sign you in.
           </p>
           {jukeDeeplink && (
             <a
@@ -400,9 +400,17 @@ export function SpaceListener({ spaceId, initialData }: SpaceListenerProps) {
             href={APP_STORE_URL}
             target="_blank"
             rel="noopener noreferrer"
+            className="mb-2 inline-flex w-full items-center justify-center rounded-full bg-white/10 py-2.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/15"
+          >
+            Download for iPhone
+          </a>
+          <a
+            href={ANDROID_BETA_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex w-full items-center justify-center rounded-full bg-white/10 py-2.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/15"
           >
-            Download on the App Store
+            Download for Android
           </a>
         </div>
       )}

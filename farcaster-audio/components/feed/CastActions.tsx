@@ -3,6 +3,8 @@ import {
   Text,
   Pressable,
   ActionSheetIOS,
+  Alert,
+  Platform,
   Share,
   StyleSheet,
 } from "react-native";
@@ -53,26 +55,33 @@ export function CastActions({
 
   const handleRecastPress = () => {
     haptic.selection();
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options: [
-          "Cancel",
-          isRecasted ? "Undo Recast" : "Recast",
-          "Quote Cast",
-        ],
-        cancelButtonIndex: 0,
-      },
-      (buttonIndex) => {
-        if (buttonIndex === 1) {
-          haptic.light();
-          onRecast();
-        }
-        if (buttonIndex === 2) {
-          haptic.selection();
-          onQuoteCast();
-        }
-      },
-    );
+    const recastLabel = isRecasted ? "Undo Recast" : "Recast";
+    const onRecastChoice = () => {
+      haptic.light();
+      onRecast();
+    };
+    const onQuoteChoice = () => {
+      haptic.selection();
+      onQuoteCast();
+    };
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Cancel", recastLabel, "Quote Cast"],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) onRecastChoice();
+          if (buttonIndex === 2) onQuoteChoice();
+        },
+      );
+    } else {
+      Alert.alert("", undefined, [
+        { text: "Cancel", style: "cancel" },
+        { text: recastLabel, onPress: onRecastChoice },
+        { text: "Quote Cast", onPress: onQuoteChoice },
+      ]);
+    }
   };
 
   const handleLikePress = () => {

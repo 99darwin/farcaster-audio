@@ -5,11 +5,18 @@ from livekit import api
 
 from app.config import settings
 
-
 # 10 speakers (host + 9 guests) + 500 listener cap. Bumping this requires a
 # corresponding check on LiveKit plan limits.
 DEFAULT_MAX_PARTICIPANTS = 510
 ANONYMOUS_LISTENER_TOKEN_TTL = timedelta(minutes=15)
+
+# Authenticated participant join tokens are short-lived so a kicked, banned
+# or demoted user can't re-enter (or re-publish) with a stale token for
+# hours. Live sessions are unaffected: LiveKit only checks ``exp`` on the
+# initial connect, and the server pushes refreshed tokens to connected
+# clients for SDK-internal reconnects. App-level reconnects on iOS, Android
+# and web call ``POST /v1/rooms/{id}/token`` ~5 min before expiry.
+PARTICIPANT_TOKEN_TTL = timedelta(minutes=15)
 
 
 class LiveKitService:
@@ -26,7 +33,9 @@ class LiveKitService:
             )
         return self._api
 
-    async def create_room(self, room_id: str, title: str, empty_timeout: int = 300) -> None:
+    async def create_room(
+        self, room_id: str, title: str, empty_timeout: int = 300
+    ) -> None:
         """Create a LiveKit room."""
         await self.api.room.create_room(
             api.CreateRoomRequest(
@@ -56,7 +65,11 @@ class LiveKitService:
                 Used for agents that need to send data messages as listeners.
         """
         can_publish = role in ("host", "co_host", "speaker")
-        can_publish_data = can_publish_data_override if can_publish_data_override is not None else can_publish
+        can_publish_data = (
+            can_publish_data_override
+            if can_publish_data_override is not None
+            else can_publish
+        )
 
         metadata: dict = {"fid": fid, "role": role}
         if pfp_url:
@@ -71,7 +84,7 @@ class LiveKitService:
         token.with_identity(str(fid))
         token.with_name(display_name)
         token.with_metadata(json.dumps(metadata))
-        token.with_ttl(timedelta(hours=6))
+        token.with_ttl(PARTICIPANT_TOKEN_TTL)
 
         grant = api.VideoGrants(
             room_join=True,
@@ -149,7 +162,9 @@ class LiveKitService:
             )
             current_metadata = {}
             try:
-                current_metadata = json.loads(participant.metadata) if participant.metadata else {}
+                current_metadata = (
+                    json.loads(participant.metadata) if participant.metadata else {}
+                )
             except (json.JSONDecodeError, TypeError):
                 pass
             current_metadata["role"] = role
@@ -168,9 +183,7 @@ class LiveKitService:
 
     async def delete_room(self, room_id: str) -> None:
         """Delete a LiveKit room, disconnecting all participants."""
-        await self.api.room.delete_room(
-            api.DeleteRoomRequest(room=room_id)
-        )
+        await self.api.room.delete_room(api.DeleteRoomRequest(room=room_id))
 
     # ------------------------------------------------------------------
     # Egress (recording)
@@ -218,9 +231,7 @@ class LiveKitService:
 
     async def stop_egress(self, egress_id: str) -> None:
         """Stop a running egress. Safe to call if egress already ended."""
-        await self.api.egress.stop_egress(
-            api.StopEgressRequest(egress_id=egress_id)
-        )
+        await self.api.egress.stop_egress(api.StopEgressRequest(egress_id=egress_id))
 
     async def close(self) -> None:
         """Cleanup API client.

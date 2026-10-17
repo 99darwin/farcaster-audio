@@ -1,0 +1,210 @@
+{
+  "result": {
+    "hasArchived": true,
+    "hasUnreadRequests": true,
+    "requestsCount": 3,
+    "voidCount": 0,
+    "conversations": [
+      {
+        "conversationId": "1001-2002",
+        "adminFids": [],
+        "removedFids": [],
+        "participants": [
+          {
+            "fid": 1001,
+            "username": "alice",
+            "displayName": "Alice",
+            "profile": {
+              "bio": {
+                "text": "gm"
+              }
+            },
+            "followerCount": 42,
+            "followingCount": 7,
+            "pfp": {
+              "url": "https://i.imgur.com/alice.png",
+              "verified": false
+            }
+          },
+          {
+            "fid": 2002,
+            "username": "bob",
+            "displayName": "Bob",
+            "profile": {
+              "bio": {
+                "text": "gm"
+              }
+            },
+            "followerCount": 42,
+            "followingCount": 7,
+            "pfp": {
+              "url": "https://i.imgur.com/bob.png",
+              "verified": false
+            }
+          }
+        ],
+        "lastReadTime": 1760600060000,
+        "selfLastReadTime": 1760600060000,
+        "lastMessage": {
+          "conversationId": "1001-2002",
+          "senderFid": 2002,
+          "messageId": "a1b2c3d4-0003-4000-8000-000000000003",
+          "serverTimestamp": 1760600120000,
+          "type": "text",
+          "message": "",
+          "hasMention": false,
+          "reactions": [],
+          "isPinned": false,
+          "isDeleted": true,
+          "senderContext": {
+            "fid": 2002,
+            "username": "bob",
+            "displayName": "Bob",
+            "pfp": {
+              "url": "https://i.imgur.com/bob.png"
+            }
+          },
+          "viewerContext": {
+            "isLastReadMessage": false,
+            "focused": false,
+            "reactions": []
+          }
+        },
+        "pinnedMessages": [],
+        "isGroup": false,
+        "messageTTLDays": 365,
+        "createdAt": 1760000000000,
+        "unreadCount": 1,
+        "muted": false,
+        "hasMention": false,
+        "viewerContext": {
+          "access": "read-write",
+          "category": "default",
+          "archived": false,
+          "lastReadAt": 1760600060000,
+          "muted": false,
+          "manuallyMarkedUnread": false,
+          "pinned": false,
+          "unreadCount": 1,
+          "unreadMentionsCount": 0,
+          "counterParty": {
+            "fid": 2002,
+            "username": "bob",
+            "displayName": "Bob",
+            "profile": {
+              "bio": {
+                "text": "gm"
+              }
+            },
+            "followerCount": 42,
+            "followingCount": 7,
+            "pfp": {
+              "url": "https://i.imgur.com/bob.png",
+              "verified": false
+            }
+          }
+        }
+      },
+      {
+        "conversationId": "8f3a1c2b9d7e4f60a1b2c3d4e5f60718",
+        "adminFids": [
+          1001
+        ],
+        "removedFids": [],
+        "participants": [
+          {
+            "fid": 1001,
+            "username": "alice",
+            "displayName": "Alice",
+            "profile": {
+              "bio": {
+                "text": "gm"
+              }
+            },
+            "followerCount": 42,
+            "followingCount": 7,
+            "pfp": {
+              "url": "https://i.imgur.com/alice.png",
+              "verified": false
+            }
+          },
+          {
+            "fid": 2002,
+            "username": "bob",
+            "displayName": "Bob",
+            "profile": {
+              "bio": {
+                "text": "gm"
+              }
+            },
+            "followerCount": 42,
+            "followingCount": 7,
+            "pfp": {
+              "url": "https://i.imgur.com/bob.png",
+              "verified": false
+            }
+          },
+          {
+            "fid": 3003,
+            "username": "carol",
+            "displayName": "Carol",
+            "profile": {
+              "bio": {
+                "text": "gm"
+              }
+            },
+            "followerCount": 42,
+            "followingCount": 7
+          }
+        ],
+        "lastReadTime": 1760500000000,
+        "selfLastReadTime": 1760500000000,
+        "lastMessage": {
+          "conversationId": "8f3a1c2b9d7e4f60a1b2c3d4e5f60718",
+          "senderFid": 3003,
+          "messageId": "a1b2c3d4-0005-4000-8000-000000000005",
+          "serverTimestamp": 1760500000000,
+          "type": "text",
+          "message": "welcome to the group",
+          "hasMention": false,
+          "reactions": [],
+          "isPinned": false,
+          "isDeleted": false,
+          "senderContext": {
+            "fid": 3003,
+            "username": "carol",
+            "displayName": "Carol"
+          },
+          "viewerContext": {
+            "isLastReadMessage": false,
+            "focused": false,
+            "reactions": []
+          }
+        },
+        "pinnedMessages": [],
+        "isGroup": true,
+        "messageTTLDays": 365,
+        "createdAt": 1760000000000,
+        "unreadCount": 0,
+        "muted": false,
+        "hasMention": false,
+        "viewerContext": {
+          "access": "read-write",
+          "category": "default",
+          "archived": false,
+          "lastReadAt": 1760500000000,
+          "muted": false,
+          "manuallyMarkedUnread": false,
+          "pinned": false,
+          "unreadCount": 0,
+          "unreadMentionsCount": 0
+        },
+        "name": "Juke builders",
+        "photoUrl": "https://i.imgur.com/group.png"
+      }
+    ]
+  },
+  "next": {
+    "cursor": "eyJwYWdlIjoyfQ"
+  }
+}

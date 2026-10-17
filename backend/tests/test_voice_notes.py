@@ -15,7 +15,8 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.dependencies import DEMO_SIGNER_UUID, require_non_demo_user
-from app.routers.voice_notes import _build_voice_note_cast_payload
+from app.routers.voice_notes import _publish_voice_note_cast
+from app.services.farcaster_writes import Signer
 from app.schemas.voice_note import VoiceNoteCreateRequest
 
 
@@ -23,9 +24,7 @@ def make_auth_header(fid: int = 12345) -> dict:
     token = jwt.encode(
         {
             "fid": fid,
-            "exp": int(
-                (datetime.now(timezone.utc) + timedelta(hours=72)).timestamp()
-            ),
+            "exp": int((datetime.now(timezone.utc) + timedelta(hours=72)).timestamp()),
         },
         settings.JWT_SECRET,
         algorithm=settings.JWT_ALGORITHM,
@@ -96,11 +95,11 @@ def test_schema_rejects_malformed_channel_id(bad_channel_id):
 @pytest.mark.parametrize(
     "bad_hash",
     [
-        "0xnotahex" + "0" * 33,   # non-hex chars
-        "0x" + "a" * 39,           # too short
-        "0x" + "a" * 41,           # too long
-        "a" * 40,                  # missing 0x prefix
-        "",                        # empty string
+        "0xnotahex" + "0" * 33,  # non-hex chars
+        "0x" + "a" * 39,  # too short
+        "0x" + "a" * 41,  # too long
+        "a" * 40,  # missing 0x prefix
+        "",  # empty string
     ],
 )
 def test_schema_rejects_malformed_parent_cast_hash(bad_hash):
@@ -156,30 +155,45 @@ async def test_create_voice_note_rejects_reply_with_channel_id(client):
     assert response.status_code == 400
 
 
-def test_voice_note_cast_payload_includes_channel_for_top_level_post():
-    payload = _build_voice_note_cast_payload(
-        signer_uuid="12345678-1234-4234-9234-123456789abc",
+VOICE_NOTE_ID = "00000000-0000-4000-8000-000000000123"
+TEST_SIGNER = Signer(fid=12345, private_key=b"\x01" * 32)
+
+
+@pytest.mark.asyncio
+async def test_voice_note_cast_includes_channel_for_top_level_post(monkeypatch):
+    publish = AsyncMock(return_value="0x" + "ab" * 20)
+    monkeypatch.setattr("app.services.farcaster_writes.publish_cast", publish)
+
+    await _publish_voice_note_cast(
+        TEST_SIGNER,
         text="listen",
-        embed_url="https://juke.audio/v/123",
+        voice_note_id=VOICE_NOTE_ID,
         parent_cast_hash=None,
         channel_id="neynar",
     )
 
-    assert payload["channel_id"] == "neynar"
-    assert "parent" not in payload
+    kwargs = publish.await_args.kwargs
+    assert kwargs["channel_id"] == "neynar"
+    assert kwargs["parent_hash"] is None
+    assert kwargs["embed_urls"] == [f"https://juke.audio/v/{VOICE_NOTE_ID}"]
 
 
-def test_voice_note_cast_payload_prefers_reply_parent_over_channel():
-    payload = _build_voice_note_cast_payload(
-        signer_uuid="12345678-1234-4234-9234-123456789abc",
+@pytest.mark.asyncio
+async def test_voice_note_cast_prefers_reply_parent_over_channel(monkeypatch):
+    publish = AsyncMock(return_value="0x" + "ab" * 20)
+    monkeypatch.setattr("app.services.farcaster_writes.publish_cast", publish)
+
+    await _publish_voice_note_cast(
+        TEST_SIGNER,
         text="listen",
-        embed_url="https://juke.audio/v/123",
+        voice_note_id=VOICE_NOTE_ID,
         parent_cast_hash=VALID_PARENT_HASH,
         channel_id="neynar",
     )
 
-    assert payload["parent"] == VALID_PARENT_HASH
-    assert "channel_id" not in payload
+    kwargs = publish.await_args.kwargs
+    assert kwargs["parent_hash"] == VALID_PARENT_HASH
+    assert kwargs["channel_id"] is None
 
 
 # --- Demo-readonly gate tests ---
@@ -250,11 +264,22 @@ async def test_require_non_demo_user_fails_closed_when_fid_1_missing(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_require_non_demo_user_allows_real_uuid_signer_for_fid_1(monkeypatch):
-    """If @farcaster (fid=1) signs in via real SIWN, the Neynar UUIDv4 signer
-    passes the UUID-shape check and writes succeed."""
-    import uuid as _uuid
+async def test_require_non_demo_user_allows_approved_signer_for_fid_1(monkeypatch):
+    """If @farcaster (fid=1) adds a real app signer, writes succeed."""
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
-    db = _mock_db_returning_signer(str(_uuid.uuid4()))
+    db = _mock_db_returning_signer("approved")
     result = await require_non_demo_user(fid=1, db=db)
     assert result == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("signer_status", ["demo", "none", "pending"])
+async def test_require_non_demo_user_blocks_unapproved_fid_1(
+    monkeypatch, signer_status
+):
+    """fid=1 without an approved signer (demo session etc.) cannot write."""
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    db = _mock_db_returning_signer(signer_status)
+    with pytest.raises(HTTPException) as exc_info:
+        await require_non_demo_user(fid=1, db=db)
+    assert exc_info.value.status_code == 403

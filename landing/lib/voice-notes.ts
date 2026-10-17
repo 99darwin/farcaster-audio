@@ -1,3 +1,5 @@
+import { encodePathSegment } from "@/lib/api-path";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -30,8 +32,10 @@ export interface VoiceNoteDetail {
 export async function getVoiceNote(
   id: string,
 ): Promise<VoiceNoteDetail | null> {
+  const segment = encodePathSegment(id);
+  if (!segment) return null;
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/voice-notes/${id}`, {
+    const res = await fetch(`${API_BASE_URL}/v1/voice-notes/${segment}`, {
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;

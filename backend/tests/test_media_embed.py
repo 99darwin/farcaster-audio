@@ -47,8 +47,7 @@ def test_normalize_media_embed_url_leaves_hls_urls_unchanged(monkeypatch):
 def test_normalize_media_embed_url_leaves_images_unchanged(monkeypatch):
     monkeypatch.setattr(settings, "CLOUDINARY_CLOUD_NAME", "durbgdsd3")
     asset_url = (
-        "https://res.cloudinary.com/durbgdsd3/image/upload/"
-        "v1777929516/example.jpg"
+        "https://res.cloudinary.com/durbgdsd3/image/upload/" "v1777929516/example.jpg"
     )
 
     assert normalize_media_embed_url(asset_url) == asset_url

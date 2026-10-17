@@ -10,7 +10,9 @@ class NotificationPreference(Base):
     __tablename__ = "notification_preferences"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    fid: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
+    fid: Mapped[int] = mapped_column(
+        BigInteger, unique=True, nullable=False, index=True
+    )
 
     # Farcaster social
     follows_enabled: Mapped[bool] = mapped_column(

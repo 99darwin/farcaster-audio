@@ -9,7 +9,7 @@ import {
   removeLike,
   removeRecast,
   publishCast,
-} from "@/services/neynar";
+} from "@/services/feed";
 import { blockUser, bookmarkCast, removeBookmark } from "@/services/api";
 import * as voiceNotesApi from "@/services/voiceNotes";
 import type { FeedItem } from "@/types/voiceNote";
@@ -47,6 +47,36 @@ function mergeFeedItems(
   return merged;
 }
 
+/**
+ * Refresh the shared home feed (casts + voice notes) outside of React.
+ * Writes into the shared Zustand stores, so every mounted feed surface
+ * updates. Used by `useFeed().refresh` and by publish flows (e.g. cast
+ * threads) that need an onPublish-equivalent refresh without a hook.
+ */
+export async function refreshSharedFeed(): Promise<void> {
+  const user = useAuthStore.getState().user;
+  if (!user) return;
+  useFeedStore.getState().setRefreshing(true);
+  try {
+    const [feedData, vnData] = await Promise.all([
+      fetchFollowingFeed(),
+      voiceNotesApi
+        .getVoiceNoteFeed()
+        .catch(() => ({ voice_notes: [], next_cursor: null })),
+    ]);
+    useFeedStore.getState().setCasts(feedData.casts, feedData.next.cursor);
+    useVoiceNoteStore
+      .getState()
+      .setVoiceNotes(vnData.voice_notes, vnData.next_cursor);
+  } catch (err) {
+    useFeedStore
+      .getState()
+      .setError(
+        err instanceof Error ? err.message : "Failed to refresh feed",
+      );
+  }
+}
+
 export function useFeed() {
   const { casts, isLoading, isRefreshing, hasMore, error, cursor } =
     useFeedStore();
@@ -54,7 +84,6 @@ export function useFeed() {
     setCasts,
     appendCasts,
     setLoading,
-    setRefreshing,
     setError,
     updateCastReaction,
     updateCastBookmark,
@@ -108,21 +137,8 @@ export function useFeed() {
   }, [user, hasMore, isLoading, cursor, appendCasts, setLoading, setError]);
 
   const refresh = useCallback(async () => {
-    if (!user) return;
-    setRefreshing(true);
-    try {
-      const [feedData, vnData] = await Promise.all([
-        fetchFollowingFeed(),
-        voiceNotesApi
-          .getVoiceNoteFeed()
-          .catch(() => ({ voice_notes: [], next_cursor: null })),
-      ]);
-      setCasts(feedData.casts, feedData.next.cursor);
-      vnSetVoiceNotes(vnData.voice_notes, vnData.next_cursor);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh feed");
-    }
-  }, [user, setCasts, setRefreshing, setError, vnSetVoiceNotes]);
+    await refreshSharedFeed();
+  }, []);
 
   const handleLike = useCallback(
     async (castHash: string, isLiked: boolean) => {

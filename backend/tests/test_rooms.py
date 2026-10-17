@@ -168,6 +168,18 @@ def test_start_scheduled_room_delegates_rsvp_push_delivery_to_push_service():
     assert "send_push(" not in source
 
 
+def test_start_scheduled_room_rejects_farcaster_native_rooms():
+    """The Juke-hosted go-live path must refuse native rooms (they have no
+    Juke LiveKit room to allocate) and point callers at native-start —
+    otherwise it would create an orphaned LiveKit room + token. The guard
+    must run before any LiveKit allocation."""
+    source = inspect.getsource(RoomService.start_scheduled_room)
+    assert "is_farcaster_native" in source
+    assert "native-start" in source
+    # Guard precedes the LiveKit create call.
+    assert source.index("is_farcaster_native") < source.index("livekit.create_room")
+
+
 @pytest.mark.asyncio
 async def test_recording_detail_malformed_id(client):
     """GET /v1/recordings/{id} should 404 (not 500) on malformed UUID."""

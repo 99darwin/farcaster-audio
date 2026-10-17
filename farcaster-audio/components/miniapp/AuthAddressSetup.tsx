@@ -1,266 +1,91 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   View,
   Text,
   Pressable,
-  Linking,
   StyleSheet,
   ActivityIndicator,
-  AppState,
-  type AppStateStatus,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
 import { useMiniAppStore } from "@/stores/miniappStore";
-import {
-  registerAuthAddress,
-  getAuthAddressStatus,
-} from "@/services/authAddress";
+import { getAuthAddressStatus } from "@/services/authAddress";
 import { typography } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 
-type Step = "intro" | "registering" | "approval" | "polling" | "done" | "error";
+type Step = "intro" | "checking";
 
-/** Hard cap for the AppState approval watcher. */
-const APPROVAL_WATCH_MAX_MS = 10 * 60 * 1000;
-
+/**
+ * Shown when a mini app asks to sign in but this device's auth address isn't
+ * in KeyRegistry yet. The only way to add it is the one-time recovery-phrase
+ * link (`/link-signer`), so this prompt hands off there; it never registers
+ * a key itself (the old Neynar approval endpoint is gone).
+ */
 export function AuthAddressSetup() {
   const { colors } = useTheme();
   const styles = useStyles();
+  const router = useRouter();
   const showAuthSetup = useMiniAppStore((s) => s.showAuthSetup);
   const dismissAuthSetup = useMiniAppStore((s) => s.dismissAuthSetup);
+  const minimizeMiniApp = useMiniAppStore((s) => s.minimizeMiniApp);
   const user = useAuthStore((s) => s.user);
   const [step, setStep] = useState<Step>("intro");
-  const [approvalUrl, setApprovalUrl] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState("");
-  const mountedRef = useRef<boolean>(true);
-  const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const appStateCleanupRef = useRef<(() => void) | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-      if (doneTimerRef.current) clearTimeout(doneTimerRef.current);
-      if (appStateCleanupRef.current) appStateCleanupRef.current();
-    };
-  }, []);
+  const handleLink = useCallback(() => {
+    // Sign-in is declined for now; the mini app can ask again after linking.
+    dismissAuthSetup(false);
+    minimizeMiniApp();
+    router.push("/link-signer");
+  }, [dismissAuthSetup, minimizeMiniApp, router]);
 
-  const finishApproved = useCallback(() => {
-    if (!mountedRef.current) return;
-    setStep("done");
-    doneTimerRef.current = setTimeout(() => {
-      if (mountedRef.current) dismissAuthSetup(true);
-    }, 1500);
+  const handleCheckAgain = useCallback(async () => {
+    if (!user?.fid) return;
+    setStep("checking");
+    const status = await getAuthAddressStatus(user.fid, { force: true });
+    if (status === "approved") {
+      setNotice(null);
+      setStep("intro");
+      dismissAuthSetup(true);
+      return;
+    }
+    setNotice("This device isn't linked yet.");
+    setStep("intro");
+  }, [dismissAuthSetup, user?.fid]);
+
+  const handleCancel = useCallback(() => {
+    setNotice(null);
+    dismissAuthSetup(false);
   }, [dismissAuthSetup]);
 
-  /**
-   * Subscribe to AppState transitions back to 'active' and fire a single
-   * status check per transition. Auto-unsubscribes on approval, on
-   * component unmount, or after APPROVAL_WATCH_MAX_MS — no timed polling.
-   */
-  const startApprovalWatch = useCallback(() => {
-    if (appStateCleanupRef.current) {
-      appStateCleanupRef.current();
-      appStateCleanupRef.current = null;
-    }
-    const fid = user?.fid;
-    if (!fid) return;
-
-    let cancelled = false;
-
-    const cleanup = () => {
-      if (cancelled) return;
-      cancelled = true;
-      clearTimeout(timeout);
-      subscription.remove();
-      if (appStateCleanupRef.current === cleanup) {
-        appStateCleanupRef.current = null;
-      }
-    };
-
-    const subscription = AppState.addEventListener(
-      "change",
-      (next: AppStateStatus) => {
-        if (cancelled) return;
-        if (next !== "active") return;
-        void getAuthAddressStatus(fid, { force: true }).then((status) => {
-          if (cancelled || !mountedRef.current) return;
-          if (status === "approved") {
-            cleanup();
-            finishApproved();
-          }
-        });
-      },
-    );
-
-    const timeout = setTimeout(() => {
-      if (!mountedRef.current) {
-        cleanup();
-        return;
-      }
-      cleanup();
-      setErrorMsg("Approval timed out. Please try again.");
-      setStep("error");
-    }, APPROVAL_WATCH_MAX_MS);
-
-    appStateCleanupRef.current = cleanup;
-  }, [user?.fid, finishApproved]);
-
-  const handleManualCheck = useCallback(async () => {
-    if (!user?.fid) return;
-    const status = await getAuthAddressStatus(user.fid, { force: true });
-    if (!mountedRef.current) return;
-    if (status === "approved") {
-      if (appStateCleanupRef.current) appStateCleanupRef.current();
-      finishApproved();
-    }
-  }, [user?.fid, finishApproved]);
-
   if (!showAuthSetup) return null;
-
-  const handleSetup = async () => {
-    if (!user?.fid) return;
-    setStep("registering");
-
-    try {
-      const result = await registerAuthAddress(user.fid);
-
-      if (result.status === "approved") {
-        finishApproved();
-        return;
-      }
-
-      if (result.approvalUrl) {
-        setApprovalUrl(result.approvalUrl);
-        setStep("approval");
-      } else {
-        setErrorMsg("No approval URL returned");
-        setStep("error");
-      }
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Registration failed");
-      setStep("error");
-    }
-  };
-
-  const handleOpenApproval = async () => {
-    if (approvalUrl) {
-      await Linking.openURL(approvalUrl);
-      setStep("polling");
-      startApprovalWatch();
-    }
-  };
-
-  const handleCancel = () => {
-    dismissAuthSetup(false);
-  };
 
   return (
     <View style={styles.overlay}>
       <View style={styles.card}>
-        {step === "intro" && (
+        {step === "checking" ? (
+          <ActivityIndicator size="large" color={colors.purple} />
+        ) : (
           <>
             <View style={styles.iconContainer}>
               <Ionicons name="key-outline" size={32} color={colors.purple} />
             </View>
             <Text style={styles.title}>Sign In Required</Text>
             <Text style={styles.description}>
-              This mini app needs to verify your identity. We'll create a secure
-              signing key on your device and register it with your Farcaster
-              account.
+              This mini app needs to verify your identity. Link Juke to your
+              Farcaster account once with your recovery phrase, then try again.
             </Text>
-            <Text style={styles.subtitle}>
-              You'll need to approve once in Farcaster.
-            </Text>
-            <Pressable onPress={handleSetup} style={styles.primaryBtn}>
-              <Text style={styles.primaryBtnText}>Set Up</Text>
+            {notice ? <Text style={styles.subtitle}>{notice}</Text> : null}
+            <Pressable onPress={handleLink} style={styles.primaryBtn}>
+              <Text style={styles.primaryBtnText}>Link Juke</Text>
+            </Pressable>
+            <Pressable onPress={handleCheckAgain} style={styles.secondaryBtn}>
+              <Text style={styles.secondaryBtnText}>I already linked</Text>
             </Pressable>
             <Pressable onPress={handleCancel} style={styles.secondaryBtn}>
               <Text style={styles.secondaryBtnText}>Not Now</Text>
-            </Pressable>
-          </>
-        )}
-
-        {step === "registering" && (
-          <>
-            <ActivityIndicator size="large" color={colors.purple} />
-            <Text style={styles.title}>Registering...</Text>
-            <Text style={styles.description}>
-              Creating your signing key and registering with Farcaster.
-            </Text>
-          </>
-        )}
-
-        {step === "approval" && (
-          <>
-            <View style={styles.iconContainer}>
-              <Ionicons name="open-outline" size={32} color={colors.purple} />
-            </View>
-            <Text style={styles.title}>Approve in Farcaster</Text>
-            <Text style={styles.description}>
-              Tap the button below to open Farcaster and approve the signing
-              key. This is a one-time step.
-            </Text>
-            <Pressable onPress={handleOpenApproval} style={styles.primaryBtn}>
-              <Text style={styles.primaryBtnText}>Open Farcaster</Text>
-            </Pressable>
-            <Pressable onPress={handleCancel} style={styles.secondaryBtn}>
-              <Text style={styles.secondaryBtnText}>Cancel</Text>
-            </Pressable>
-          </>
-        )}
-
-        {step === "polling" && (
-          <>
-            <ActivityIndicator size="large" color={colors.purple} />
-            <Text style={styles.title}>Waiting for Approval</Text>
-            <Text style={styles.description}>
-              Complete the approval in Farcaster, then come back here. This will
-              update automatically.
-            </Text>
-            <Pressable onPress={handleManualCheck} style={styles.primaryBtn}>
-              <Text style={styles.primaryBtnText}>I approved it</Text>
-            </Pressable>
-            <Pressable onPress={handleCancel} style={styles.secondaryBtn}>
-              <Text style={styles.secondaryBtnText}>Cancel</Text>
-            </Pressable>
-          </>
-        )}
-
-        {step === "done" && (
-          <>
-            <View style={styles.iconContainer}>
-              <Ionicons
-                name="checkmark-circle"
-                size={40}
-                color={colors.success}
-              />
-            </View>
-            <Text style={styles.title}>All Set</Text>
-            <Text style={styles.description}>
-              Your signing key is registered. Mini apps can now authenticate
-              you.
-            </Text>
-          </>
-        )}
-
-        {step === "error" && (
-          <>
-            <View style={styles.iconContainer}>
-              <Ionicons
-                name="alert-circle-outline"
-                size={32}
-                color={colors.error}
-              />
-            </View>
-            <Text style={styles.title}>Something Went Wrong</Text>
-            <Text style={styles.description}>{errorMsg}</Text>
-            <Pressable onPress={handleSetup} style={styles.primaryBtn}>
-              <Text style={styles.primaryBtnText}>Try Again</Text>
-            </Pressable>
-            <Pressable onPress={handleCancel} style={styles.secondaryBtn}>
-              <Text style={styles.secondaryBtnText}>Cancel</Text>
             </Pressable>
           </>
         )}

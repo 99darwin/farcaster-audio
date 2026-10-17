@@ -61,5 +61,16 @@ target 'Juke' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+
+    # Newer Xcode rejects pod targets (incl. resource bundles) below its
+    # minimum; lift any older target to the app's deployment target.
+    app_deployment_target = podfile_properties['ios.deploymentTarget'] || '15.1'
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_config|
+        current = build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        next if current && Gem::Version.new(current) >= Gem::Version.new(app_deployment_target)
+        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = app_deployment_target
+      end
+    end
   end
 end

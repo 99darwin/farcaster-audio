@@ -1,5 +1,7 @@
 import {
   ActionSheetIOS,
+  Alert,
+  Platform,
   View,
   Text,
   Pressable,
@@ -7,19 +9,22 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/common/Avatar";
+import { LeaderboardAwardBadges } from "@/components/leaderboard/LeaderboardAwardBadges";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
-import type { NeynarUser } from "@/types/neynar";
+import type { FarcasterUser } from "@/types/farcaster";
 
 export type ProfileTab = "casts" | "replies" | "voice_notes" | "recordings";
 
 interface ProfileHeaderProps {
-  user: NeynarUser;
+  user: FarcasterUser;
   isOwnProfile: boolean;
   onFollowToggle: () => void;
   onBlockToggle: () => void;
   activeTab: ProfileTab;
   onTabChange: (tab: ProfileTab) => void;
+  /** Shows a Message button next to Follow when provided. */
+  onMessage?: () => void;
 }
 
 function formatCount(n: number): string {
@@ -35,6 +40,7 @@ export function ProfileHeader({
   onBlockToggle,
   activeTab,
   onTabChange,
+  onMessage,
 }: ProfileHeaderProps) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -44,16 +50,27 @@ export function ProfileHeader({
 
   const handleMenuPress = () => {
     const blockLabel = isBlocked ? "Unblock user" : "Block user";
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options: ["Cancel", blockLabel],
-        cancelButtonIndex: 0,
-        destructiveButtonIndex: isBlocked ? undefined : 1,
-      },
-      (buttonIndex) => {
-        if (buttonIndex === 1) onBlockToggle();
-      },
-    );
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Cancel", blockLabel],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: isBlocked ? undefined : 1,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) onBlockToggle();
+        },
+      );
+    } else {
+      Alert.alert("", undefined, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: blockLabel,
+          style: isBlocked ? "default" : "destructive",
+          onPress: onBlockToggle,
+        },
+      ]);
+    }
   };
 
   return (
@@ -106,17 +123,41 @@ export function ProfileHeader({
 
       {bio ? <Text style={styles.bio}>{bio}</Text> : null}
 
+      <LeaderboardAwardBadges fid={user.fid} />
+
       {!isOwnProfile && !isBlocked && (
-        <Pressable
-          style={[styles.followButton, isFollowing && styles.followingButton]}
-          onPress={onFollowToggle}
-        >
-          <Text
-            style={[styles.followText, isFollowing && styles.followingText]}
+        <View style={styles.actionRow}>
+          <Pressable
+            style={[
+              styles.followButton,
+              styles.actionButton,
+              isFollowing && styles.followingButton,
+            ]}
+            onPress={onFollowToggle}
           >
-            {isFollowing ? "Following" : "Follow"}
-          </Text>
-        </Pressable>
+            <Text
+              style={[styles.followText, isFollowing && styles.followingText]}
+            >
+              {isFollowing ? "Following" : "Follow"}
+            </Text>
+          </Pressable>
+          {onMessage ? (
+            <Pressable
+              style={styles.messageButton}
+              onPress={onMessage}
+              accessibilityRole="button"
+              accessibilityLabel={`Message ${user.display_name || user.username}`}
+              testID="profile-message-button"
+            >
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={18}
+                color={colors.text.primary}
+              />
+              <Text style={styles.messageText}>Message</Text>
+            </Pressable>
+          ) : null}
+        </View>
       )}
 
       {!isOwnProfile && isBlocked && (
@@ -248,6 +289,30 @@ const useStyles = () =>
       paddingVertical: 8,
       borderRadius: 20,
       alignItems: "center",
+    },
+    actionRow: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    actionButton: {
+      flex: 1,
+    },
+    messageButton: {
+      marginTop: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.background.border,
+    },
+    messageText: {
+      color: colors.text.primary,
+      fontSize: 15,
+      fontWeight: "700",
     },
     followingButton: {
       backgroundColor: "transparent",

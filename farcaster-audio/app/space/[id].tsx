@@ -14,8 +14,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useSpace } from "@/hooks/useSpace";
+import { useSpace, AppKeyNotApprovedError } from "@/hooks/useSpace";
 import { useSpacePermissions } from "@/hooks/useSpacePermissions";
+import { useFarcasterAppKey } from "@/hooks/useFarcasterAppKey";
+import { signFarcasterClientBearer } from "@/services/snapSigner";
 import { useAuthStore } from "@/stores/authStore";
 import { useSpaceStore } from "@/stores/spaceStore";
 import { useMiniAppStore } from "@/stores/miniappStore";
@@ -29,6 +31,7 @@ import { ParticipantProfileCard } from "@/components/spaces/ParticipantProfileCa
 import { SpaceChat } from "@/components/spaces/SpaceChat";
 import { EmojiReactionPanel } from "@/components/spaces/EmojiReactionPanel";
 import { EmojiReactionOverlay } from "@/components/spaces/EmojiReactionOverlay";
+import { StageInviteBanner } from "@/components/spaces/StageInviteBanner";
 import { MiniAppPicker } from "@/components/miniapp/MiniAppPicker";
 import { RsvpAvatarRow } from "@/components/spaces/RsvpAvatarRow";
 import { GlassView } from "@/components/common/GlassView";
@@ -38,6 +41,11 @@ import { AvatarPositionProvider } from "@/contexts/AvatarPositionContext";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { buildSpaceUrl } from "@/utils/shareLinks";
+import {
+  buildJoinSpaceConfirmation,
+  consumeSpaceJoinIntent,
+} from "@/utils/spaceJoinIntent";
+import { requestConfirmation } from "@/stores/confirmationStore";
 import { formatScheduledTime } from "@/utils/formatDate";
 import * as api from "@/services/api";
 import * as livekitService from "@/services/livekit";
@@ -51,11 +59,30 @@ import type { Participant, Room } from "@/types/space";
 
 // ─── Scheduled space view (no LiveKit, no participants) ───
 
-function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
+function ScheduledSpaceScreen({
+  room,
+  id,
+  onWentLive,
+}: {
+  room: Room;
+  id: string;
+  // Invoked after a Farcaster-native scheduled room is flipped live.
+  // The parent owns `useSpace.joinRoom` (which performs the full
+  // native-join sequence: sign bearer, native-join, connect to
+  // Farcaster's LiveKit, seed host role, hydrate participants) and the
+  // `scheduledRoom` state that gates this view. Rather than duplicating
+  // that sequence here — or hoisting `useSpace` into this child — we
+  // hand control back to the parent, which clears `scheduledRoom` and
+  // calls `joinRoom(id)` so the host lands connected in the live view.
+  onWentLive: () => void;
+}) {
   const router = useRouter();
   const { colors } = useTheme();
   const styles = useStyles();
   const user = useAuthStore((s) => s.user);
+  const { ensureApproved: ensureFarcasterAppKey } = useFarcasterAppKey(
+    user?.fid ?? 0,
+  );
   const insets = useSafeAreaInsets();
   const [isStarting, setIsStarting] = useState(false);
   const [isGoing, setIsGoing] = useState(room.rsvp_summary?.is_going ?? false);
@@ -70,6 +97,42 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
   const handleGoLive = async () => {
     setIsStarting(true);
     try {
+      // Farcaster-native scheduled room: the legacy `startRoom` endpoint
+      // 400s for native rooms. We flip the upstream room scheduled->live
+      // via `native-start`, then hand off to the parent's `joinRoom`
+      // (through `onWentLive`) which connects us to Farcaster's LiveKit
+      // exactly like joining any active native space — no Juke LiveKit
+      // creds are involved.
+      if (room.is_farcaster_native) {
+        // Gate: native writes require an Ed25519 app key approved on the
+        // host's FID. If not yet approved, this opens the Farcaster
+        // approval flow and bails — the host retries after the AppState
+        // watcher flips status on return. Mirrors create.tsx.
+        const gate = await ensureFarcasterAppKey();
+        if (!gate.approved) {
+          Toast.show({
+            type: "info",
+            text1: "Approve Juke on Farcaster",
+            text2: gate.approvalUrl
+              ? "Then return and tap Go Live again."
+              : "Couldn't open Farcaster — try again.",
+          });
+          return;
+        }
+
+        const userBearer = await signFarcasterClientBearer(user!.fid);
+        await api.startFarcasterNativeRoom(id, {
+          user_jfs_bearer: userBearer,
+        });
+
+        // Upstream room is now live. Hand off to the parent to clear the
+        // scheduled view and run the full native-join flow.
+        onWentLive();
+        return;
+      }
+
+      // Juke-hosted scheduled room (existing behavior): `startRoom`
+      // allocates Juke LiveKit resources and returns ws_url + token.
       const response = await api.startRoom(id);
 
       const hostParticipant: Participant = {
@@ -99,6 +162,16 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
       router.replace(`/space/${id}`);
     } catch (err) {
       console.error("[ScheduledSpace] Go live error:", err);
+      if (err instanceof AppKeyNotApprovedError) {
+        Toast.show({
+          type: "info",
+          text1: "Approve Juke on Farcaster",
+          text2: err.approvalUrl
+            ? "Then return and tap Go Live again."
+            : "Couldn't open Farcaster — try again.",
+        });
+        return;
+      }
       useSpaceStore.getState().leaveSpace();
       Toast.show({
         type: "error",
@@ -207,7 +280,7 @@ function ScheduledSpaceScreen({ room, id }: { room: Room; id: string }) {
 
   const handleAddToCalendar = () => {
     Alert.alert("Add to calendar", "Choose where to add this space.", [
-      { text: "Apple Calendar", onPress: addToAppleCalendar },
+      { text: "Add to Calendar", onPress: addToAppleCalendar },
       { text: "Google Calendar", onPress: addToGoogleCalendar },
       { text: "Cancel", style: "cancel" },
     ]);
@@ -413,10 +486,16 @@ export default function SpaceScreen() {
     reactions,
     joinRoom,
     leaveRoom,
+    endRoom,
     toggleMute,
     sendReaction,
     attachListeners,
     setOnRoomEnded,
+    pendingStageInvite,
+    acceptStageInvite,
+    declineStageInvite,
+    promoteParticipant,
+    demoteParticipant,
   } = useSpace();
   const permissions = useSpacePermissions();
   const [isJoining, setIsJoining] = useState(false);
@@ -452,6 +531,11 @@ export default function SpaceScreen() {
     });
   }, [setOnRoomEnded, router]);
 
+  const leaveUnconfirmedSpace = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/");
+  };
+
   useEffect(() => {
     if (!id) return;
     if (room?.id === id) {
@@ -461,21 +545,65 @@ export default function SpaceScreen() {
     }
 
     // Fetch room info first to check if it's scheduled
+    let isStale = false;
     setIsJoining(true);
     api
       .getRoom(id)
-      .then((detail) => {
+      .then(async (detail) => {
+        if (isStale) return;
         if (detail.room.status === "scheduled") {
           setScheduledRoom(detail.room);
           setIsJoining(false);
           return;
         }
+        // Reached without an in-app tap (deep link / universal link):
+        // joining publishes presence and leaves any current space, so ask.
+        if (!consumeSpaceJoinIntent(id)) {
+          const isConfirmed = await requestConfirmation(
+            buildJoinSpaceConfirmation(detail.room),
+          );
+          if (isStale) return;
+          if (!isConfirmed) {
+            leaveUnconfirmedSpace();
+            return;
+          }
+        }
         // Active room — join normally
         return joinRoom(id).catch((err) => {
+          if (err instanceof AppKeyNotApprovedError) {
+            // User's Ed25519 app key isn't approved on their FID yet.
+            // The approval URL was already opened on their behalf by
+            // `ensureApproved`; an AppState watcher refreshes status
+            // when they return. Surface a friendly prompt and bounce
+            // home rather than spamming a generic error.
+            Toast.show({
+              type: "info",
+              text1: "Approve Juke on Farcaster",
+              text2: err.approvalUrl
+                ? "Then return and tap the space again."
+                : "Couldn't open Farcaster — try again.",
+            });
+            router.back();
+            return;
+          }
+          const status = err.response?.status;
+          const detail = err.response?.data?.detail;
+          if (status === 404 && detail === "Space has ended") {
+            // Farcaster confirmed the room is no longer live — remove it
+            // from the discovery rail so it stops appearing.
+            useSpaceStore.getState().removeActiveLiveSpace(id);
+            Toast.show({
+              type: "info",
+              text1: "Space has ended",
+              text2: "This space is no longer live.",
+            });
+            router.back();
+            return;
+          }
           Toast.show({
             type: "error",
             text1: "Error",
-            text2: err.response?.data?.detail || "Failed to join space",
+            text2: detail || "Failed to join space",
           });
           router.back();
         });
@@ -489,6 +617,11 @@ export default function SpaceScreen() {
         router.back();
       })
       .finally(() => setIsJoining(false));
+    return () => {
+      // A confirmation answered after leaving (or switching rooms) must not
+      // join the room this effect was started for.
+      isStale = true;
+    };
   }, [id]);
 
   useEffect(() => {
@@ -497,6 +630,11 @@ export default function SpaceScreen() {
       !room ||
       room.status !== "active" ||
       room.cast_hash ||
+      // Native rooms have no Juke participant record, so the
+      // chat-target endpoint (which requires the caller to be an
+      // active Juke participant) 403s for them. Chat is a Juke-only
+      // surface; skip the call entirely for native rooms.
+      room.is_farcaster_native ||
       chatTargetAttemptedRoomId === room.id ||
       isEnsuringChatTargetRef.current
     ) {
@@ -541,12 +679,11 @@ export default function SpaceScreen() {
 
   const handlePromote = useCallback(
     async (fid: number) => {
-      if (!id) return;
       useSpaceStore
         .getState()
         .updateParticipant(fid, { role: "speaker", is_muted: false });
       try {
-        await api.promoteParticipant(id, fid);
+        await promoteParticipant(fid);
       } catch (err) {
         useSpaceStore
           .getState()
@@ -558,17 +695,16 @@ export default function SpaceScreen() {
         });
       }
     },
-    [id],
+    [promoteParticipant],
   );
 
   const handleDemote = useCallback(
     async (fid: number) => {
-      if (!id) return;
       useSpaceStore
         .getState()
         .updateParticipant(fid, { role: "listener", is_muted: true });
       try {
-        await api.demoteParticipant(id, fid);
+        await demoteParticipant(fid);
       } catch (err) {
         useSpaceStore.getState().updateParticipant(fid, { role: "speaker" });
         Toast.show({
@@ -578,7 +714,7 @@ export default function SpaceScreen() {
         });
       }
     },
-    [id],
+    [demoteParticipant],
   );
 
   const handleMute = useCallback(
@@ -632,9 +768,10 @@ export default function SpaceScreen() {
   const handleEndSpace = useCallback(async () => {
     if (!id) return;
     try {
-      await api.endRoom(id);
+      // `endRoom` branches on `is_farcaster_native` and disconnects
+      // LiveKit; safe for both Juke-hosted and Farcaster-native rooms.
+      await endRoom();
       router.replace("/");
-      await leaveRoom(id);
     } catch (err) {
       Toast.show({
         type: "error",
@@ -642,7 +779,7 @@ export default function SpaceScreen() {
         text2: "Failed to end space",
       });
     }
-  }, [id, router, leaveRoom]);
+  }, [id, router, endRoom]);
 
   const isRecording = useSpaceStore((s) => s.isRecording);
 
@@ -667,9 +804,51 @@ export default function SpaceScreen() {
     }
   }, [id]);
 
+  // Called by the scheduled view once a Farcaster-native room has been
+  // flipped live (via `native-start`). Clear the scheduled gate and run
+  // the full native-join flow so the host lands connected in the live
+  // view — `joinRoom` signs a fresh JFS bearer, calls native-join, and
+  // connects to Farcaster's LiveKit. Errors mirror the active-room join
+  // handling in the mount effect above.
+  const handleScheduledWentLive = useCallback(async () => {
+    if (!id) return;
+    setScheduledRoom(null);
+    setIsJoining(true);
+    try {
+      await joinRoom(id);
+    } catch (err) {
+      if (err instanceof AppKeyNotApprovedError) {
+        Toast.show({
+          type: "info",
+          text1: "Approve Juke on Farcaster",
+          text2: err.approvalUrl
+            ? "Then return and tap the space again."
+            : "Couldn't open Farcaster — try again.",
+        });
+        router.back();
+        return;
+      }
+      useSpaceStore.getState().leaveSpace();
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: api.getErrorMessage(err),
+      });
+      router.back();
+    } finally {
+      setIsJoining(false);
+    }
+  }, [id, joinRoom, router]);
+
   // Show scheduled space view
   if (scheduledRoom && id) {
-    return <ScheduledSpaceScreen room={scheduledRoom} id={id} />;
+    return (
+      <ScheduledSpaceScreen
+        room={scheduledRoom}
+        id={id}
+        onWentLive={handleScheduledWentLive}
+      />
+    );
   }
 
   if (isLeaving || isJoining || !room) {
@@ -797,6 +976,14 @@ export default function SpaceScreen() {
             )}
           </View>
         </View>
+
+        {pendingStageInvite && (
+          <StageInviteBanner
+            invite={pendingStageInvite}
+            onAccept={acceptStageInvite}
+            onDecline={declineStageInvite}
+          />
+        )}
 
         {hasChatTab && (
           <View style={styles.tabBar}>

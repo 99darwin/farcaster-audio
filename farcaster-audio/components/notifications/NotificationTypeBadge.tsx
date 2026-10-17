@@ -3,7 +3,7 @@ import { StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { ThemeColors } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
-import type { NotificationType } from "@/types/neynar";
+import type { NotificationType } from "@/types/farcaster";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 

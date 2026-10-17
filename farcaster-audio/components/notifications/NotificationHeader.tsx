@@ -8,7 +8,10 @@ import { typography } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { getUserProfile } from "@/services/api";
-import type { NeynarCastAuthor, NeynarNotification } from "@/types/neynar";
+import type {
+  FarcasterCastAuthor,
+  FarcasterNotification,
+} from "@/types/farcaster";
 
 const usernameByFidCache = new Map<number, string>();
 const inflightByFid = new Map<number, Promise<string | undefined>>();
@@ -79,12 +82,12 @@ function getRelativeTime(timestamp: string): string {
   return `${diffDays}d`;
 }
 
-function getDisplayName(user: NeynarCastAuthor): string {
+function getDisplayName(user: FarcasterCastAuthor): string {
   return user.display_name || user.username;
 }
 
 interface NotificationHeaderProps {
-  notification: NeynarNotification;
+  notification: FarcasterNotification;
   rowBackgroundColor: string;
 }
 
@@ -100,7 +103,7 @@ export function NotificationHeader({
   const timestamp = getRelativeTime(most_recent_timestamp);
 
   if (type === "likes" || type === "recasts" || type === "follows") {
-    const reactorUsers: NeynarCastAuthor[] =
+    const reactorUsers: FarcasterCastAuthor[] =
       type === "follows"
         ? (notification.follows
             ?.map((f) => f.user)

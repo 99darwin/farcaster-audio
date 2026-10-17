@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, Switch, StyleSheet } from "react-native";
+import Toast from "react-native-toast-message";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
@@ -10,6 +12,10 @@ import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import * as livekitService from "@/services/livekit";
 import * as api from "@/services/api";
+import {
+  getMyLeaderboardStanding,
+  setLeaderboardOptOut,
+} from "@/services/leaderboard";
 import { unregisterPushToken } from "@/hooks/usePushNotifications";
 
 const APPEARANCE_LABELS: Record<AppearancePref, string> = {
@@ -29,6 +35,50 @@ export default function SettingsScreen() {
   const winampMode = usePrefsStore((s) => s.winampMode);
   const setWinampMode = usePrefsStore((s) => s.setWinampMode);
   const appearancePref = usePrefsStore((s) => s.appearancePref);
+
+  const [leaderboardOptOut, setLeaderboardOptOutState] = useState(false);
+  const leaderboardOptOutRef = useRef(leaderboardOptOut);
+  leaderboardOptOutRef.current = leaderboardOptOut;
+  // Monotonic toggle id: only the latest PUT (or its error revert) may
+  // write state, so a slow first response can't undo a rapid re-toggle.
+  // Also blocks the in-flight initial GET from clobbering a user choice —
+  // the PUT response is the source of truth once the user interacts.
+  const optOutSeq = useRef(0);
+
+  useEffect(() => {
+    if (!user) return;
+    getMyLeaderboardStanding()
+      .then((standing) => {
+        if (optOutSeq.current === 0) {
+          setLeaderboardOptOutState(standing.opt_out);
+        }
+      })
+      .catch(() => {});
+  }, [user]);
+
+  const handleLeaderboardOptOutToggle = useCallback(async (value: boolean) => {
+    const seq = ++optOutSeq.current;
+    const previous = leaderboardOptOutRef.current;
+    // Optimistic update
+    setLeaderboardOptOutState(value);
+    try {
+      const response = await setLeaderboardOptOut(value);
+      // Server-confirmed value wins over the optimistic one — but only if
+      // no newer toggle superseded this request while it was in flight.
+      if (seq === optOutSeq.current) {
+        setLeaderboardOptOutState(response.opt_out);
+      }
+    } catch {
+      if (seq !== optOutSeq.current) return;
+      // Revert to the last known state and tell the user — this is a
+      // privacy control, so a silent snap-back is not acceptable.
+      setLeaderboardOptOutState(previous);
+      Toast.show({
+        type: "error",
+        text1: "Couldn't update leaderboard visibility",
+      });
+    }
+  }, []);
 
   const handleLogout = async () => {
     if (room) {
@@ -88,6 +138,24 @@ export default function SettingsScreen() {
             color={colors.purple}
           />
           <Text style={styles.rowText}>Bookmarks</Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.secondary}
+            style={{ marginLeft: "auto" }}
+          />
+        </Pressable>
+        <Pressable
+          style={styles.row}
+          onPress={() => {
+            router.dismiss();
+            router.push("/leaderboard");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Leaderboard"
+        >
+          <Ionicons name="trophy-outline" size={20} color={colors.purple} />
+          <Text style={styles.rowText}>Leaderboard</Text>
           <Ionicons
             name="chevron-forward"
             size={16}
@@ -189,6 +257,31 @@ export default function SettingsScreen() {
           />
         </View>
       </View>
+
+      {user && (
+        <View style={styles.section}>
+          <View style={styles.row}>
+            <Ionicons name="eye-off-outline" size={20} color={colors.purple} />
+            <View style={styles.rowLabelWrap}>
+              <Text style={styles.rowLabelText} numberOfLines={1}>
+                Hide me from the leaderboard
+              </Text>
+              <Text style={styles.rowHint} numberOfLines={1}>
+                Opt out of recognition standings
+              </Text>
+            </View>
+            <Switch
+              value={leaderboardOptOut}
+              onValueChange={handleLeaderboardOptOutToggle}
+              trackColor={{
+                false: colors.background.border,
+                true: colors.purple,
+              }}
+              thumbColor="#ffffff"
+            />
+          </View>
+        </View>
+      )}
 
       <View style={styles.section}>
         <Pressable

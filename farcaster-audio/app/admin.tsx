@@ -32,11 +32,11 @@ export default function AdminScreen() {
     }
   }, [isAdmin, router]);
 
-  if (!isAdmin) return null;
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [endingRoomId, setEndingRoomId] = useState<string | null>(null);
+  const [stoppingRecordingId, setStoppingRecordingId] = useState<string | null>(null);
   const [isSettingUpWebhooks, setIsSettingUpWebhooks] = useState(false);
 
   const fetchRooms = useCallback(async () => {
@@ -53,8 +53,13 @@ export default function AdminScreen() {
   }, []);
 
   useEffect(() => {
+    // Non-admins are redirected above; never hit admin endpoints for them.
+    if (!isAdmin) return;
     fetchRooms().finally(() => setIsLoading(false));
-  }, [fetchRooms]);
+  }, [isAdmin, fetchRooms]);
+
+  // Every hook above runs unconditionally (Rules of Hooks); bail only after.
+  if (!isAdmin) return null;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -92,6 +97,53 @@ export default function AdminScreen() {
     );
   };
 
+  const handleStopRecording = (room: Room) => {
+    const isOrphaned = room.status !== "active";
+    Alert.alert(
+      isOrphaned ? "Clear Stuck Recording" : "Stop Recording",
+      isOrphaned
+        ? `"${room.title}" already ended on Farcaster but its recording flag is stuck. Clear it now? If the worker is still alive the file is saved; otherwise the flag is just cleared.`
+        : `Stop recording "${room.title}"? The file will be saved to the host's profile.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: isOrphaned ? "Clear Recording" : "Stop Recording",
+          style: "destructive",
+          onPress: async () => {
+            setStoppingRecordingId(room.id);
+            try {
+              const result = await api.adminStopRecording(room.id);
+              // Orphaned rooms are already ended — drop them from the
+              // list entirely. Live rooms stay (recording flag cleared).
+              setRooms((prev) =>
+                isOrphaned
+                  ? prev.filter((r) => r.id !== room.id)
+                  : prev.map((r) =>
+                      r.id === room.id ? { ...r, recording: false } : r,
+                    ),
+              );
+              Toast.show({
+                type: "success",
+                text1:
+                  result.status === "stopped"
+                    ? "Recording saved"
+                    : "Stuck recording cleared (no file)",
+              });
+            } catch (error) {
+              Toast.show({
+                type: "error",
+                text1: "Failed to stop recording",
+                text2: api.getErrorMessage(error),
+              });
+            } finally {
+              setStoppingRecordingId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const formatDuration = (startedAt: string): string => {
     const started = new Date(startedAt);
     const diffMs = Date.now() - started.getTime();
@@ -104,6 +156,10 @@ export default function AdminScreen() {
   const renderRoom = ({ item: room }: { item: Room }) => {
     const isEnding = endingRoomId === room.id;
     const participantCount = room.speaker_count + room.listener_count;
+    // An ended room that's still flagged recording is an orphaned
+    // recording — surfaced here so it can be cleared. It has no live
+    // participants and can't be "ended" again.
+    const isOrphanedRecording = room.status !== "active" && room.recording;
 
     return (
       <View style={styles.roomCard}>
@@ -114,29 +170,38 @@ export default function AdminScreen() {
             size="sm"
           />
           <View style={styles.roomInfo}>
-            <Text style={styles.roomTitle} numberOfLines={1}>
-              {room.title}
-            </Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.roomTitle} numberOfLines={1}>
+                {room.title}
+              </Text>
+              {isOrphanedRecording && (
+                <View style={styles.orphanBadge}>
+                  <Text style={styles.orphanBadgeText}>STUCK</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.roomMeta}>
               {room.host.display_name} · {participantCount} participant
               {participantCount !== 1 ? "s" : ""} ·{" "}
               {formatDuration(room.started_at)}
             </Text>
           </View>
-          <Pressable
-            style={[styles.endButton, isEnding && styles.endButtonDisabled]}
-            onPress={() => handleEndRoom(room)}
-            disabled={isEnding}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`End room ${room.title}`}
-          >
-            {isEnding ? (
-              <ActivityIndicator size="small" color={colors.danger} />
-            ) : (
-              <Ionicons name="close-circle" size={24} color={colors.danger} />
-            )}
-          </Pressable>
+          {!isOrphanedRecording && (
+            <Pressable
+              style={[styles.endButton, isEnding && styles.endButtonDisabled]}
+              onPress={() => handleEndRoom(room)}
+              disabled={isEnding}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`End room ${room.title}`}
+            >
+              {isEnding ? (
+                <ActivityIndicator size="small" color={colors.danger} />
+              ) : (
+                <Ionicons name="close-circle" size={24} color={colors.danger} />
+              )}
+            </Pressable>
+          )}
         </View>
         <View style={styles.roomStats}>
           <View style={styles.stat}>
@@ -148,6 +213,26 @@ export default function AdminScreen() {
             <Text style={styles.statText}>{room.listener_count}</Text>
           </View>
           <Text style={styles.roomId}>{room.id.slice(0, 8)}</Text>
+          {room.recording && (
+            <Pressable
+              style={[
+                styles.stopRecordingButton,
+                stoppingRecordingId === room.id && styles.endButtonDisabled,
+              ]}
+              onPress={() => handleStopRecording(room)}
+              disabled={stoppingRecordingId === room.id}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Stop recording for ${room.title}`}
+            >
+              {stoppingRecordingId === room.id ? (
+                <ActivityIndicator size="small" color={colors.accent} />
+              ) : (
+                <Ionicons name="radio-button-on" size={14} color={colors.accent} />
+              )}
+              <Text style={styles.stopRecordingText}>REC</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     );
@@ -176,15 +261,15 @@ export default function AdminScreen() {
               const info = data.webhooks
                 .map(
                   (w: {
-                    secret_var: string;
                     id_var: string;
                     webhook_id: string;
-                    secret: string;
-                  }) =>
-                    `${w.id_var}=${w.webhook_id}\n${w.secret_var}=${w.secret}`,
+                  }) => `${w.id_var}=${w.webhook_id}`,
                 )
-                .join("\n\n");
-              Alert.alert("Webhooks Created", info);
+                .join("\n");
+              Alert.alert(
+                "Webhooks Created",
+                `${info}\n\nSecrets are in Railway logs — copy them into your env vars.`,
+              );
             } catch (error) {
               Toast.show({
                 type: "error",
@@ -290,10 +375,27 @@ const useStyles = () =>
     roomInfo: {
       flex: 1,
     },
+    titleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
     roomTitle: {
+      flexShrink: 1,
       color: colors.text.primary,
       fontSize: typography.size.md,
       fontWeight: typography.weight.semibold,
+    },
+    orphanBadge: {
+      backgroundColor: colors.danger,
+      borderRadius: radii.sm,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+    },
+    orphanBadgeText: {
+      color: colors.text.primary,
+      fontSize: typography.size.xs,
+      fontWeight: typography.weight.bold,
     },
     roomMeta: {
       color: colors.text.secondary,
@@ -329,6 +431,16 @@ const useStyles = () =>
       fontSize: typography.size.xs,
       fontFamily: "monospace",
       marginLeft: "auto",
+    },
+    stopRecordingButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    stopRecordingText: {
+      color: colors.accent,
+      fontSize: typography.size.xs,
+      fontWeight: typography.weight.semibold,
     },
     empty: {
       alignItems: "center",

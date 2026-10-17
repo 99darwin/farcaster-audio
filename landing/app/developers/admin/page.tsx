@@ -46,5 +46,7 @@ export default async function DeveloperAdminPage({
   const params = await searchParams;
   const enableMock = process.env.NODE_ENV !== "production" && params?.mock === "1";
 
-  return <DeveloperAdminDashboard mockUsers={enableMock ? mockUsers : undefined} />;
+  return (
+    <DeveloperAdminDashboard mockUsers={enableMock ? mockUsers : undefined} />
+  );
 }

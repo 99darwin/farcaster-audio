@@ -60,6 +60,12 @@ export function useReconnect() {
 
   const reconnect = useCallback(async () => {
     if (!room || stateRef.current.isReconnecting) return;
+    // Farcaster-native rooms do NOT use Juke's `refreshRoomToken`
+    // /getRoom — those endpoints would 404 for a native room id. The
+    // native reconnect path is owned by `useSpace.ts` (it re-calls
+    // `joinAudioRoom` directly). Bail out here so we don't tear down
+    // the space when the app foregrounds.
+    if (room.is_farcaster_native) return;
 
     stateRef.current.isReconnecting = true;
     stateRef.current.attempts = 0;
@@ -156,6 +162,10 @@ export function useReconnect() {
   // Token refresh timer
   useEffect(() => {
     if (!room) return;
+    // Native rooms refresh tokens via `joinAudioRoom`, not the Juke
+    // token endpoint — skip the timer entirely so we don't hammer a
+    // 404-bound URL.
+    if (room.is_farcaster_native) return;
 
     const checkToken = setInterval(() => {
       if (isTokenExpiringSoon()) {

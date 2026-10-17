@@ -8,23 +8,22 @@ import {
   Alert,
   Keyboard,
   Animated,
-  Pressable,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { NativeModules } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Button } from "@/components/common/Button";
 import { useSpaceStore } from "@/stores/spaceStore";
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveSpaces } from "@/hooks/useLiveSpaces";
+import { useFarcasterAppKey } from "@/hooks/useFarcasterAppKey";
 import Toast from "react-native-toast-message";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { formatScheduledTime } from "@/utils/formatDate";
 import * as api from "@/services/api";
 import * as livekitService from "@/services/livekit";
-
-const { AudioSessionModule } = NativeModules;
+import { signFarcasterClientBearer } from "@/services/snapSigner";
+import { markSpaceJoinIntent } from "@/utils/spaceJoinIntent";
 
 const MIN_SCHEDULE_AHEAD_MS = 5 * 60 * 1000;
 
@@ -34,7 +33,11 @@ export default function CreateSpaceScreen() {
   const styles = useStyles();
   const user = useAuthStore((s) => s.user);
   const { refresh: refreshSpaces } = useLiveSpaces();
+  const { ensureApproved: ensureFarcasterAppKey } = useFarcasterAppKey(
+    user?.fid ?? 0,
+  );
   const [title, setTitle] = useState("");
+  const [jukeOnly, setJukeOnly] = useState(false);
   const [announceCast, setAnnounceCast] = useState(false);
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState(() => {
@@ -95,6 +98,76 @@ export default function CreateSpaceScreen() {
         storeState.leaveSpace();
       }
 
+      // Farcaster-native creation path (default).
+      //
+      // The caller signs a JFS Bearer with their on-device Ed25519 app
+      // key and the backend forwards it to `client.farcaster.xyz` —
+      // the upstream room is hosted by the caller's FID directly. The
+      // app-key gate below ensures the key is approved on-chain before
+      // we attempt to sign.
+      //
+      // Joining is fully in-app: `useSpace.joinRoom` mints a fresh JFS
+      // bearer, calls `/v1/rooms/{id}/native-join`, and connects to
+      // Farcaster's LiveKit project using the returned ws_url + token.
+      if (!jukeOnly) {
+        // Gate: native writes require an Ed25519 app key approved on
+        // the user's FID. If not yet approved, this opens the Farcaster
+        // approval flow and bails — the user retries after the AppState
+        // watcher flips status on return.
+        const gate = await ensureFarcasterAppKey();
+        if (!gate.approved) {
+          Toast.show({
+            type: "info",
+            text1: "Approve Juke on Farcaster",
+            text2: gate.approvalUrl
+              ? "Then return and tap Create again."
+              : "Couldn't open Farcaster — try again.",
+          });
+          setIsCreating(false);
+          return;
+        }
+
+        const userBearer = await signFarcasterClientBearer(user!.fid);
+
+        const jukeRoom = await api.createFarcasterNativeRoom({
+          title: trimmedTitle,
+          user_jfs_bearer: userBearer,
+          ...(isScheduled
+            ? { scheduled_at: scheduledDate.toISOString() }
+            : {}),
+        });
+
+        if (isScheduled) {
+          Toast.show({
+            type: "success",
+            text1: "Space scheduled!",
+            text2: formatScheduledTime(scheduledDate.toISOString()),
+          });
+          useSpaceStore.getState().addActiveLiveSpace(jukeRoom);
+          refreshSpaces();
+          markSpaceJoinIntent(jukeRoom.id);
+          router.replace(`/space/${jukeRoom.id}`);
+          return;
+        }
+
+        // Immediate native room — drop the host straight into the live
+        // room screen. `useSpace.joinRoom` signs a fresh JFS bearer and
+        // connects to Farcaster's LiveKit project; no app bounce, no
+        // service-FID stand-in. Host role is derived from `room.host_fid`.
+        useSpaceStore.getState().addActiveLiveSpace(jukeRoom);
+        refreshSpaces();
+        Toast.show({
+          type: "success",
+          text1: "Space created",
+        });
+        markSpaceJoinIntent(jukeRoom.id);
+        router.replace(`/space/${jukeRoom.id}`);
+        return;
+      }
+
+      // Juke-only creation path (existing behavior, behind an opt-out
+      // toggle). Kept for the rare user who explicitly wants the
+      // Juke-hosted LiveKit experience without a Warpcast mirror.
       const response = await api.createRoom({
         title: trimmedTitle,
         announce_cast: announceCast,
@@ -109,6 +182,7 @@ export default function CreateSpaceScreen() {
           text2: formatScheduledTime(scheduledDate.toISOString()),
         });
         refreshSpaces();
+        markSpaceJoinIntent(response.room.id);
         router.replace(`/space/${response.room.id}`);
         return;
       }
@@ -137,6 +211,7 @@ export default function CreateSpaceScreen() {
       useSpaceStore.getState().setMuted(false);
 
       refreshSpaces();
+      markSpaceJoinIntent(response.room.id);
       router.replace(`/space/${response.room.id}`);
     } catch (err) {
       console.error("[CreateSpace] Error:", err);
@@ -172,22 +247,43 @@ export default function CreateSpaceScreen() {
 
         <View style={styles.optionRow}>
           <View style={styles.optionText}>
-            <Text style={styles.optionLabel}>Announce on Farcaster</Text>
+            <Text style={styles.optionLabel}>Juke-only space</Text>
             <Text style={styles.optionDescription}>
-              Post a cast to let your followers know
+              Skip Farcaster — host on Juke's own audio rooms only
             </Text>
           </View>
           <Switch
-            value={announceCast}
-            onValueChange={setAnnounceCast}
+            value={jukeOnly}
+            onValueChange={setJukeOnly}
             trackColor={{
               false: colors.background.subtle,
               true: colors.accent,
             }}
             thumbColor={colors.text.primary}
-            accessibilityLabel="Announce on Farcaster"
+            accessibilityLabel="Juke-only space"
           />
         </View>
+
+        {jukeOnly && (
+          <View style={styles.optionRow}>
+            <View style={styles.optionText}>
+              <Text style={styles.optionLabel}>Announce on Farcaster</Text>
+              <Text style={styles.optionDescription}>
+                Post a cast to let your followers know
+              </Text>
+            </View>
+            <Switch
+              value={announceCast}
+              onValueChange={setAnnounceCast}
+              trackColor={{
+                false: colors.background.subtle,
+                true: colors.accent,
+              }}
+              thumbColor={colors.text.primary}
+              accessibilityLabel="Announce on Farcaster"
+            />
+          </View>
+        )}
 
         <View style={styles.optionRow}>
           <View style={styles.optionText}>

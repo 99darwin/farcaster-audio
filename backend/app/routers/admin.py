@@ -5,25 +5,38 @@ Endpoints:
   GET    /v1/admin/rooms                              List all active rooms
   DELETE /v1/admin/rooms/{room_id}                    Force-end any room
   DELETE /v1/admin/rooms/{room_id}/participants/{fid}  Force-kick participant
-  POST   /v1/admin/setup-webhooks                     Register Neynar push webhooks
+  POST   /v1/admin/setup-webhooks                     Provision Hypersnap webhooks
   POST   /v1/admin/recordings/cleanup                 Run recording retention cleanup
+  POST   /v1/admin/rooms/{room_id}/recording/stop     Force-stop a native recording agent
 """
 
 import hmac
 import logging
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import hypersnap
+from app.clients.hypersnap_webhooks import (
+    HypersnapWebhookClient,
+    HypersnapWebhookConfigError,
+    app_webhook_signer,
+    parse_secrets,
+)
 from app.config import settings
 from app.dependencies import get_db, get_redis
 from app.middleware.auth import get_admin_user
 from app.schemas.common import StatusResponse
 from app.schemas.push import RoomLiveNotifyRequest, RoomLiveNotifyResponse
 from app.schemas.room import RoomListResponse
+from app.services.hypersnap_webhook_service import (
+    WebhookCapacityError,
+    ensure_webhooks,
+    push_room_reply_hashes,
+    sync_push_webhooks,
+)
 from app.services.livekit_service import LiveKitService
-from app.services.push_service import PushService
+from app.services.push_service import REDIS_ACTIVE_FIDS_KEY, PushService
 from app.services.recording_cleanup import cleanup_expired_recordings
 from app.services.redis_service import RedisService
 from app.services.room_service import RoomService
@@ -34,13 +47,22 @@ router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
 
 async def get_room_service(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
 ):
     redis_service = RedisService(redis)
     livekit_service = LiveKitService()
+    farcaster_spaces = getattr(request.app.state, "farcaster_spaces_service", None)
+    recording_agent = getattr(request.app.state, "recording_agent_service", None)
     try:
-        yield RoomService(db, redis_service, livekit_service)
+        yield RoomService(
+            db,
+            redis_service,
+            livekit_service,
+            farcaster_spaces=farcaster_spaces,
+            recording_agent=recording_agent,
+        )
     finally:
         await livekit_service.close()
 
@@ -100,50 +122,51 @@ async def notify_live_room(
     )
 
 
-NEYNAR_BASE = "https://api.neynar.com/v2"
-
-
 @router.post("/setup-webhooks")
 async def setup_push_webhooks(
     _admin_fid: int = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ):
-    """Register Neynar webhooks for push notifications. Run once on initial setup.
+    """Provision Juke's Hypersnap webhooks on the app FID (idempotent).
 
-    Returns the webhook IDs and secrets — copy the secrets into your env vars:
-      NEYNAR_WEBHOOK_SECRET_CAST, NEYNAR_WEBHOOK_SECRET_REACTION, NEYNAR_WEBHOOK_SECRET_FOLLOW
+    Creates any missing webhook (room replies + enough push shards for the
+    active FIDs), repoints existing ones at ``API_BASE_URL``, then syncs their
+    filters. Re-run whenever the push-capacity warning is logged.
+
+    Signing secrets are NOT returned. Each webhook reports
+    ``secret_configured`` (whether its current secret is already in the
+    matching ``HYPERSNAP_WEBHOOK_SECRET_*`` setting); when any is false, ops
+    reads the values out-of-band with
+    ``python -m scripts.print_hypersnap_webhook_secrets``.
     """
-    webhook_url = f"{settings.API_BASE_URL}/v1/webhooks/neynar/notifications"
-    webhooks_to_create = [
-        ("juke-push-cast", {"cast.created": {}}, "NEYNAR_WEBHOOK_SECRET_CAST", "NEYNAR_WEBHOOK_ID_CAST"),
-        ("juke-push-reaction", {"reaction.created": {}}, "NEYNAR_WEBHOOK_SECRET_REACTION", "NEYNAR_WEBHOOK_ID_REACTION"),
-        ("juke-push-follow", {"follow.created": {}}, "NEYNAR_WEBHOOK_SECRET_FOLLOW", "NEYNAR_WEBHOOK_ID_FOLLOW"),
-    ]
+    try:
+        client = HypersnapWebhookClient(app_webhook_signer())
+        fids = [int(fid) for fid in await redis.smembers(REDIS_ACTIVE_FIDS_KEY)]
+        results = await ensure_webhooks(client, push_fid_count=len(set(fids)))
+        await push_room_reply_hashes(db, client)
+        await sync_push_webhooks(fids, client)
+    except HypersnapWebhookConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from None
+    except WebhookCapacityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from None
+    except hypersnap.HypersnapError as exc:
+        hypersnap.raise_for_upstream(exc, context="setup-webhooks")
 
-    results = []
-    async with httpx.AsyncClient() as client:
-        for name, subscription, secret_var, id_var in webhooks_to_create:
-            resp = await client.post(
-                f"{NEYNAR_BASE}/farcaster/webhook",
-                json={
-                    "name": name,
-                    "url": webhook_url,
-                    "subscription": subscription,
-                },
-                headers={"x-api-key": settings.NEYNAR_API_KEY},
-                timeout=15.0,
-            )
-            resp.raise_for_status()
-            webhook = resp.json().get("webhook", {})
-            results.append({
-                "secret_var": secret_var,
-                "id_var": id_var,
-                "webhook_id": webhook.get("webhook_id"),
-                "secret": webhook.get("secret"),
-                "event": list(subscription.keys())[0],
-            })
-            logger.info("Registered Neynar webhook %s (%s)", webhook.get("webhook_id"), name)
+    return {"webhooks": [_redact_webhook_result(r) for r in results]}
 
-    return {"webhooks": results}
+
+def _redact_webhook_result(result: dict) -> dict:
+    """Drop the signing secret; report only whether it's already deployed."""
+    secret = result.get("secret")
+    configured = parse_secrets(getattr(settings, result["secret_var"], "") or "")
+    redacted = {key: value for key, value in result.items() if key != "secret"}
+    redacted["secret_configured"] = bool(secret) and secret in configured
+    return redacted
 
 
 # ---------------------------------------------------------------------------
@@ -194,3 +217,17 @@ async def admin_cleanup_recordings(
     """
     _verify_admin_secret(request)
     return await cleanup_expired_recordings(db)
+
+
+@router.post("/rooms/{room_id}/recording/stop", response_model=StatusResponse)
+async def admin_stop_recording(
+    room_id: str,
+    admin_fid: int = Depends(get_admin_user),
+    room_service: RoomService = Depends(get_room_service),
+) -> StatusResponse:
+    """Force-stop a native recording-agent worker without host permission
+    checks.  Use this when the host's space ended on Farcaster's side
+    before they pressed Stop, leaving a recording worker running.
+    """
+    result = await room_service.admin_stop_native_recording(room_id, admin_fid)
+    return StatusResponse(status=result.get("status", "stopped"))

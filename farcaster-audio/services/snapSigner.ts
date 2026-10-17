@@ -278,6 +278,48 @@ export async function signSnapSubmit(
 }
 
 /**
+ * Sign a JFS Bearer authorizing a request against
+ * `client.farcaster.xyz` (audio-rooms, channel writes, etc.).
+ *
+ * Returns `"<headerB64>.<payloadB64>.<sigB64>"` — drop into an
+ * `Authorization: Bearer <...>` header verbatim. The bearer is
+ * single-use in spirit (carries a timestamp); generate a fresh one per
+ * request rather than caching.
+ *
+ * Shape mirrors how snap interactivity signs JFS bodies — same key,
+ * same header layout — but the payload is shaped for client.farcaster
+ * (audience + timestamp) rather than a snap submit body.
+ */
+export async function signFarcasterClientBearer(
+  fid: number,
+): Promise<string> {
+  const { publicKey, privateKey } = await getOrCreateSnapKey(fid);
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = {
+    fid,
+    type: "app_key",
+    key: publicKey,
+  };
+  // `exp` is required by client.farcaster.xyz (it rejects "Missing exp").
+  // 5-minute window matches what the backend tolerates as clock skew on
+  // the corresponding `timestamp` claim.
+  const payload = {
+    audience: "https://client.farcaster.xyz",
+    timestamp: now,
+    exp: now + 300,
+  };
+
+  const headerB64 = base64UrlEncode(JSON.stringify(header));
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const signingBytes = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+  const signatureBytes = ed.sign(signingBytes, privateKey);
+  const signatureB64 = base64UrlEncode(signatureBytes);
+
+  return `${headerB64}.${payloadB64}.${signatureB64}`;
+}
+
+/**
  * v1 JFS payload shape, retained for the v1 fallback path per the v2
  * client-upgrade doc (try v2 first, retry as v1 on 4xx).
  */

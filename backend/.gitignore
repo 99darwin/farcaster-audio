@@ -61,3 +61,8 @@ alembic/__pycache__/
 # Distribution / packaging
 *.tar.gz
 *.whl
+
+# Node — for the recording-agent worker. Lockfile is checked in;
+# node_modules is reproducible from it via `npm ci`.
+recording_agent/node_modules/
+

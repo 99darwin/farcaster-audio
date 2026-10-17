@@ -7,6 +7,9 @@ import {
   FlatList,
   useWindowDimensions,
   ActionSheetIOS,
+  Alert,
+  Platform,
+  type TextStyle,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
@@ -20,28 +23,42 @@ import { SelectableCastText } from "@/components/feed/SelectableCastText";
 import { OgPreview } from "@/components/feed/OgPreview";
 import { MediaViewer } from "@/components/common/ImageViewer";
 import { VideoPlayer } from "@/components/feed/VideoPlayer";
-import { touchTarget } from "@/constants/theme";
+import { touchTarget, withAlpha } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { getUserByUsername } from "@/services/api";
 import { haptic } from "@/utils/haptics";
-import type { NeynarCast, NeynarChannel, NeynarEmbed } from "@/types/neynar";
+import type {
+  FarcasterCast,
+  FarcasterChannel,
+  FarcasterEmbed,
+  FarcasterParentCast,
+} from "@/types/farcaster";
 
 const TRUNCATE_LENGTH = 280;
 
 interface CastCardProps {
-  cast: NeynarCast;
+  cast: FarcasterCast;
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
   onBookmark: (hash: string, isBookmarked: boolean) => void;
-  onQuoteCast: (cast: NeynarCast) => void;
-  onReply: (cast: NeynarCast) => void;
+  onQuoteCast: (cast: FarcasterCast) => void;
+  onReply: (cast: FarcasterCast) => void;
   onBlockAuthor?: (fid: number) => Promise<void> | void;
   onPress?: () => void;
   expanded?: boolean;
   threaded?: boolean;
   hideThreadLine?: boolean;
+  /** Draw the thread line from the card's top edge down to the avatar. */
+  connectAbove?: boolean;
+  /** Draw the thread line from the avatar down to the next card in the chain. */
+  connectBelow?: boolean;
+  /**
+   * X-style focal layout for the cast a thread page is about: name stacked
+   * over @username, larger text, absolute timestamp and a stats row.
+   */
+  focal?: boolean;
 }
 
 function getRelativeTime(timestamp: string): string {
@@ -57,16 +74,17 @@ function getRelativeTime(timestamp: string): string {
   return `${diffDays}d`;
 }
 
-function isImageUrl(embed: NeynarEmbed): boolean {
+function isImageUrl(embed: FarcasterEmbed): boolean {
   const contentType = embed.metadata?.content_type ?? "";
   if (contentType.startsWith("image/")) return true;
-  // Neynar populates image dimensions for image embeds even without content_type
+  // The API populates image dimensions for image embeds even without
+  // content_type
   if (embed.metadata?.image?.width_px) return true;
   const url = embed.url ?? "";
   return /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
 }
 
-function isVideoUrl(embed: NeynarEmbed): boolean {
+function isVideoUrl(embed: FarcasterEmbed): boolean {
   const contentType = embed.metadata?.content_type ?? "";
   if (contentType.startsWith("video/")) return true;
   const url = embed.url ?? "";
@@ -117,7 +135,7 @@ function CastImages({
   embeds,
   onImagePress,
 }: {
-  embeds: NeynarEmbed[];
+  embeds: FarcasterEmbed[];
   onImagePress: (images: string[], index: number) => void;
 }) {
   const images = useMemo(
@@ -188,7 +206,7 @@ function CastImages({
   );
 }
 
-function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
+function CastVideos({ embeds }: { embeds: FarcasterEmbed[] }) {
   const videos = useMemo(
     () => embeds.filter((e) => e.url && !e.cast && isVideoUrl(e)),
     [embeds],
@@ -211,7 +229,7 @@ function CastVideos({ embeds }: { embeds: NeynarEmbed[] }) {
   );
 }
 
-function ChannelAttribution({ channel }: { channel: NeynarChannel }) {
+function ChannelAttribution({ channel }: { channel: FarcasterChannel }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const router = useRouter();
@@ -244,7 +262,7 @@ function QuoteCast({
   cast,
   onPress,
 }: {
-  cast: NeynarCast;
+  cast: FarcasterCast;
   onPress?: () => void;
 }) {
   const styles = useStyles();
@@ -289,20 +307,82 @@ function QuoteCast({
   return content;
 }
 
+const PARENT_PREVIEW_MAX_LINES = 3;
+
+function ParentCastPreview({
+  parent,
+  onPress,
+}: {
+  parent: FarcasterParentCast;
+  onPress: () => void;
+}) {
+  const styles = useStyles();
+  const displayName =
+    parent.author.display_name || parent.author.username || "Unknown";
+
+  return (
+    <Pressable
+      style={styles.parentRow}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Replying to ${displayName}: ${parent.text}`}
+    >
+      <View style={styles.parentRail}>
+        <Avatar
+          pfpUrl={parent.author.pfp_url ?? null}
+          displayName={displayName}
+          size="sm"
+        />
+        <View style={styles.parentConnector} />
+      </View>
+      <View style={styles.content}>
+        <View style={styles.header}>
+          <Text style={styles.parentDisplayName} numberOfLines={1}>
+            {displayName}
+          </Text>
+          {parent.author.username ? (
+            <Text style={styles.username} numberOfLines={1}>
+              @{parent.author.username}
+            </Text>
+          ) : null}
+          {parent.timestamp ? (
+            <>
+              <Text style={styles.dot}>{"\u00B7"}</Text>
+              <Text style={styles.timestamp}>
+                {getRelativeTime(parent.timestamp)}
+              </Text>
+            </>
+          ) : null}
+        </View>
+        {parent.text ? (
+          <CastText
+            text={parent.text}
+            style={styles.parentText}
+            numberOfLines={PARENT_PREVIEW_MAX_LINES}
+          />
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
 function CastBody({
   text,
   expanded,
   onMentionPress,
   hiddenUrls,
   granularSelection,
+  textStyle,
 }: {
   text: string;
   expanded?: boolean;
   onMentionPress?: (username: string) => void;
   hiddenUrls?: Set<string>;
   granularSelection?: boolean;
+  textStyle?: TextStyle;
 }) {
   const styles = useStyles();
+  const bodyTextStyle = textStyle ?? styles.text;
   const [isExpanded, setIsExpanded] = useState(false);
   const shouldTruncate =
     !expanded && !isExpanded && text.length > TRUNCATE_LENGTH;
@@ -313,7 +393,7 @@ function CastBody({
       <View style={styles.bodyContainer}>
         <SelectableCastText
           text={displayText}
-          style={styles.text}
+          style={bodyTextStyle}
           hiddenUrls={hiddenUrls}
           onMentionPress={onMentionPress}
         />
@@ -325,7 +405,7 @@ function CastBody({
     <View style={styles.bodyContainer}>
       <CastText
         text={displayText}
-        style={styles.text}
+        style={bodyTextStyle}
         onMentionPress={onMentionPress}
         hiddenUrls={hiddenUrls}
       />
@@ -351,6 +431,9 @@ function CastCardImpl({
   expanded,
   threaded,
   hideThreadLine,
+  connectAbove,
+  connectBelow,
+  focal,
 }: CastCardProps) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -376,6 +459,9 @@ function CastCardImpl({
   const embeds = useMemo(() => cast.embeds ?? [], [cast.embeds]);
   const quoteCast = useMemo(() => embeds.find((e) => e.cast)?.cast, [embeds]);
   const channel = cast.channel?.id ? cast.channel : null;
+  // Thread views already render the parent above its replies.
+  const isInThread = threaded || focal || connectAbove || connectBelow;
+  const parentCast = isInThread ? null : cast.parent_cast;
 
   // Collect URLs that will render as OG preview cards so we can hide them from cast text
   const renderedEmbedUrls = useMemo(
@@ -450,34 +536,56 @@ function CastCardImpl({
     }
     const blockButtonIndex = canBlock ? options.length - 1 : undefined;
 
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options,
-        cancelButtonIndex: 0,
-        destructiveButtonIndex: blockButtonIndex,
-        disabledButtonIndices: hasText ? [] : [1],
-      },
-      async (buttonIndex) => {
-        if (buttonIndex === 1) {
-          handleCopyText();
-          return;
-        }
-        if (buttonIndex === blockButtonIndex && onBlockAuthor) {
-          try {
-            await onBlockAuthor(cast.author.fid);
-            Toast.show({
-              type: "success",
-              text1: `Blocked @${cast.author.username}`,
-            });
-          } catch {
-            Toast.show({
-              type: "error",
-              text1: "Failed to block user",
-            });
+    const onCopy = () => {
+      handleCopyText();
+    };
+    const onBlock = async () => {
+      if (!onBlockAuthor) return;
+      try {
+        await onBlockAuthor(cast.author.fid);
+        Toast.show({
+          type: "success",
+          text1: `Blocked @${cast.author.username}`,
+        });
+      } catch {
+        Toast.show({
+          type: "error",
+          text1: "Failed to block user",
+        });
+      }
+    };
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: blockButtonIndex,
+          disabledButtonIndices: hasText ? [] : [1],
+        },
+        async (buttonIndex) => {
+          if (buttonIndex === 1) {
+            onCopy();
+            return;
           }
-        }
-      },
-    );
+          if (buttonIndex === blockButtonIndex) {
+            await onBlock();
+          }
+        },
+      );
+    } else {
+      const buttons: Parameters<typeof Alert.alert>[2] = [
+        { text: "Cancel", style: "cancel" },
+      ];
+      if (hasText) buttons.push({ text: "Copy text", onPress: onCopy });
+      if (canBlock) {
+        buttons.push({
+          text: `Block @${cast.author.username}`,
+          style: "destructive",
+          onPress: onBlock,
+        });
+      }
+      Alert.alert("", undefined, buttons);
+    }
   }, [
     cast.author.fid,
     cast.author.username,
@@ -487,122 +595,260 @@ function CastCardImpl({
     onBlockAuthor,
   ]);
 
-  const card = (
+  const avatar = (
     <Pressable
-      style={[styles.container, threaded && styles.threadedContainer]}
+      style={styles.avatarPressable}
+      onPress={() => navigateToProfile(cast.author.fid)}
+    >
+      <Avatar
+        pfpUrl={cast.author.pfp_url}
+        displayName={cast.author.display_name}
+        size={threaded ? "sm" : "md"}
+      />
+    </Pressable>
+  );
+
+  const proBadge =
+    cast.author.pro?.status === "subscribed" ? (
+      <Ionicons name="checkmark-circle" size={14} color={colors.purple} />
+    ) : null;
+
+  const headerActions = (
+    <>
+      {channel ? <ChannelAttribution channel={channel} /> : null}
+      <Pressable
+        style={styles.menuButton}
+        hitSlop={8}
+        onPress={handleCastMenuPress}
+        accessibilityRole="button"
+        accessibilityLabel="Cast options"
+      >
+        <Ionicons
+          name="ellipsis-horizontal"
+          size={18}
+          color={colors.text.secondary}
+        />
+      </Pressable>
+    </>
+  );
+
+  const media = (
+    <>
+      <CastImages
+        embeds={embeds}
+        onImagePress={(images, index) => setViewerState({ images, index })}
+      />
+      <CastVideos embeds={embeds} />
+      {ogEmbeds.map((embed) => (
+          <OgPreview
+            key={embed.url}
+            embed={embed}
+            castContext={{
+              hash: cast.hash,
+              authorFid: cast.author.fid,
+              authorUsername: cast.author.username,
+              text: cast.text,
+            }}
+          />
+        ))}
+      {quoteCast ? (
+        <QuoteCast
+          cast={quoteCast}
+          onPress={() => router.push(`/cast/${encodeURIComponent(quoteCast.hash)}`)}
+        />
+      ) : null}
+    </>
+  );
+
+  const actions = (
+    <CastActions
+      likesCount={cast.reactions.likes_count}
+      recastsCount={cast.reactions.recasts_count}
+      repliesCount={cast.replies.count}
+      isLiked={isLiked}
+      isRecasted={isRecasted}
+      isBookmarked={isBookmarked}
+      onLike={() => onLike(cast.hash, isLiked)}
+      onRecast={() => onRecast(cast.hash, isRecasted)}
+      onBookmark={() => onBookmark(cast.hash, isBookmarked)}
+      onQuoteCast={() => onQuoteCast(cast)}
+      onReply={() => onReply(cast)}
+      authorUsername={cast.author.username}
+      castHash={cast.hash}
+    />
+  );
+
+  const mediaViewer = (
+    <MediaViewer
+      images={viewerState?.images ?? []}
+      initialIndex={viewerState?.index ?? 0}
+      visible={viewerState !== null}
+      onClose={() => setViewerState(null)}
+    />
+  );
+
+  if (focal) {
+    return (
+      <View
+        style={styles.focalContainer}
+        accessibilityLabel={`${cast.author.display_name}: ${truncatedText}`}
+        testID="focal-cast"
+      >
+        {connectAbove && (
+          <View style={styles.focalLineAbove} testID="thread-line-above" />
+        )}
+        <View style={[styles.headerRow, styles.focalHeader]}>
+          {avatar}
+          <Pressable
+            style={styles.focalNameBlock}
+            onPress={() => navigateToProfile(cast.author.fid)}
+          >
+            <View style={styles.authorNameRow}>
+              <Text style={styles.focalDisplayName} numberOfLines={1}>
+                {cast.author.display_name}
+              </Text>
+              {proBadge}
+            </View>
+            <Text style={styles.username} numberOfLines={1}>
+              @{cast.author.username}
+            </Text>
+          </Pressable>
+          {headerActions}
+        </View>
+        <CastBody
+          text={cast.text}
+          expanded
+          onMentionPress={handleMentionPress}
+          hiddenUrls={renderedEmbedUrls}
+          granularSelection
+          textStyle={styles.focalText}
+        />
+        {media}
+        <Text style={styles.focalTimestamp}>
+          {formatAbsoluteTime(cast.timestamp)}
+        </Text>
+        <FocalStats
+          replies={cast.replies.count}
+          recasts={cast.reactions.recasts_count}
+          likes={cast.reactions.likes_count}
+        />
+        <View style={styles.focalActions}>{actions}</View>
+        {mediaViewer}
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      style={[
+        styles.container,
+        threaded && styles.threadedContainer,
+        connectBelow && styles.chainedContainer,
+      ]}
       onPress={onPress}
       disabled={!onPress}
       accessibilityRole="summary"
       accessibilityLabel={`${cast.author.display_name}: ${truncatedText}`}
     >
       {threaded && !hideThreadLine && <View style={styles.threadLine} />}
-      <Pressable
-        style={styles.avatarPressable}
-        onPress={() => navigateToProfile(cast.author.fid)}
-      >
-        <Avatar
-          pfpUrl={cast.author.pfp_url}
-          displayName={cast.author.display_name}
-          size={threaded ? "sm" : "md"}
+      {parentCast ? (
+        <ParentCastPreview
+          parent={parentCast}
+          onPress={() =>
+            router.push(`/cast/${encodeURIComponent(parentCast.hash)}`)
+          }
         />
-      </Pressable>
-      <View style={styles.content}>
-        <View style={styles.headerRow}>
-          <View style={styles.header}>
-            <Pressable
-              style={styles.authorNameRow}
-              onPress={() => navigateToProfile(cast.author.fid)}
-            >
-              <Text style={styles.displayName} numberOfLines={1}>
-                {cast.author.display_name}
-              </Text>
-              <Text style={styles.username} numberOfLines={1}>
-                @{cast.author.username}
-              </Text>
-              {cast.author.pro?.status === "subscribed" && (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={14}
-                  color={colors.purple}
-                />
-              )}
-            </Pressable>
-            <Text style={styles.dot}>{"\u00B7"}</Text>
-            <Text style={styles.timestamp}>
-              {getRelativeTime(cast.timestamp)}
-            </Text>
-          </View>
-          {channel ? <ChannelAttribution channel={channel} /> : null}
-          <Pressable
-            style={styles.menuButton}
-            hitSlop={8}
-            onPress={handleCastMenuPress}
-            accessibilityRole="button"
-            accessibilityLabel="Cast options"
-          >
-            <Ionicons
-              name="ellipsis-horizontal"
-              size={18}
-              color={colors.text.secondary}
-            />
-          </Pressable>
+      ) : null}
+      <View style={styles.row}>
+        <View style={styles.avatarColumn}>
+          {connectAbove && (
+            <View style={styles.lineAbove} testID="thread-line-above" />
+          )}
+          {avatar}
+          {connectBelow && (
+            <View style={styles.lineBelow} testID="thread-line-below" />
+          )}
         </View>
-        <CastBody
-          text={cast.text}
-          expanded={expanded}
-          onMentionPress={handleMentionPress}
-          hiddenUrls={renderedEmbedUrls}
-          granularSelection={expanded}
-        />
-        <CastImages
-          embeds={embeds}
-          onImagePress={(images, index) => setViewerState({ images, index })}
-        />
-        <CastVideos embeds={embeds} />
-        {ogEmbeds.map((embed) => (
-            <OgPreview
-              key={embed.url}
-              embed={embed}
-              castContext={{
-                hash: cast.hash,
-                authorFid: cast.author.fid,
-                authorUsername: cast.author.username,
-                text: cast.text,
-              }}
-            />
-          ))}
-        {quoteCast ? (
-          <QuoteCast
-            cast={quoteCast}
-            onPress={() => router.push(`/cast/${quoteCast.hash}`)}
+        <View style={styles.content}>
+          <View style={styles.headerRow}>
+            <View style={styles.header}>
+              <Pressable
+                style={styles.authorNameRow}
+                onPress={() => navigateToProfile(cast.author.fid)}
+              >
+                <Text style={styles.displayName} numberOfLines={1}>
+                  {cast.author.display_name}
+                </Text>
+                <Text style={styles.username} numberOfLines={1}>
+                  @{cast.author.username}
+                </Text>
+                {proBadge}
+              </Pressable>
+              <Text style={styles.dot}>{"\u00B7"}</Text>
+              <Text style={styles.timestamp}>
+                {getRelativeTime(cast.timestamp)}
+              </Text>
+            </View>
+            {headerActions}
+          </View>
+          <CastBody
+            text={cast.text}
+            expanded={expanded}
+            onMentionPress={handleMentionPress}
+            hiddenUrls={renderedEmbedUrls}
+            granularSelection={expanded}
           />
-        ) : null}
-        <CastActions
-          likesCount={cast.reactions.likes_count}
-          recastsCount={cast.reactions.recasts_count}
-          repliesCount={cast.replies.count}
-          isLiked={isLiked}
-          isRecasted={isRecasted}
-          isBookmarked={isBookmarked}
-          onLike={() => onLike(cast.hash, isLiked)}
-          onRecast={() => onRecast(cast.hash, isRecasted)}
-          onBookmark={() => onBookmark(cast.hash, isBookmarked)}
-          onQuoteCast={() => onQuoteCast(cast)}
-          onReply={() => onReply(cast)}
-          authorUsername={cast.author.username}
-          castHash={cast.hash}
-        />
+          {media}
+          {actions}
+        </View>
       </View>
-      <MediaViewer
-        images={viewerState?.images ?? []}
-        initialIndex={viewerState?.index ?? 0}
-        visible={viewerState !== null}
-        onClose={() => setViewerState(null)}
-      />
+      {mediaViewer}
     </Pressable>
   );
+}
 
-  return card;
+/** "3:42 PM · Oct 16, 2026" — X's focal-post timestamp. */
+export function formatAbsoluteTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const day = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${time} \u00B7 ${day}`;
+}
+
+function FocalStats({
+  replies,
+  recasts,
+  likes,
+}: {
+  replies: number;
+  recasts: number;
+  likes: number;
+}) {
+  const styles = useStyles();
+  const stats = [
+    { count: replies, one: "Reply", many: "Replies" },
+    { count: recasts, one: "Recast", many: "Recasts" },
+    { count: likes, one: "Like", many: "Likes" },
+  ].filter((stat) => stat.count > 0);
+  if (stats.length === 0) return null;
+  return (
+    <View style={styles.focalStats} testID="focal-stats">
+      {stats.map((stat) => (
+        <Text key={stat.one} style={styles.focalStatLabel}>
+          <Text style={styles.focalStatCount}>{stat.count}</Text>{" "}
+          {stat.count === 1 ? stat.one : stat.many}
+        </Text>
+      ))}
+    </View>
+  );
 }
 
 export const CastCard = memo(CastCardImpl);
@@ -610,10 +856,12 @@ export const CastCard = memo(CastCardImpl);
 const useStyles = () =>
   useThemedStyles(({ colors }) => ({
     container: {
-      flexDirection: "row" as const,
       padding: 16,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.background.border,
+    },
+    row: {
+      flexDirection: "row" as const,
       gap: 12,
     },
     content: {
@@ -735,6 +983,116 @@ const useStyles = () =>
       backgroundColor: colors.background.border,
       justifyContent: "center" as const,
       alignItems: "center" as const,
+    },
+    // Thread chain connectors (X-style): a 2px line centered under the avatar.
+    chainedContainer: {
+      borderBottomWidth: 0,
+    },
+    avatarColumn: {
+      alignItems: "center" as const,
+    },
+    lineAbove: {
+      position: "absolute" as const,
+      top: -16,
+      height: 16,
+      width: 2,
+      backgroundColor: withAlpha(colors.text.secondary, 0.4),
+    },
+    lineBelow: {
+      flex: 1,
+      width: 2,
+      marginTop: 4,
+      marginBottom: -16,
+      backgroundColor: withAlpha(colors.text.secondary, 0.4),
+    },
+    // Parent cast preview styles (reply context in feeds)
+    parentRow: {
+      flexDirection: "row" as const,
+      gap: 12,
+    },
+    parentRail: {
+      width: 48,
+      alignItems: "center" as const,
+    },
+    parentConnector: {
+      flex: 1,
+      width: 2,
+      minHeight: 8,
+      marginVertical: 4,
+      borderRadius: 1,
+      backgroundColor: colors.background.border,
+    },
+    parentDisplayName: {
+      color: colors.text.primary,
+      fontWeight: "600" as const,
+      fontSize: 14,
+      flexShrink: 1,
+    },
+    parentText: {
+      color: colors.text.secondary,
+      fontSize: 14,
+      lineHeight: 19,
+      marginBottom: 12,
+    },
+    // Focal (thread subject) styles
+    focalContainer: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
+    },
+    focalLineAbove: {
+      position: "absolute" as const,
+      left: 16 + 24 - 1,
+      top: 0,
+      height: 12,
+      width: 2,
+      backgroundColor: withAlpha(colors.text.secondary, 0.4),
+    },
+    focalHeader: {
+      marginBottom: 12,
+    },
+    focalNameBlock: {
+      flex: 1,
+      minWidth: 0,
+    },
+    focalDisplayName: {
+      color: colors.text.primary,
+      fontWeight: "700" as const,
+      fontSize: 16,
+      flexShrink: 1,
+    },
+    focalText: {
+      color: colors.text.primary,
+      fontSize: 17,
+      lineHeight: 24,
+    },
+    focalTimestamp: {
+      color: colors.text.secondary,
+      fontSize: 15,
+      marginTop: 12,
+      marginBottom: 12,
+    },
+    focalStats: {
+      flexDirection: "row" as const,
+      flexWrap: "wrap" as const,
+      gap: 16,
+      paddingVertical: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
+    },
+    focalStatLabel: {
+      color: colors.text.secondary,
+      fontSize: 15,
+    },
+    focalStatCount: {
+      color: colors.text.primary,
+      fontWeight: "700" as const,
+    },
+    focalActions: {
+      paddingVertical: 4,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.background.border,
     },
     // Threaded reply styles
     threadedContainer: {

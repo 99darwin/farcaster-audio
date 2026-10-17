@@ -2,7 +2,7 @@
   "expo": {
     "name": "Juke",
     "slug": "juke",
-    "version": "0.1.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "scheme": "juke",
     "icon": "./assets/icon.png",
@@ -33,7 +33,7 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "runtimeVersion": "0.1.0",
+    "runtimeVersion": "0.3.0",
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -63,7 +63,29 @@
       "typedRoutes": true
     },
     "android": {
-      "package": "xyz.juke.app"
+      "package": "xyz.juke.app",
+      "versionCode": 1,
+      "allowBackup": false,
+      "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f0f23"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [{ "scheme": "juke" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "extra": {
       "router": {}

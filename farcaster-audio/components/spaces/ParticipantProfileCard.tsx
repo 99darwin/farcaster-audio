@@ -16,7 +16,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { useAuthStore } from "@/stores/authStore";
 import * as api from "@/services/api";
-import type { NeynarUser } from "@/types/neynar";
+import type { FarcasterUser } from "@/types/farcaster";
 import type { Participant } from "@/types/space";
 
 interface ParticipantProfileCardProps {
@@ -40,7 +40,7 @@ export function ParticipantProfileCard({
   const { colors } = useTheme();
   const styles = useStyles();
   const currentUser = useAuthStore((s) => s.user);
-  const [user, setUser] = useState<NeynarUser | null>(null);
+  const [user, setUser] = useState<FarcasterUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isFollowLoading, setIsFollowLoading] = useState(false);
 

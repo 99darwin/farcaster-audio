@@ -1,4 +1,25 @@
-import sdk from "@farcaster/miniapp-sdk";
+/**
+ * Protocol Auth inside a Farcaster Mini App host.
+ *
+ * Flow:
+ *   1. `protocolAuth.getToken()` from `@farcasterorg/miniapp-sdk` asks the
+ *      host wallet to sign an `hqa1` token (EIP-4361 message naming the
+ *      host's user FID). No hosted auth server is involved; do not use the
+ *      SDK's `quickAuth`, which still depends on one.
+ *   2. `POST /v1/auth/miniapp-quickauth` verifies the token against
+ *      on-chain state (custody or KeyRegistry auth address) and returns a
+ *      short-lived Juke session JWT that never outlives the token.
+ *
+ * `/v1/auth/protocol` is not used here: it requires a nonce minted by
+ * `/v1/auth/siwf/nonce`, while host-signed tokens carry a client nonce.
+ *
+ * Returns a discriminated union so callers can react to specific failure
+ * modes (user dismissal vs network error vs server verify failure).
+ */
+
+import { sdk as miniAppSdk } from "@farcasterorg/miniapp-sdk";
+import { parseJwtExpiry } from "@/lib/auth/session";
+import { canTrustMiniappHost } from "@/lib/miniapp-host-origin";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -6,6 +27,7 @@ const API_BASE_URL =
 if (
   typeof process !== "undefined" &&
   process.env.NODE_ENV !== "production" &&
+  process.env.NODE_ENV !== "test" &&
   !process.env.NEXT_PUBLIC_API_BASE_URL
 ) {
   // Preview deploys must not throw, but a missing API base URL in dev is
@@ -16,12 +38,36 @@ if (
   );
 }
 
+export const MINIAPP_QUICKAUTH_PATH = "/v1/auth/miniapp-quickauth";
+
+/**
+ * Optimism. The backend pins Protocol Auth tokens to chain-id 10 (where the
+ * Id/KeyRegistry live); see `lib/auth/protocolToken.ts`.
+ */
+const PROTOCOL_AUTH_CHAIN_ID_HEX = "0xa";
+
 // Conservative token cache: refresh 60 seconds before `exp` to avoid
 // race conditions near expiry. If exp can't be parsed, we default to
-// 10 minutes (MIN_LIFETIME_MS), which matches the recommendation in the
-// security review.
+// 10 minutes (MIN_LIFETIME_MS).
 const MIN_LIFETIME_MS = 10 * 60 * 1000;
 const EXPIRY_SAFETY_MS = 60 * 1000;
+
+// Plain desktop browsers outside a Farcaster host will never answer the
+// host bridge. The SDK's detection short-circuits top-level windows; the
+// timeout guards a host check that itself stalls.
+const MINIAPP_CHECK_TIMEOUT_MS = 3000;
+// Once inside a host, `getToken` waits on the user's wallet approval, which
+// can legitimately take a while. This only guards a wedged bridge; hitting
+// it is a `timeout` (try again), never "not in a Mini App".
+export const PROTOCOL_AUTH_TIMEOUT_MS = 2 * 60 * 1000;
+const PROTOCOL_AUTH_TIMEOUT_MESSAGE = "protocol_auth_timeout";
+
+/**
+ * Lifetime of the host-signed `hqa1` token. The backend caps tokens at one
+ * hour and mints the session JWT with `exp <= token expiry`, so this is
+ * also the Mini App session length.
+ */
+export const MINIAPP_TOKEN_TTL_SECONDS = 60 * 60;
 
 interface CachedAuth {
   token: string;
@@ -36,94 +82,128 @@ export type MiniappAuthError =
   | "network"
   | "verify_failed"
   | "invalid_response"
+  | "timeout"
   | "not_in_miniapp";
 
+export interface MiniappAuthOptions {
+  /**
+   * Sign a new token even if the SDK still holds one. Needed for renewal:
+   * the session JWT never outlives the token, so reusing the SDK's cached
+   * token would mint a session that expires when the old one does.
+   */
+  force?: boolean;
+}
+
 export type MiniappAuthResult =
-  | { ok: true; token: string; fid: number }
+  | { ok: true; token: string; fid: number; expiresAt: number }
   | { ok: false; reason: MiniappAuthError };
 
-// Plain desktop browsers outside a Farcaster host will never respond to
-// the miniapp signIn bridge. Use the SDK's explicit detection method,
-// with a short timeout as a defensive fallback in case the host check
-// itself stalls.
-const MINIAPP_CHECK_TIMEOUT_MS = 3000;
-// If Quick Auth still hasn't resolved after this long, the host bridge
-// is wedged (unverified manifest, host viewer gaps, etc.) — treat as
-// not_in_miniapp so the UI falls back to app CTAs instead of hanging.
-const QUICKAUTH_TIMEOUT_MS = 15_000;
+type HostProvider = NonNullable<
+  Awaited<ReturnType<typeof miniAppSdk.wallet.getEthereumProvider>>
+>;
 
-async function isInMiniappHost(): Promise<boolean> {
+export async function isInMiniappHost(): Promise<boolean> {
+  // A frame whose parent isn't a known Farcaster client may be a fake host
+  // trying to sign the visitor in as someone else (`lib/miniapp-host-origin.ts`).
+  if (!canTrustMiniappHost()) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const timeout = new Promise<boolean>((resolve) =>
-      setTimeout(() => resolve(false), MINIAPP_CHECK_TIMEOUT_MS),
-    );
-    const result = await Promise.race([sdk.isInMiniApp(), timeout]);
-    // Diagnostic — temporary until we validate the desktop browser flow
-    // end-to-end on Quick Auth. Remove once the UX is confirmed stable.
-    // eslint-disable-next-line no-console
-    console.info("[miniapp-auth] isInMiniApp ->", result);
-    return result;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), MINIAPP_CHECK_TIMEOUT_MS);
+    });
+    return await Promise.race([miniAppSdk.isInMiniApp(), timeout]);
   } catch {
     return false;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
 /**
- * Quick Auth flow for Farcaster miniapps.
- *
- * Flow:
- *   1. `sdk.quickAuth.getToken()` — the SDK handles nonce generation and
- *      SIWF exchange with `auth.farcaster.xyz`, returning a JWT.
- *   2. POST the Quick Auth JWT to our backend, which verifies it via
- *      Farcaster's JWKS and returns our own session JWT.
- *
- * Returns a discriminated union so callers can react to specific failure
- * modes (user dismissal vs network error vs server verify failure).
+ * The SDK writes the wallet's *current* chain into the SIWE message, but
+ * the backend only accepts chain-id 10. An EOA `personal_sign` doesn't
+ * depend on the chain, so report Optimism to the token builder and pass
+ * every other request through to the host wallet untouched.
  */
-export async function authenticateMiniapp(): Promise<MiniappAuthResult> {
-  // Bail out early in plain desktop browsers — otherwise the Quick Auth
-  // SDK call hangs indefinitely with no host to respond.
-  if (!(await isInMiniappHost())) {
-    return { ok: false, reason: "not_in_miniapp" };
-  }
+export function withProtocolAuthChainId(provider: HostProvider): HostProvider {
+  const request = ((args: { method: string; params?: unknown }) =>
+    args.method === "eth_chainId"
+      ? Promise.resolve(PROTOCOL_AUTH_CHAIN_ID_HEX)
+      : provider.request(args as Parameters<HostProvider["request"]>[0])) as
+    HostProvider["request"];
+  return new Proxy(provider, {
+    get(target, property) {
+      if (property === "request") return request;
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
 
-  let quickAuthToken: string;
+function isUserRejection(err: unknown): boolean {
+  const name = (err as { name?: unknown })?.name;
+  const code = (err as { code?: unknown })?.code;
+  // EIP-1193 4001 / ox `UserRejectedRequestError` / miniapp `RejectedByUser`.
+  return (
+    code === 4001 ||
+    (typeof name === "string" && (name.includes("Rejected") || name.includes("UserRejected")))
+  );
+}
+
+async function acquireProtocolToken({
+  force = false,
+}: MiniappAuthOptions): Promise<
+  { ok: true; token: string } | { ok: false; reason: MiniappAuthError }
+> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Safety net: if Quick Auth stalls (host viewer gap, unverified
-    // manifest, etc.), fall through after QUICKAUTH_TIMEOUT_MS rather
-    // than leaving the UI stuck forever.
-    const authTimeout = new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error("quickauth_timeout")),
-        QUICKAUTH_TIMEOUT_MS,
-      ),
-    );
-    const result = await Promise.race([
-      sdk.quickAuth.getToken(),
-      authTimeout,
+    const provider = await miniAppSdk.wallet.getEthereumProvider();
+    // A host without a wallet can't sign a Protocol Auth token.
+    if (!provider) return { ok: false, reason: "not_in_miniapp" };
+
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(PROTOCOL_AUTH_TIMEOUT_MESSAGE)),
+        PROTOCOL_AUTH_TIMEOUT_MS,
+      );
+    });
+    // `fid` is omitted so the SDK takes it from the host's user context.
+    const { token } = await Promise.race([
+      miniAppSdk.protocolAuth.getToken({
+        provider: withProtocolAuthChainId(provider),
+        force,
+        expiresIn: MINIAPP_TOKEN_TTL_SECONDS,
+      }),
+      timeout,
     ]);
-    quickAuthToken = result.token;
+    return { ok: true, token };
   } catch (err) {
-    // The miniapp SDK throws `SignIn.RejectedByUser` for dismissal;
-    // defensively check by name since the type isn't re-exported here.
-    const name = (err as { name?: string })?.name ?? "";
-    const message = (err as { message?: string })?.message ?? "";
-    if (name.includes("Rejected")) {
-      return { ok: false, reason: "user_cancelled" };
-    }
-    if (message === "quickauth_timeout") {
-      return { ok: false, reason: "not_in_miniapp" };
+    if (isUserRejection(err)) return { ok: false, reason: "user_cancelled" };
+    if ((err as { message?: unknown })?.message === PROTOCOL_AUTH_TIMEOUT_MESSAGE) {
+      return { ok: false, reason: "timeout" };
     }
     return { ok: false, reason: "network" };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
+}
 
-  const verifyUrl = `${API_BASE_URL}/v1/auth/miniapp-quickauth`;
+/**
+ * Exchange an `hqa1` token for a Juke session JWT. Exported so callers that
+ * already hold a token (e.g. the embed SDK's tests) share one parser.
+ */
+export async function exchangeProtocolToken(
+  protocolToken: string,
+  options: { baseUrl?: string; fetchImpl?: typeof fetch } = {},
+): Promise<MiniappAuthResult> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const verifyUrl = `${options.baseUrl ?? API_BASE_URL}${MINIAPP_QUICKAUTH_PATH}`;
   let resp: Response;
   try {
-    resp = await fetch(verifyUrl, {
+    resp = await fetchImpl(verifyUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: quickAuthToken }),
+      body: JSON.stringify({ token: protocolToken }),
     });
   } catch {
     return { ok: false, reason: "network" };
@@ -131,21 +211,22 @@ export async function authenticateMiniapp(): Promise<MiniappAuthResult> {
 
   // Defense in depth: confirm the response actually came from the same
   // origin we posted to. Rules out a transparent proxy rewriting `resp.url`.
-  try {
-    const respOrigin = new URL(resp.url).origin;
-    const expectedOrigin = new URL(verifyUrl).origin;
-    if (respOrigin !== expectedOrigin) {
+  // An empty `resp.url` (some polyfills/mocks) is not a redirect.
+  if (resp.url) {
+    try {
+      if (new URL(resp.url).origin !== new URL(verifyUrl).origin) {
+        return { ok: false, reason: "invalid_response" };
+      }
+    } catch {
       return { ok: false, reason: "invalid_response" };
     }
-  } catch {
-    return { ok: false, reason: "invalid_response" };
   }
 
   if (!resp.ok) {
-    // 4xx means the backend refused to verify the signature; surface as
-    // a distinct error so the UI can show a fatal message instead of
-    // retrying silently.
-    return { ok: false, reason: "verify_failed" };
+    // 401 means the token didn't verify (wrong domain/chain, or the host
+    // wallet isn't the FID's custody or a linked auth address). Surface it
+    // as a distinct, non-retried error.
+    return { ok: false, reason: resp.status >= 500 ? "network" : "verify_failed" };
   }
 
   let body: unknown;
@@ -162,24 +243,44 @@ export async function authenticateMiniapp(): Promise<MiniappAuthResult> {
   if (typeof token !== "string" || token.length === 0) {
     return { ok: false, reason: "invalid_response" };
   }
-  if (typeof fid !== "number" || !Number.isFinite(fid)) {
+  if (typeof fid !== "number" || !Number.isSafeInteger(fid) || fid <= 0) {
     return { ok: false, reason: "invalid_response" };
   }
 
   const expiresAt = parseJwtExpiry(token) ?? Date.now() + MIN_LIFETIME_MS;
-  cached = { token, fid, expiresAt };
+  return { ok: true, token, fid, expiresAt };
+}
 
-  return { ok: true, token, fid };
+/**
+ * Full Mini App sign-in: detect the host, sign an `hqa1` token with the
+ * host wallet, exchange it for a Juke session JWT, and cache the result.
+ */
+export async function authenticateMiniapp(
+  options: MiniappAuthOptions = {},
+): Promise<MiniappAuthResult> {
+  // Bail out early in plain browsers — there is no host wallet to sign.
+  if (!(await isInMiniappHost())) {
+    return { ok: false, reason: "not_in_miniapp" };
+  }
+
+  const acquired = await acquireProtocolToken(options);
+  if (!acquired.ok) return acquired;
+
+  const result = await exchangeProtocolToken(acquired.token);
+  if (result.ok) {
+    cached = { token: result.token, fid: result.fid, expiresAt: result.expiresAt };
+  }
+  return result;
 }
 
 /**
  * Returns a cached auth result if the JWT is still comfortably valid,
- * otherwise runs the full SIWF flow. Call sites should prefer this over
+ * otherwise runs the full flow. Call sites should prefer this over
  * `authenticateMiniapp()` unless they specifically want to force re-auth.
  */
 export async function getCachedMiniappAuth(): Promise<MiniappAuthResult> {
   if (cached && Date.now() + EXPIRY_SAFETY_MS < cached.expiresAt) {
-    return { ok: true, token: cached.token, fid: cached.fid };
+    return { ok: true, ...cached };
   }
   return authenticateMiniapp();
 }
@@ -189,21 +290,4 @@ export async function getCachedMiniappAuth(): Promise<MiniappAuthResult> {
  */
 export function clearCachedMiniappAuth(): void {
   cached = null;
-}
-
-function parseJwtExpiry(token: string): number | null {
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
-  try {
-    // Base64url decode the payload segment.
-    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = payload + "===".slice(0, (4 - (payload.length % 4)) % 4);
-    const json = typeof atob === "function" ? atob(padded) : "";
-    if (!json) return null;
-    const claims = JSON.parse(json) as { exp?: unknown };
-    if (typeof claims.exp !== "number") return null;
-    return claims.exp * 1000;
-  } catch {
-    return null;
-  }
 }

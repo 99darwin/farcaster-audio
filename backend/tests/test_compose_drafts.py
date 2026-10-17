@@ -9,7 +9,6 @@ from app.schemas.compose_draft import (
     DraftVoiceMetadata,
 )
 
-
 VALID_PARENT_HASH = "0x" + "a" * 40
 
 
@@ -66,46 +65,92 @@ def test_update_candidate_rejects_reply_channel_conflict():
         )
 
 
-def test_build_cast_payload_includes_media_quote_and_channel():
-    from app.routers.drafts import _build_cast_payload
+TEST_SIGNER_FID = 12345
+MEDIA_URL = "https://res.cloudinary.com/demo/image/upload/example.jpg"
 
+
+def _text_draft(**overrides):
     draft = MagicMock()
     draft.text = "check this"
-    draft.media_embeds = [
-        {"url": "https://res.cloudinary.com/demo/image/upload/example.jpg"}
-    ]
+    draft.media_embeds = [{"url": MEDIA_URL}]
     draft.quote_cast = {"fid": 123, "hash": VALID_PARENT_HASH}
     draft.parent_cast_hash = None
     draft.channel_id = "juke"
-
-    payload = _build_cast_payload(draft, "signer")
-
-    assert payload["signer_uuid"] == "signer"
-    assert payload["channel_id"] == "juke"
-    assert payload["embeds"][0]["url"].startswith("https://")
-    assert payload["embeds"][1]["cast_id"] == {
-        "fid": 123,
-        "hash": VALID_PARENT_HASH,
-    }
+    draft.voice_metadata = None
+    for key, value in overrides.items():
+        setattr(draft, key, value)
+    return draft
 
 
-def test_build_voice_cast_payload_prefers_parent_over_channel():
-    from app.routers.drafts import _build_voice_cast_payload
+def _signer():
+    from app.services.farcaster_writes import Signer
 
-    draft = MagicMock()
-    draft.text = "listen"
-    draft.parent_cast_hash = VALID_PARENT_HASH
-    draft.channel_id = "juke"
+    return Signer(fid=TEST_SIGNER_FID, private_key=b"\x01" * 32)
 
-    payload = _build_voice_cast_payload(
-        draft,
-        "signer",
-        "11111111-1111-4111-8111-111111111111",
+
+@pytest.mark.asyncio
+async def test_draft_cast_includes_media_quote_and_channel(monkeypatch):
+    from app.routers.drafts import _draft_embed_urls, _publish_draft_cast
+
+    publish = AsyncMock(return_value="0x" + "c" * 40)
+    monkeypatch.setattr("app.routers.drafts.publish_cast", publish)
+    draft = _text_draft()
+
+    await _publish_draft_cast(_signer(), draft, embed_urls=_draft_embed_urls(draft))
+
+    kwargs = publish.await_args.kwargs
+    assert kwargs["channel_id"] == "juke"
+    assert kwargs["parent_hash"] is None
+    assert kwargs["embed_urls"] == [MEDIA_URL]
+    assert kwargs["quote"].fid == 123
+    assert kwargs["quote"].hash == bytes.fromhex(VALID_PARENT_HASH[2:])
+
+
+@pytest.mark.asyncio
+async def test_voice_draft_cast_prefers_parent_over_channel(monkeypatch):
+    from app.routers.drafts import _publish_draft_cast
+
+    publish = AsyncMock(return_value="0x" + "c" * 40)
+    monkeypatch.setattr("app.routers.drafts.publish_cast", publish)
+    draft = _text_draft(
+        text="listen",
+        parent_cast_hash=VALID_PARENT_HASH,
+        voice_metadata={"object_key": "k"},
     )
+    embed = "https://juke.audio/v/11111111-1111-4111-8111-111111111111"
 
-    assert payload["parent"] == VALID_PARENT_HASH
-    assert "channel_id" not in payload
-    assert payload["embeds"][0]["url"].endswith("/11111111-1111-4111-8111-111111111111")
+    await _publish_draft_cast(_signer(), draft, embed_urls=[embed])
+
+    kwargs = publish.await_args.kwargs
+    assert kwargs["parent_hash"] == VALID_PARENT_HASH
+    assert kwargs["channel_id"] is None
+    assert kwargs["quote"] is None
+    assert kwargs["embed_urls"] == [embed]
+
+
+def test_draft_text_urls_fill_only_remaining_embed_slots():
+    from app.routers.drafts import _draft_embed_urls
+
+    draft = _text_draft(
+        text="see https://a.example/x, https://b.example/y and ftp://c.example",
+        quote_cast=None,
+        media_embeds=[],
+    )
+    assert _draft_embed_urls(draft) == ["https://a.example/x", "https://b.example/y"]
+
+    # One media embed + a quote already fill both protocol slots.
+    draft = _text_draft(text="see https://a.example/x")
+    assert _draft_embed_urls(draft) == [MEDIA_URL]
+
+
+def test_draft_text_urls_skip_oversized_urls():
+    from app.routers.drafts import _draft_embed_urls
+
+    long_url = "https://a.example/" + "x" * 300
+    draft = _text_draft(
+        text=f"{long_url} https://ok.example", quote_cast=None, media_embeds=[]
+    )
+    assert _draft_embed_urls(draft) == ["https://ok.example"]
 
 
 def test_draft_response_strips_internal_voice_object_key():

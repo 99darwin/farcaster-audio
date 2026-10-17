@@ -265,9 +265,7 @@ async def test_suspended_owner_cannot_use_existing_api_key(client_with_db, db_se
 
 
 @pytest.mark.asyncio
-async def test_api_key_owner_is_derived_from_key_not_bearer(
-    client_with_db, db_session
-):
+async def test_api_key_owner_is_derived_from_key_not_bearer(client_with_db, db_session):
     """The key alone determines the owning fid; no bearer JWT is consulted."""
     await _seed_user(db_session)
     await _seed_user(db_session, fid=OTHER_FID)
@@ -376,7 +374,9 @@ async def test_developer_application_is_persisted_and_admin_can_approve(
 
 
 @pytest.mark.asyncio
-async def test_revoke_returns_updated_key_preserving_metadata(client_with_db, db_session):
+async def test_revoke_returns_updated_key_preserving_metadata(
+    client_with_db, db_session
+):
     await _seed_user(db_session)
     create_app = await client_with_db.post(
         "/v1/developer/apps",
@@ -451,9 +451,7 @@ class _FakeDeveloperRoomService:
 
 
 @pytest.mark.asyncio
-async def test_developer_spaces_works_with_key_only_no_jwt(
-    client_with_db, db_session
-):
+async def test_developer_spaces_works_with_key_only_no_jwt(client_with_db, db_session):
     """/v1/developer/spaces is a machine endpoint. Key alone is sufficient."""
     await _seed_user(db_session)
     create_app = await client_with_db.post(
@@ -1284,7 +1282,8 @@ async def test_origin_header_no_enforcement_when_allowed_origins_empty(
 #
 # Each must return 401 "Recent sign-in required." + WWW-Authenticate: ReAuth
 # when the SIWN marker is missing, and must proceed normally once the marker
-# is (re-)set. List/get/create-app/create-key remain on the standard JWT
+# is (re-)set. Create-key also requires step-up (M7: it returns a secret).
+# List/get/create-app remain on the standard JWT
 # dependency without step-up.
 # ---------------------------------------------------------------------------
 
@@ -1432,7 +1431,7 @@ async def test_delete_app_requires_recent_siwn(client_with_db, db_session):
 
 @pytest.mark.asyncio
 async def test_create_app_does_not_require_recent_siwn(client_with_db, db_session):
-    """List/get/create-app/create-key are intentionally NOT step-up-protected."""
+    """List/get/create-app are intentionally NOT step-up-protected."""
     await _seed_user(db_session)
     bearer_only = _bearer_only(OWNER_FID)
 
@@ -1444,10 +1443,37 @@ async def test_create_app_does_not_require_recent_siwn(client_with_db, db_sessio
     )
     assert create_app.status_code == 201, create_app.text
 
-    list_apps = await client_with_db.get(
-        "/v1/developer/apps", headers=bearer_only
-    )
+    list_apps = await client_with_db.get("/v1/developer/apps", headers=bearer_only)
     assert list_apps.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_create_key_requires_recent_siwn(client_with_db, db_session):
+    """M7: create-key returns a live secret_key, so it needs the same step-up
+    as reveal/rotate rather than any still-valid session."""
+    await _seed_user(db_session)
+    app_id = await _create_app_as(client_with_db, OWNER_FID)
+    bearer_only = _bearer_only(OWNER_FID)
+
+    _seed_marker_and_clear(OWNER_FID)
+    no_siwn = await client_with_db.post(
+        f"/v1/developer/apps/{app_id}/keys",
+        json={"name": "Primary"},
+        headers=bearer_only,
+    )
+    assert no_siwn.status_code == 401
+    assert no_siwn.json()["detail"] == REAUTH_DETAIL
+    assert no_siwn.headers.get("www-authenticate") == "ReAuth"
+    assert "secret_key" not in no_siwn.text
+
+    _mark_siwn_sync(OWNER_FID)
+    success = await client_with_db.post(
+        f"/v1/developer/apps/{app_id}/keys",
+        json={"name": "Primary"},
+        headers=bearer_only,
+    )
+    assert success.status_code == 201, success.text
+    assert success.json()["secret_key"]
 
 
 # ---------------------------------------------------------------------------
@@ -1511,9 +1537,7 @@ async def _seed_room_with_app(
 
 
 @pytest.mark.asyncio
-async def test_embed_policy_returns_app_allowed_origins(
-    client_with_db, db_session
-):
+async def test_embed_policy_returns_app_allowed_origins(client_with_db, db_session):
     """Rooms tagged with an app expose that app's allowed_origins."""
     await _seed_user(db_session)
     create_app = await client_with_db.post(
@@ -1539,9 +1563,7 @@ async def test_embed_policy_returns_app_allowed_origins(
 
 
 @pytest.mark.asyncio
-async def test_embed_policy_returns_null_for_unlinked_room(
-    client_with_db, db_session
-):
+async def test_embed_policy_returns_null_for_unlinked_room(client_with_db, db_session):
     """Rooms without an owning app fall back to the permissive default policy."""
     await _seed_user(db_session)
     room = await _seed_room_with_app(db_session, host_fid=OWNER_FID, app_id=None)
@@ -1664,16 +1686,12 @@ async def test_embed_policy_cache_headers_reflect_reduced_ttl(
     room_with_origins = await _seed_room_with_app(
         db_session, host_fid=OWNER_FID, app_id=app_id
     )
-    res = await client_with_db.get(
-        f"/v1/rooms/{room_with_origins.id}/embed-policy"
-    )
+    res = await client_with_db.get(f"/v1/rooms/{room_with_origins.id}/embed-policy")
     assert res.status_code == 200
     assert res.headers.get("cache-control") == EMBED_POLICY_CACHE_CONTROL
 
     # Unlinked room → null branch.
-    room_no_app = await _seed_room_with_app(
-        db_session, host_fid=OWNER_FID, app_id=None
-    )
+    room_no_app = await _seed_room_with_app(db_session, host_fid=OWNER_FID, app_id=None)
     res = await client_with_db.get(f"/v1/rooms/{room_no_app.id}/embed-policy")
     assert res.status_code == 200
     assert res.json()["allowed_origins"] is None

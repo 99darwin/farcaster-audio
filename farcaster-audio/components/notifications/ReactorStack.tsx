@@ -3,17 +3,17 @@ import { View, Text, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/hooks/useTheme";
-import type { NeynarCastAuthor } from "@/types/neynar";
+import type { FarcasterCastAuthor } from "@/types/farcaster";
 
 interface ReactorStackProps {
-  users: NeynarCastAuthor[];
+  users: FarcasterCastAuthor[];
   maxVisible?: number;
   size?: number;
   ringColor?: string;
 }
 
 interface ReactorPfpProps {
-  user: NeynarCastAuthor;
+  user: FarcasterCastAuthor;
   size: number;
   ringColor: string;
   marginLeft: number;

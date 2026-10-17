@@ -3,7 +3,10 @@ Participants router — all endpoints scoped to a room participant lifecycle.
 
 Dependency pattern:
   - `get_room_service` composes db + redis into a RoomService instance.
-  - `get_current_user` extracts the authenticated caller's FID from the JWT.
+  - `get_current_user` extracts the authenticated caller's FID from a
+    first-party JWT. Only `/leave` and `/token` also accept partner-minted
+    JWTs (via `get_principal_allow_partner`), and only for a caller who is
+    currently a plain listener in the room.
   - `room_id` is always a path parameter (string UUID).
 """
 
@@ -14,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db, get_redis, require_non_demo_user
+from app.middleware.auth import AuthPrincipal, get_principal_allow_partner
 from app.schemas.agent import AgentJoinRequest, AgentJoinResponse
 from app.schemas.common import StatusResponse
 from app.schemas.participant import (
@@ -25,6 +29,7 @@ from app.schemas.participant import (
     RaiseHandResponse,
     TokenRefreshResponse,
 )
+from app.services.client_ip import client_ip as _client_ip
 from app.services.livekit_service import LiveKitService
 from app.services.redis_service import RedisService
 from app.services.room_service import RoomService
@@ -33,6 +38,15 @@ router = APIRouter(prefix="/v1/rooms", tags=["participants"])
 
 ANONYMOUS_JOIN_RATE_LIMIT = 30
 ANONYMOUS_JOIN_RATE_WINDOW_SECONDS = 60
+
+# Roles a partner-minted session may act on. A partner JWT is a third-party
+# assertion of identity, so it must never refresh (or drop) a host / co-host
+# / speaker seat that was obtained through a first-party sign-in.
+PARTNER_SESSION_ALLOWED_ROLES = frozenset({"listener"})
+PARTNER_SESSION_SCOPE_DETAIL = (
+    "Partner sessions can only act on a listener seat in the partner app's "
+    "own rooms. Sign in with Farcaster to continue."
+)
 
 
 async def get_room_service(
@@ -44,10 +58,6 @@ async def get_room_service(
         yield RoomService(db=db, redis=RedisService(redis), livekit=livekit)
     finally:
         await livekit.close()
-
-
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
 
 
 def _anonymous_session_id(request: Request) -> str:
@@ -169,7 +179,14 @@ async def agent_join_room(
         livekit = LiveKitService()
         try:
             svc = RoomService(db=db, redis=RedisService(redis), livekit=livekit)
-            join_response = await svc.join_room(room_id=room_id, fid=session.agent_fid)
+            # SECURITY (L7): rejoin through the agent path so the per-room
+            # agent cap, allow_agents flag and is_agent metadata apply.
+            join_response = await svc.join_room_as_agent(
+                room_id=room_id,
+                agent_fid=session.agent_fid,
+                agent_name=session.agent_name,
+                agent_pfp_url=session.agent_pfp_url,
+            )
             return AgentJoinResponse(
                 session_token=session_token,
                 livekit_token=join_response.livekit_token,
@@ -184,14 +201,6 @@ async def agent_join_room(
 
     # Check for x402 payment (set by middleware on request.state)
     # The x402 middleware sets payment_payload and payment_requirements on verified payment.
-    import logging as _logging
-
-    _log = _logging.getLogger(__name__)
-    _state_attrs = {
-        k: type(getattr(request.state, k)).__name__ for k in vars(request.state)
-    }
-    _log.info("agent-join request.state: %s", _state_attrs)
-
     if not hasattr(request.state, "payment_payload"):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -204,13 +213,17 @@ async def agent_join_room(
     if hasattr(payment_payload, "payer"):
         payer_address = payment_payload.payer
 
-    # Create agent session
+    # Create agent session. Pass ``db`` so the synthetic fid allocator
+    # can verify no existing User row collides — the Redis counter is
+    # the source of truth but a flush/restore could wrap it back into
+    # populated space.
     session_svc = SessionService(redis)
     token, session = await session_svc.create_session(
         room_id=room_id,
         agent_name=body.agent_name,
         agent_pfp_url=body.agent_pfp_url,
         payer_address=payer_address,
+        db=db,
     )
 
     # Create temporary User record for the agent
@@ -254,14 +267,51 @@ async def agent_join_room(
         await livekit.close()
 
 
+async def _enforce_partner_session_scope(
+    service: RoomService, room_id: str, principal: AuthPrincipal
+) -> None:
+    """Confine a partner-minted session to an existing listener seat in a
+    room created by the same partner app.
+
+    First-party callers pass straight through. A partner caller must already
+    be an active participant whose role is in
+    ``PARTNER_SESSION_ALLOWED_ROLES``, in a room whose ``created_by_app_id``
+    matches the token's ``partner_app_id``; anything else is a 403, which
+    also stops a partner ``/leave`` from auto-ending an empty room it was
+    never in.
+    """
+    if not principal.is_partner:
+        return
+    participant = await service.redis.get_participant(room_id, principal.fid)
+    role = participant.get("role") if participant else None
+    if role not in PARTNER_SESSION_ALLOWED_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PARTNER_SESSION_SCOPE_DETAIL,
+        )
+    # A partner app may only act within rooms it created, so one developer
+    # app cannot refresh or drop a listener's seat in another app's rooms.
+    room = await service._get_room_or_404(room_id)
+    if (
+        principal.partner_app_id is None
+        or room.created_by_app_id is None
+        or str(room.created_by_app_id) != principal.partner_app_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PARTNER_SESSION_SCOPE_DETAIL,
+        )
+
+
 @router.post("/{room_id}/leave", response_model=StatusResponse)
 async def leave_room(
     room_id: str,
-    fid: int = Depends(get_current_user),
+    principal: AuthPrincipal = Depends(get_principal_allow_partner),
     service: RoomService = Depends(get_room_service),
 ) -> StatusResponse:
     """Leave a room. Removes the caller from Redis and marks left_at in the DB."""
-    await service.leave_room(room_id=room_id, fid=fid)
+    await _enforce_partner_session_scope(service, room_id, principal)
+    await service.leave_room(room_id=room_id, fid=principal.fid)
     return StatusResponse(status="ok")
 
 
@@ -374,8 +424,13 @@ async def ban_participant(
 @router.post("/{room_id}/token", response_model=TokenRefreshResponse)
 async def refresh_token(
     room_id: str,
-    fid: int = Depends(get_current_user),
+    principal: AuthPrincipal = Depends(get_principal_allow_partner),
     service: RoomService = Depends(get_room_service),
 ) -> TokenRefreshResponse:
-    """Issue a fresh LiveKit token for an active participant."""
-    return await service.refresh_token(room_id=room_id, fid=fid)
+    """Issue a fresh LiveKit token for an active participant.
+
+    Partner sessions only get a token for a listener seat, never a
+    host / co-host / speaker grant.
+    """
+    await _enforce_partner_session_scope(service, room_id, principal)
+    return await service.refresh_token(room_id=room_id, fid=principal.fid)

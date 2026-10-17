@@ -1,9 +1,9 @@
-"""Global search router — casts and miniapps via Neynar.
+"""Global search router — casts via Hypersnap, miniapps via Neynar.
 
 Operator parsing (`from:`, `before:`, `after:`) happens server-side via
 ``app.services.search_query``. The client just sends a raw query string.
-We forward to Neynar with `viewer_fid` injected from the JWT so the
-upstream response carries the caller's viewer context.
+Hypersnap has no ``viewer_fid``, so the caller's viewer context is hydrated
+locally (``app.services.farcaster_hydration``).
 
 User and channel search live elsewhere (`/v1/users/search`,
 `/v1/feed/channels/search`) and are reused as-is.
@@ -13,16 +13,19 @@ from __future__ import annotations
 
 import logging
 from typing import Literal
+from urllib.parse import urlsplit
 
 import httpx
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import hypersnap
+from app.config import settings
 from app.dependencies import get_current_user, get_db, get_redis, get_spam_service
-from app.routers.feed import NEYNAR_BASE, _neynar_headers, _raise_upstream_error
 from app.services.block_service import filter_casts, get_blocked_fids
 from app.services.cast_bookmark_service import annotate_bookmarked_casts
+from app.services.farcaster_hydration import prepare_cast_payload
 from app.services.search_query import parse_cast_query
 from app.services.spam_service import SpamService
 
@@ -32,6 +35,30 @@ router = APIRouter(prefix="/v1/search", tags=["search"])
 
 SEARCH_RATE_LIMIT_PER_MIN = 30
 SEARCH_RATE_LIMIT_WINDOW_SECONDS = 60
+MINIAPP_SEARCH_QUERY_MAX_LENGTH = 32
+MINIAPP_UNSUPPORTED_STATUSES = {400, 403, 404, 405, 410, 422}
+# Mini-app search stays on Neynar (MINIAPP_SEARCH_PROVIDER) until Hypersnap
+# implements frame search/catalog; it returns 501 today.
+NEYNAR_BASE = "https://api.neynar.com/v2"
+
+
+def _neynar_headers() -> dict[str, str]:
+    return {
+        "accept": "application/json",
+        "x-api-key": settings.NEYNAR_API_KEY,
+    }
+
+
+def _raise_upstream_error(resp: httpx.Response) -> None:
+    """Log the full Neynar response, raise a sanitized error to the client."""
+    logger.error(
+        "[search] Neynar %s → %s: %s",
+        resp.request.url.path,
+        resp.status_code,
+        resp.text[:500],
+    )
+    status = 502 if resp.status_code >= 500 else resp.status_code
+    raise HTTPException(status_code=status, detail="Upstream service error")
 
 
 async def _enforce_search_rate_limit(fid: int, redis: aioredis.Redis) -> None:
@@ -54,29 +81,195 @@ async def _enforce_search_rate_limit(fid: int, redis: aioredis.Redis) -> None:
         )
 
 
-async def _resolve_author_fid(
-    client: httpx.AsyncClient,
-    username: str,
-    viewer_fid: int,
-) -> int | None:
-    """Resolve a username to an FID via Neynar. Returns None on 404."""
-    resp = await client.get(
-        f"{NEYNAR_BASE}/farcaster/user/by_username",
-        params={"username": username, "viewer_fid": viewer_fid},
-        headers=_neynar_headers(),
-        timeout=15.0,
-    )
-    if resp.status_code == 404:
+async def _resolve_author_fid(username: str) -> int | None:
+    """Resolve a username to an FID via Hypersnap. Returns None on 404."""
+    try:
+        data = await hypersnap.get("/user/by-username", {"username": username})
+    except hypersnap.HypersnapNotFound:
         return None
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
+    except hypersnap.HypersnapError as exc:
+        hypersnap.raise_for_upstream(exc, context="search")
 
-    data = resp.json()
-    # Neynar's user/by_username can return either {"user": {...}} or the
-    # user dict at the top level depending on plan/version — accept both.
+    # Accept both {"user": {...}} and a top-level user dict.
     user = data.get("user") or data
     fid = user.get("fid") if isinstance(user, dict) else None
     return int(fid) if fid is not None else None
+
+
+def _miniapp_empty_response(*, unsupported: bool) -> dict:
+    """Return the stable mini-app response contract for degraded requests."""
+    return {
+        "frames": [],
+        "next": {"cursor": None},
+        "meta": {
+            "source": "fallback",
+            "metrics_available": False,
+            "unsupported": unsupported,
+        },
+    }
+
+
+def _https_url(value: object) -> str | None:
+    """Accept only absolute HTTPS URLs without embedded credentials."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return None
+    except ValueError:
+        return None
+    return value
+
+
+def _nonempty_string(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _normalize_miniapp_frame(frame: object) -> dict | None:
+    """Map Neynar's legacy and current mini-app shapes to one contract."""
+    if not isinstance(frame, dict):
+        return None
+
+    frames_url = _https_url(frame.get("frames_url"))
+    if frames_url is None:
+        return None
+
+    manifest = frame.get("manifest")
+    manifest = manifest if isinstance(manifest, dict) else {}
+    config = manifest.get("miniapp")
+    if not isinstance(config, dict):
+        config = manifest.get("frame")
+    config = config if isinstance(config, dict) else {}
+
+    name = (
+        _nonempty_string(frame.get("name"))
+        or _nonempty_string(config.get("name"))
+        or _nonempty_string(frame.get("title"))
+        or urlsplit(frames_url).hostname
+        or "Mini App"
+    )
+    description = _nonempty_string(frame.get("description")) or _nonempty_string(
+        config.get("description")
+    )
+    image_url = (
+        _https_url(frame.get("image_url"))
+        or _https_url(frame.get("image"))
+        or _https_url(config.get("icon_url"))
+        or _https_url(config.get("image_url"))
+    )
+    author = frame.get("author")
+    metrics = frame.get("metrics")
+    rank = frame.get("rank")
+
+    return {
+        "name": name,
+        "description": description,
+        "image_url": image_url,
+        "frames_url": frames_url,
+        "author": author if isinstance(author, dict) else None,
+        "metrics": metrics if isinstance(metrics, dict) and metrics else None,
+        "rank": (
+            rank
+            if isinstance(rank, (int, float)) and not isinstance(rank, bool)
+            else None
+        ),
+    }
+
+
+def _parse_miniapp_payload(data: object) -> tuple[list[dict], str | None, bool]:
+    """Safely parse any upstream JSON value without assuming object nesting."""
+    if not isinstance(data, dict):
+        return [], None, False
+
+    result = data.get("result")
+    result = result if isinstance(result, dict) else {}
+    frames_raw = data.get("frames")
+    if not isinstance(frames_raw, list):
+        frames_raw = result.get("frames")
+    if not isinstance(frames_raw, list):
+        frames_raw = []
+
+    frames = [
+        normalized
+        for raw_frame in frames_raw
+        if (normalized := _normalize_miniapp_frame(raw_frame)) is not None
+    ]
+
+    next_block = data.get("next")
+    if not isinstance(next_block, dict):
+        next_block = result.get("next")
+    next_block = next_block if isinstance(next_block, dict) else {}
+    next_cursor = next_block.get("cursor")
+    if not isinstance(next_cursor, str) or not next_cursor:
+        next_cursor = None
+
+    return frames, next_cursor, any(frame["metrics"] is not None for frame in frames)
+
+
+async def _fetch_miniapps(
+    *, endpoint: Literal["search", "catalog"], params: dict[str, str | int]
+) -> dict:
+    """Fetch and normalize mini apps, degrading unsupported APIs safely."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{NEYNAR_BASE}/farcaster/frame/{endpoint}/",
+                params=params,
+                headers=_neynar_headers(),
+                timeout=15.0,
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("[search] Neynar mini-app %s request failed: %s", endpoint, exc)
+        return _miniapp_empty_response(unsupported=False)
+
+    if resp.status_code == 401:
+        # An upstream credential failure is not an end-user auth failure. A 401
+        # here would trigger the web client's refresh/logout path incorrectly.
+        logger.error("[search] Neynar mini-app %s authentication failed", endpoint)
+        return _miniapp_empty_response(unsupported=False)
+    if resp.status_code in MINIAPP_UNSUPPORTED_STATUSES:
+        logger.info(
+            "[search] Neynar mini-app %s unavailable (status=%s)",
+            endpoint,
+            resp.status_code,
+        )
+        return _miniapp_empty_response(unsupported=True)
+    if resp.status_code != 200:
+        _raise_upstream_error(resp)
+
+    try:
+        data = resp.json()
+    except (TypeError, ValueError):
+        logger.warning("[search] Neynar mini-app %s returned invalid JSON", endpoint)
+        return _miniapp_empty_response(unsupported=False)
+
+    frames, next_cursor, metrics_available = _parse_miniapp_payload(data)
+    if not isinstance(data, dict):
+        logger.warning(
+            "[search] Neynar mini-app %s returned unexpected payload type %s",
+            endpoint,
+            type(data).__name__,
+        )
+        return _miniapp_empty_response(unsupported=False)
+
+    return {
+        "frames": frames,
+        "next": {"cursor": next_cursor},
+        "meta": {
+            "source": "neynar",
+            "metrics_available": metrics_available,
+            "unsupported": False,
+        },
+    }
 
 
 @router.get("/casts")
@@ -90,54 +283,42 @@ async def search_casts(
     spam_service: SpamService = Depends(get_spam_service),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Search Farcaster casts via Neynar with operator support."""
+    """Search Farcaster casts via Hypersnap with operator support.
+
+    ``sort`` is accepted for client compatibility but no longer forwarded:
+    Hypersnap's cast search has no ``sort_type`` and returns its own order.
+    """
     await _enforce_search_rate_limit(current_user, redis)
     parsed = parse_cast_query(q)
     parsed_payload = parsed.model_dump(mode="json")
 
-    async with httpx.AsyncClient() as client:
-        author_fid: int | None = None
-        if parsed.author_username:
-            author_fid = await _resolve_author_fid(
-                client, parsed.author_username, current_user
-            )
-            if author_fid is None:
-                return {
-                    "casts": [],
-                    "next": {"cursor": None},
-                    "meta": {"parsed": parsed_payload, "unknown_author": True},
-                }
+    author_fid: int | None = None
+    if parsed.author_username:
+        author_fid = await _resolve_author_fid(parsed.author_username)
+        if author_fid is None:
+            return {
+                "casts": [],
+                "next": {"cursor": None},
+                "meta": {"parsed": parsed_payload, "unknown_author": True},
+            }
 
-        # Neynar's cast/search requires a non-empty `q`. If the user only
-        # typed an operator (e.g. `from:dwr`), fall back to the original
-        # raw query so the upstream call doesn't 400.
-        upstream_q = parsed.text or q
+    # cast/search requires a non-empty `q`. If the user only typed an
+    # operator (e.g. `from:dwr`), fall back to the original raw query so the
+    # upstream call doesn't 400.
+    upstream_q = parsed.text or q
+    params: dict[str, str | int | None] = {
+        "q": upstream_q,
+        "limit": limit,
+        "cursor": cursor,
+        "author_fid": author_fid,
+    }
+    try:
+        data = await hypersnap.get("/cast/search", params)
+    except hypersnap.HypersnapError as exc:
+        hypersnap.raise_for_upstream(exc, context="search")
 
-        params: dict[str, str | int] = {
-            "q": upstream_q,
-            "viewer_fid": current_user,
-            "limit": limit,
-            "sort_type": "algorithmic" if sort == "popular" else "desc_chron",
-        }
-        if cursor:
-            params["cursor"] = cursor
-        if author_fid is not None:
-            params["author_fid"] = author_fid
-
-        resp = await client.get(
-            f"{NEYNAR_BASE}/farcaster/cast/search",
-            params=params,
-            headers=_neynar_headers(),
-            timeout=15.0,
-        )
-
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
-
-    data = resp.json()
-    # Neynar's payload shape varies between API versions for cast/search —
-    # accept either {"result": {"casts": [...], "next": {...}}} or the
-    # flatter {"casts": [...], "next": {...}}.
+    # Accept either {"result": {"casts": [...], "next": {...}}} (Hypersnap,
+    # Neynar v2) or the flatter {"casts": [...], "next": {...}}.
     result_block = data.get("result") if isinstance(data.get("result"), dict) else {}
     casts = result_block.get("casts") or data.get("casts", []) or []
     next_block = result_block.get("next") or data.get("next") or {}
@@ -145,6 +326,9 @@ async def search_casts(
 
     # Hydrate identical to feed/following so reactions/bookmarks/spam flags
     # line up with what the user sees elsewhere.
+    await prepare_cast_payload(
+        casts, current_user, redis=redis, backfill_reaction_counts=True
+    )
     await spam_service.annotate_casts(casts)
     blocked_fids = await get_blocked_fids(db, current_user)
     casts = filter_casts(casts, blocked_fids)
@@ -172,49 +356,32 @@ async def search_miniapps(
     can hide the tab gracefully instead of showing an error.
     """
     await _enforce_search_rate_limit(current_user, redis)
-    params: dict[str, str | int] = {"q": q, "limit": limit}
+    # Neynar documents a 32-character maximum. Keep the client-facing limit
+    # generous and truncate upstream so a long search never turns into a 422.
+    params: dict[str, str | int] = {
+        "q": q[:MINIAPP_SEARCH_QUERY_MAX_LENGTH],
+        "limit": limit,
+    }
     if cursor:
         params["cursor"] = cursor
+    return await _fetch_miniapps(endpoint="search", params=params)
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{NEYNAR_BASE}/farcaster/frame/search",
-            params=params,
-            headers=_neynar_headers(),
-            timeout=15.0,
-        )
 
-    if resp.status_code == 404:
-        return {"frames": [], "next": {"cursor": None}, "meta": {"unsupported": True}}
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
+@router.get("/miniapps/discover")
+async def discover_miniapps(
+    limit: int = Query(default=24, ge=1, le=100),
+    cursor: str | None = Query(default=None, max_length=500),
+    current_user: int = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+):
+    """Return Neynar's curated mini-app catalog in the stable client contract.
 
-    data = resp.json()
-    frames_raw = data.get("frames") or data.get("result", {}).get("frames", []) or []
-    next_block = data.get("next") or data.get("result", {}).get("next") or {}
-    next_cursor = next_block.get("cursor") if isinstance(next_block, dict) else None
-
-    frames: list[dict] = []
-    for frame in frames_raw:
-        if not isinstance(frame, dict):
-            continue
-        # Defense-in-depth: only forward miniapps with an https frames_url so
-        # the client never receives a non-web scheme to hand to Linking.openURL.
-        frames_url = frame.get("frames_url")
-        if not isinstance(frames_url, str) or not frames_url.startswith("https://"):
-            continue
-        entry: dict = {
-            "name": frame.get("name"),
-            "image_url": frame.get("image_url"),
-            "frames_url": frames_url,
-        }
-        author = frame.get("author")
-        if author is not None:
-            entry["author"] = author
-        frames.append(entry)
-
-    return {
-        "frames": frames,
-        "next": {"cursor": next_cursor},
-        "meta": {"unsupported": False},
-    }
+    Neynar uses engagement signals to order this catalog but does not expose
+    numeric app metrics in the documented response. Consequently, metrics and
+    rank remain ``null`` unless the upstream explicitly supplies those fields.
+    """
+    await _enforce_search_rate_limit(current_user, redis)
+    params: dict[str, str | int] = {"limit": limit, "time_window": "7d"}
+    if cursor:
+        params["cursor"] = cursor
+    return await _fetch_miniapps(endpoint="catalog", params=params)

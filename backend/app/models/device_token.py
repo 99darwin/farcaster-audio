@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,8 +16,9 @@ from app.database import Base
 
 class DeviceToken(Base):
     __tablename__ = "device_tokens"
+    # One device token, one owner (latest registration wins; migration 039).
     __table_args__ = (
-        UniqueConstraint("fid", "expo_push_token", name="uq_device_tokens_fid_token"),
+        UniqueConstraint("expo_push_token", name="uq_device_tokens_token"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

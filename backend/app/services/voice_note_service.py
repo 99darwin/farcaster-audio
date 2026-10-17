@@ -137,6 +137,7 @@ async def create_voice_note(
     caption: str | None,
     object_key: str,
     parent_cast_hash: str | None = None,
+    waveform_peaks: list[float] | None = None,
 ) -> VoiceNote:
     """Create a new voice note record."""
     vn = VoiceNote(
@@ -147,6 +148,7 @@ async def create_voice_note(
         audio_size=audio_size,
         caption=caption if caption else None,
         parent_cast_hash=parent_cast_hash,
+        waveform_peaks=waveform_peaks,
     )
     db.add(vn)
     await db.commit()
@@ -331,20 +333,25 @@ async def record_play(
     source: str,
     user_agent: str | None,
 ) -> None:
-    """Insert a play tracking record."""
-    # Verify voice note exists
+    """Insert a play tracking record.
+
+    ``listened_ms`` is client-reported, so it is clamped to the note's real
+    duration: a play can never claim more listening than the audio holds.
+    """
     result = await db.execute(
-        select(VoiceNote.id).where(
+        select(VoiceNote.duration_ms).where(
             VoiceNote.id == voice_note_id, VoiceNote.deleted_at.is_(None)
         )
     )
-    if not result.scalar_one_or_none():
+    row = result.one_or_none()
+    if row is None:
         raise HTTPException(status_code=404, detail="Voice note not found")
+    duration_ms = row.duration_ms
 
     play = VoiceNotePlay(
         voice_note_id=voice_note_id,
         listener_fid=listener_fid,
-        listened_ms=listened_ms,
+        listened_ms=min(listened_ms, duration_ms),
         completed=completed,
         source=source,
         user_agent=user_agent,

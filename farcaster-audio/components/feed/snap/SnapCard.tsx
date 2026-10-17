@@ -42,6 +42,7 @@ import {
   type SnapSurface,
 } from "@/services/snapSigner";
 import { useSnapSignerStatus } from "@/hooks/useSnapSignerStatus";
+import { openSafeExternalUrl } from "@/utils/externalLinks";
 import {
   submitSnap,
   assertSafeSnapUrl,
@@ -417,7 +418,7 @@ export function SnapCard({
   );
 
   const handleOpenExternal = () => {
-    Linking.openURL(url).catch(() => {});
+    void openSafeExternalUrl(url);
   };
 
   return (

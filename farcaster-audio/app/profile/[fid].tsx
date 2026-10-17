@@ -1,6 +1,8 @@
 import { useEffect, useCallback, useMemo, useState } from "react";
 import { Alert, FlatList, View, Text, RefreshControl } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useMessageStore } from "@/stores/messageStore";
+import { openDirectThreadWithFeedback } from "@/components/messages/messagesNavigation";
 import { useRef } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import { useComposeStore } from "@/stores/composeStore";
@@ -23,12 +25,12 @@ import {
   removeLike,
   removeRecast,
   publishCast,
-} from "@/services/neynar";
+} from "@/services/feed";
 import * as voiceNotesApi from "@/services/voiceNotes";
 import * as api from "@/services/api";
 import Toast from "react-native-toast-message";
 import type { RecordingItem } from "@/services/api";
-import type { NeynarCast } from "@/types/neynar";
+import type { FarcasterCast } from "@/types/farcaster";
 import type { VoiceNoteDetail } from "@/types/voiceNote";
 
 const LIST_PERF_PROPS = {
@@ -50,7 +52,7 @@ export default function ProfileScreen() {
 
   const [activeTab, setActiveTab] = useState<ProfileTab>("casts");
   const [composeVisible, setComposeVisible] = useState(false);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+  const [quoteCastTarget, setQuoteCastTarget] = useState<FarcasterCast | null>(
     null,
   );
 
@@ -145,6 +147,32 @@ export default function ProfileScreen() {
     return [];
   }, [casts, activeTab]);
 
+  // Compute "Part N of M" indicators for spaces with multiple
+  // recorded segments. Single-segment rooms get nothing (no banner
+  // clutter on the common case). Keyed by `id` when available,
+  // falling back to `room_id` to match the list keyExtractor.
+  const recordingPartInfo = useMemo(() => {
+    const map = new Map<string, { index: number; total: number }>();
+    const byRoom = new Map<string, RecordingItem[]>();
+    for (const r of recordings) {
+      const arr = byRoom.get(r.room_id) ?? [];
+      arr.push(r);
+      byRoom.set(r.room_id, arr);
+    }
+    for (const segments of byRoom.values()) {
+      if (segments.length < 2) continue;
+      // Backend returns DESC by started_at — newest first. Label the
+      // EARLIEST segment as "Part 1" so the numbering reads
+      // chronologically in the UI even though list order is reversed.
+      const total = segments.length;
+      segments.forEach((seg, i) => {
+        const key = seg.id ?? seg.room_id;
+        map.set(key, { index: total - i, total });
+      });
+    }
+    return map;
+  }, [recordings]);
+
   useEffect(() => {
     fetchProfile();
     fetchVoiceNotes();
@@ -199,13 +227,13 @@ export default function ProfileScreen() {
   );
 
   const handleReply = useCallback(
-    (_cast: NeynarCast) => {
+    (_cast: FarcasterCast) => {
       router.push(`/cast/${_cast.hash}`);
     },
     [router],
   );
 
-  const handleQuoteCast = useCallback((cast: NeynarCast) => {
+  const handleQuoteCast = useCallback((cast: FarcasterCast) => {
     setQuoteCastTarget(cast);
     setComposeVisible(true);
   }, []);
@@ -370,6 +398,23 @@ export default function ProfileScreen() {
     } catch {}
   }, []);
 
+  const isMessagingAvailable = useMessageStore(
+    (s) => s.availability !== "unavailable",
+  );
+  const handleMessage = useCallback(() => {
+    if (!user) return;
+    void openDirectThreadWithFeedback(
+      router,
+      {
+        fid: user.fid,
+        username: user.username,
+        display_name: user.display_name,
+        pfp_url: user.pfp_url,
+      },
+      { onRefused: (message) => Alert.alert("Can't message", message) },
+    );
+  }, [router, user]);
+
   if (isLoading && !user) {
     return <LoadingSpinner fullScreen />;
   }
@@ -386,6 +431,7 @@ export default function ProfileScreen() {
       onBlockToggle={handleBlockToggle}
       activeTab={activeTab}
       onTabChange={setActiveTab}
+      onMessage={isMessagingAvailable ? handleMessage : undefined}
     />
   ) : null;
 
@@ -395,9 +441,20 @@ export default function ProfileScreen() {
         <FlatList
           {...LIST_PERF_PROPS}
           data={recordings}
-          keyExtractor={(item) => `rec-${item.room_id}`}
+          keyExtractor={(item) =>
+            // Prefer the segment UUID — a host who stops + restarts in
+            // one space now produces multiple rows that share room_id,
+            // and React would warn (and break list virtualization) on
+            // duplicate keys. Legacy rows without `id` keep the old key.
+            item.id ? `rec-${item.id}` : `rec-${item.room_id}`
+          }
           ListHeaderComponent={profileHeader}
-          renderItem={({ item }) => <RecordingFeedItem item={item} />}
+          renderItem={({ item }) => (
+            <RecordingFeedItem
+              item={item}
+              partInfo={recordingPartInfo.get(item.id ?? item.room_id)}
+            />
+          )}
           onEndReached={fetchMoreRecordings}
           onEndReachedThreshold={0.5}
           refreshControl={

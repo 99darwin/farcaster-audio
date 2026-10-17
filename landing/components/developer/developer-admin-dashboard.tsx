@@ -9,12 +9,16 @@ import {
 } from "react";
 import {
   DeveloperApiError,
+  ReauthRequiredError,
   createDeveloperApiClient,
   type DeveloperAccessUser,
   type DeveloperApiClient,
   type DeveloperStatus,
 } from "@/lib/developer-api";
-import { SignerApprovalPrompt } from "../signer-approval-prompt";
+import { BrandLockup, BrandStripe } from "@/components/developer/brand";
+import { safeLinkUrl } from "@/lib/safe-url";
+import { FarcasterSignIn } from "@/components/auth/FarcasterSignIn";
+import type { LoginResponse } from "@/lib/api/types";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -34,10 +38,9 @@ type DeveloperAdminDashboardProps = {
 
 export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardProps) {
   const clientRef = useRef<DeveloperApiClient | null>(null);
-  const signerAbortRef = useRef<AbortController | null>(null);
-  const [signerApprovalUrl, setSignerApprovalUrl] = useState<string | null>(
-    null,
-  );
+  // Step-up re-auth: a privileged mutation needs a fresh sign-in. The
+  // session stays valid — we just surface the sign-in panel again.
+  const [reauthNeeded, setReauthNeeded] = useState(false);
   const mockMode = Boolean(mockUsers);
   const [mockSourceUsers, setMockSourceUsers] = useState<DeveloperAccessUser[]>(
     mockUsers ?? [],
@@ -52,6 +55,11 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
   );
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // While `hydrating`, the cold-start refresh-cookie probe is still in
+  // flight. Render a neutral loading state instead of the sign-in
+  // prompt so refreshes don't flash "Sign in" before the restored
+  // session lands. Mock mode bypasses hydration entirely.
+  const [hydrating, setHydrating] = useState(!mockUsers);
 
   const filteredUsers = useMemo(
     () => filterBySearchQuery(users, searchQuery),
@@ -70,60 +78,68 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
 
   if (!clientRef.current) clientRef.current = createDeveloperApiClient();
 
+  // `FarcasterSignIn` mints the session (Protocol Auth, cookie mode); adopt
+  // it into the developer client, then (re)load the user list.
+  async function handleLogin(response: LoginResponse) {
+    if (mockMode) return;
+    setPendingAction("Completing sign in");
+    setError(null);
+    try {
+      clientRef.current!.completeLogin(response);
+      setReauthNeeded(false);
+      await loadUsers();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+
+  // Cold-start session rehydration. The JWT lives only in memory and
+  // dies on a hard reload, but the HttpOnly `juke_refresh` cookie
+  // persists — so on mount we ask the backend to mint a fresh JWT from
+  // it. `restoreSession()` returns null on 401 (no valid cookie) so
+  // first-time visitors fall straight through to the sign-in UI.
   useEffect(() => {
+    if (mockMode) {
+      setHydrating(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const restored = await clientRef.current!.restoreSession();
+        if (cancelled) return;
+        if (restored) {
+          await loadUsers();
+        }
+      } catch {
+        // Swallow — falling through to the signed-out UI is the right
+        // behavior here. Real errors surface via loadUsers' own error
+        // handling once we have a session.
+      } finally {
+        if (!cancelled) setHydrating(false);
+      }
+    })();
     return () => {
-      signerAbortRef.current?.abort();
-      signerAbortRef.current = null;
+      cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // React to filter changes after hydration. We skip on initial mount
+  // (hydrating handles that) and when there is no session yet.
   useEffect(() => {
     if (mockMode) {
       setUsers(filterMockUsers(mockSourceUsers, filter));
       return;
     }
+    if (hydrating) return;
     if (!clientRef.current?.currentSession) return;
     void loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
-
-  async function signIn() {
-    signerAbortRef.current?.abort();
-    const abort = new AbortController();
-    signerAbortRef.current = abort;
-
-    setPendingAction("Opening Farcaster");
-    setError(null);
-    setSignerApprovalUrl(null);
-    try {
-      const { channelToken, url } = await clientRef.current!.startSiwfFlow();
-      setSignerApprovalUrl(url);
-      setPendingAction("Waiting for Farcaster approval");
-      const approved = await clientRef.current!.pollSiwfStatus(channelToken, {
-        signal: abort.signal,
-      });
-      setPendingAction("Completing sign in");
-      await clientRef.current!.completeSiwfLogin({
-        message: approved.message,
-        signature: approved.signature,
-      });
-      setSignerApprovalUrl(null);
-      await loadUsers();
-    } catch (err) {
-      if (abort.signal.aborted) return;
-      setError(errorMessage(err));
-    } finally {
-      if (signerAbortRef.current === abort) signerAbortRef.current = null;
-      setPendingAction(null);
-    }
-  }
-
-  function cancelSignIn() {
-    signerAbortRef.current?.abort();
-    signerAbortRef.current = null;
-    setSignerApprovalUrl(null);
-    setPendingAction(null);
-  }
 
   function signOut() {
     if (mockMode) {
@@ -131,6 +147,7 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
       return;
     }
     clientRef.current!.signOut();
+    setReauthNeeded(false);
     setUsers([]);
     setLoadState("idle");
     setError(null);
@@ -188,7 +205,14 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
         );
       }
     } catch (err) {
-      setError(errorMessage(err));
+      if (err instanceof ReauthRequiredError) {
+        // Step-up required: keep the session, surface the sign-in panel
+        // again. The admin re-signs, then retries.
+        setReauthNeeded(true);
+        setError(err.message || "Sign in again to continue.");
+      } else {
+        setError(errorMessage(err));
+      }
     } finally {
       setPendingAction(null);
     }
@@ -199,16 +223,15 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
 
   return (
     <main className="min-h-screen bg-juke-navy text-juke-text-on-dark">
+      <BrandStripe />
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
         <div className="flex items-center justify-between gap-4">
           <a
             href="/developers"
-            className="flex items-center gap-2 text-sm font-semibold text-juke-text-on-dark-secondary transition hover:text-white"
+            className="transition-opacity hover:opacity-80"
+            aria-label="Developer dashboard"
           >
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-juke-orange text-white">
-              J
-            </span>
-            Developer dashboard
+            <BrandLockup badge="Admin" />
           </a>
           {signedIn && (
             <button
@@ -222,7 +245,10 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
         </div>
 
         <div className="mt-8 max-w-3xl">
-          <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
+          <p className="text-sm font-semibold uppercase tracking-wide text-juke-orange">
+            Admin
+          </p>
+          <h1 className="font-display mt-2 text-3xl font-bold leading-tight sm:text-4xl">
             Developer approvals
           </h1>
           <p className="mt-3 text-base text-juke-text-on-dark-secondary">
@@ -237,36 +263,47 @@ export function DeveloperAdminDashboard({ mockUsers }: DeveloperAdminDashboardPr
             </Banner>
           )}
 
-          {!signedIn && (
+          {hydrating && (
             <Card>
-              <h2 className="text-xl font-semibold text-white">Admin sign in</h2>
-              <p className="mt-2 text-sm text-juke-text-on-dark-secondary">
-                Use a Juke admin account to approve or suspend developer access.
+              <p className="text-sm text-juke-text-on-dark-secondary">
+                Loading…
               </p>
-              {signerApprovalUrl ? (
-                <SignerApprovalPrompt
-                  approvalUrl={signerApprovalUrl}
-                  onCancel={cancelSignIn}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={signIn}
-                  className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-juke-orange px-5 text-sm font-semibold text-white transition hover:bg-juke-orange-hover"
-                >
-                  Sign in
-                </button>
-              )}
             </Card>
           )}
 
-          {signedIn && (
+          {!hydrating && !signedIn && (
+            <Card>
+              <h2 className="font-display text-xl font-semibold text-white">Admin sign in</h2>
+              <p className="mt-2 text-sm text-juke-text-on-dark-secondary">
+                Use a Juke admin account to approve or suspend developer access.
+              </p>
+              <div className="mt-5">
+                <FarcasterSignIn onLogin={handleLogin} />
+              </div>
+            </Card>
+          )}
+
+          {!hydrating && signedIn && reauthNeeded && (
+            <section className="rounded-2xl border border-juke-orange/40 bg-juke-orange/10 p-5 sm:p-6">
+              <h2 className="font-display text-xl font-semibold text-white">
+                Confirm it&apos;s you
+              </h2>
+              <p className="mt-2 text-sm text-orange-50/80">
+                For your security, sign in again to continue with that action.
+              </p>
+              <div className="mt-5">
+                <FarcasterSignIn onLogin={handleLogin} label="Sign in again" />
+              </div>
+            </section>
+          )}
+
+          {!hydrating && signedIn && (
             <>
               <Card>
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-baseline gap-3">
-                      <h2 className="text-xl font-semibold text-white">
+                      <h2 className="font-display text-xl font-semibold text-white">
                         {STATUS_LABEL[filter]}
                       </h2>
                       {filter === "pending" && pendingCount > 0 && (
@@ -362,7 +399,7 @@ function AccessCard({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-semibold text-white">{label}</h3>
+            <h3 className="font-display text-lg font-semibold text-white">{label}</h3>
             <Chip tone={statusTone(user.developerAccessStatus)}>
               {user.developerAccessStatus}
             </Chip>
@@ -386,18 +423,7 @@ function AccessCard({
                   Website
                 </p>
                 <p className="mt-1 break-words">
-                  {application.websiteUrl ? (
-                    <a
-                      href={application.websiteUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-juke-orange underline-offset-2 hover:underline"
-                    >
-                      {application.websiteUrl}
-                    </a>
-                  ) : (
-                    "Not provided"
-                  )}
+                  <WebsiteLink url={application.websiteUrl} />
                 </p>
               </div>
               <div className="md:col-span-2">
@@ -417,6 +443,27 @@ function AccessCard({
         <AccessActions user={user} onSetAccess={onSetAccess} />
       </div>
     </Card>
+  );
+}
+
+/**
+ * Applicant-supplied URL: only linkify http(s). Anything else (e.g. a
+ * `javascript:` URL planted to run in an admin's session) renders as
+ * inert text so the admin can still see what was submitted.
+ */
+function WebsiteLink({ url }: { url?: string | null }) {
+  if (!url) return <>Not provided</>;
+  const safeUrl = safeLinkUrl(url);
+  if (!safeUrl) return <>{url}</>;
+  return (
+    <a
+      href={safeUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-juke-orange underline-offset-2 hover:underline"
+    >
+      {safeUrl}
+    </a>
   );
 }
 
@@ -570,7 +617,7 @@ function relativeTime(iso: string): string {
 
 function Card({ children }: { children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-white/10 bg-juke-surface/70 p-5 sm:p-6">
+    <section className="rounded-2xl border border-juke-border/60 bg-juke-surface p-5 sm:p-6">
       {children}
     </section>
   );

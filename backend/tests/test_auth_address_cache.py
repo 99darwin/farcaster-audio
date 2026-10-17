@@ -1,7 +1,6 @@
 """Tests for the local DB-backed auth address status cache.
 
-Mirrors `test_snap_signer_cache.py`. Plus a test for the
-`verify_neynar_signer` Redis cache used on the login path.
+Mirrors `test_snap_signer_cache.py`.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -19,7 +18,7 @@ from app.database import Base
 from app.dependencies import get_db
 from app.main import app
 from app.models.auth_address import AuthAddress
-from app.services import auth_address_service, auth_service
+from app.services import auth_address_service
 
 ADDRESS = "0x" + "ab" * 20
 OWNER_FID = 4242
@@ -175,9 +174,7 @@ def _auth_header(fid: int) -> dict:
     token = jwt.encode(
         {
             "fid": fid,
-            "exp": int(
-                (datetime.now(timezone.utc) + timedelta(hours=24)).timestamp()
-            ),
+            "exp": int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp()),
         },
         settings.JWT_SECRET,
         algorithm=settings.JWT_ALGORITHM,
@@ -267,58 +264,3 @@ async def test_auth_address_invalidate_marks_revoked(client_with_db, db_session)
         )
     mock_check.assert_not_called()
     assert result["status"] == "revoked"
-
-
-# ---------------------------------------------------------------------------
-# verify_neynar_signer Redis cache
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_verify_neynar_signer_cache_hit_skips_neynar():
-    """Cache hit on verify_neynar_signer must NOT make an HTTP call."""
-    redis = AsyncMock()
-    redis.get = AsyncMock(return_value=b"4242")
-    redis.set = AsyncMock()
-
-    with patch(
-        "app.services.auth_service.httpx.AsyncClient"
-    ) as mock_client_cls:
-        result = await auth_service.verify_neynar_signer(
-            "signer-uuid-abc", 4242, redis=redis
-        )
-
-    mock_client_cls.assert_not_called()
-    assert result["fid"] == 4242
-    redis.get.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_verify_neynar_signer_cache_miss_then_set():
-    """Cache miss → Neynar call → cache populated."""
-    redis = AsyncMock()
-    redis.get = AsyncMock(return_value=None)
-    redis.set = AsyncMock()
-
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = {"fid": 4242, "signer_uuid": "x"}
-
-    mock_http = AsyncMock()
-    mock_http.get = AsyncMock(return_value=mock_response)
-    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-    mock_http.__aexit__ = AsyncMock(return_value=False)
-
-    with patch(
-        "app.services.auth_service.httpx.AsyncClient", return_value=mock_http
-    ):
-        result = await auth_service.verify_neynar_signer(
-            "signer-uuid-abc", 4242, redis=redis
-        )
-
-    assert result["fid"] == 4242
-    redis.set.assert_awaited_once()
-    args, kwargs = redis.set.call_args
-    assert args[0] == "neynar_signer_verify:signer-uuid-abc"
-    assert args[1] == "4242"
-    assert kwargs.get("ex") == 600

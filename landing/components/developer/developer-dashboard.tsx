@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -8,7 +9,10 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { SignerApprovalPrompt } from "../signer-approval-prompt";
+import { BrandLockup, BrandStripe } from "@/components/developer/brand";
+import QRCode from "qrcode";
+import { FarcasterSignIn } from "@/components/auth/FarcasterSignIn";
+import type { LoginResponse } from "@/lib/api/types";
 import {
   DeveloperApiError,
   ReauthRequiredError,
@@ -17,9 +21,11 @@ import {
   type CreateDeveloperKeyResponse,
   type DeveloperApiClient,
   type DeveloperApp,
+  type DeveloperBot,
   type DeveloperDashboardResponse,
   type DeveloperStatus,
 } from "@/lib/developer-api";
+import { safeImageUrl } from "@/lib/safe-url";
 
 type PreviewStatus = DeveloperStatus | null;
 
@@ -38,7 +44,6 @@ const SNIPPETS = {
   server: `await fetch("https://your-api-host.example.com/v1/developer/spaces", {
   method: "POST",
   headers: {
-    Authorization: \`Bearer \${process.env.JUKE_USER_TOKEN}\`,
     "X-Juke-Api-Key": process.env.JUKE_API_KEY,
     "Content-Type": "application/json",
   },
@@ -119,10 +124,10 @@ export function DeveloperDashboard({
   initialPreviewStatus,
 }: DeveloperDashboardProps) {
   const clientRef = useRef<DeveloperApiClient | null>(null);
-  const signerAbortRef = useRef<AbortController | null>(null);
-  const [signerApprovalUrl, setSignerApprovalUrl] = useState<string | null>(
-    null,
-  );
+  // Step-up re-auth: a dangerous mutation (rotate/revoke/reveal/delete)
+  // needs a fresh sign-in. The session stays valid — we just surface the
+  // sign-in panel again, distinct from a "session expired" sign-out.
+  const [reauthNeeded, setReauthNeeded] = useState(false);
   const [previewStatus, setPreviewStatus] =
     useState<PreviewStatus>(initialPreviewStatus);
   const [dashboard, setDashboard] = useState<DeveloperDashboardResponse | null>(
@@ -135,27 +140,80 @@ export function DeveloperDashboard({
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [secretReveal, setSecretReveal] =
     useState<CreateDeveloperKeyResponse | null>(null);
+  // While `hydrating`, the cold-start refresh-cookie probe is still in
+  // flight. We deliberately render neither the sign-in prompt nor the
+  // authenticated UI during this window — flashing "Sign in" before the
+  // restored session lands is what made every refresh feel broken.
+  // Preview mode bypasses hydration because it renders mock data.
+  const [hydrating, setHydrating] = useState(!initialPreviewStatus);
 
   if (!clientRef.current) clientRef.current = createDeveloperApiClient();
 
   const profile = dashboard?.profile ?? null;
   const isSignedIn = Boolean(dashboard);
 
+  // Cold-start session rehydration. The JWT lives only in memory and
+  // dies on a hard reload, but the HttpOnly `juke_refresh` cookie
+  // persists — so on mount we ask the backend to mint a fresh JWT from
+  // it. `restoreSession()` returns null on 401 (no valid cookie) so
+  // first-time visitors fall straight through to the sign-in UI.
+  useEffect(() => {
+    if (initialPreviewStatus) {
+      setHydrating(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const restored = await clientRef.current!.restoreSession();
+        if (cancelled) return;
+        if (restored) {
+          await loadDashboard();
+        }
+      } catch {
+        // Swallow — falling through to the signed-out UI is the right
+        // behavior here. Surface real errors via loadDashboard's own
+        // error handling once we have a session.
+      } finally {
+        if (!cancelled) setHydrating(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reload when the preview toggle flips off (dev tools only). The
+  // initial-mount hydration above handles the cold-start case; this
+  // effect handles the live transition from preview → real data
+  // without double-loading on first render.
   useEffect(() => {
     if (previewStatus) return;
+    if (hydrating) return;
     const client = clientRef.current;
     if (!client?.currentSession) return;
     void loadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewStatus]);
 
-  // Abort any in-flight signer polling on unmount.
-  useEffect(() => {
-    return () => {
-      signerAbortRef.current?.abort();
-      signerAbortRef.current = null;
-    };
-  }, []);
+  // `FarcasterSignIn` mints the session (Protocol Auth, cookie mode); adopt
+  // it into the developer client, then (re)load the dashboard.
+  async function handleLogin(response: LoginResponse) {
+    setPendingAction("Completing sign in");
+    setError(null);
+    setPreviewStatus(null);
+    try {
+      clientRef.current!.completeLogin(response);
+      setReauthNeeded(false);
+      await loadDashboard();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
 
   async function loadDashboard() {
     setLoadState("loading");
@@ -176,56 +234,9 @@ export function DeveloperDashboard({
     }
   }
 
-  async function signIn() {
-    // Abort any previous in-flight sign-in attempt.
-    signerAbortRef.current?.abort();
-    const abort = new AbortController();
-    signerAbortRef.current = abort;
-
-    setPendingAction("Opening Farcaster");
-    setError(null);
-    setPreviewStatus(null);
-    setSignerApprovalUrl(null);
-
-    try {
-      const { channelToken, url } = await clientRef.current!.startSiwfFlow();
-      // The url is a `farcaster://connect?...` deeplink. Render as
-      // a QR for desktop (scan with phone) or as a tap-to-deeplink
-      // button on mobile. The Farcaster client displays the domain
-      // (juke.audio) at approval time — that's the SIWF guarantee
-      // that lets users verify they're signing into the real site.
-      setSignerApprovalUrl(url);
-      setPendingAction("Waiting for Farcaster approval");
-
-      const approved = await clientRef.current!.pollSiwfStatus(channelToken, {
-        signal: abort.signal,
-      });
-
-      setPendingAction("Completing sign in");
-      await clientRef.current!.completeSiwfLogin({
-        message: approved.message,
-        signature: approved.signature,
-      });
-      setSignerApprovalUrl(null);
-      await loadDashboard();
-    } catch (err) {
-      if (abort.signal.aborted) return; // user cancelled — stay silent
-      setError(errorMessage(err));
-    } finally {
-      if (signerAbortRef.current === abort) signerAbortRef.current = null;
-      setPendingAction(null);
-    }
-  }
-
-  function cancelSignIn() {
-    signerAbortRef.current?.abort();
-    signerAbortRef.current = null;
-    setSignerApprovalUrl(null);
-    setPendingAction(null);
-  }
-
   function signOut() {
     clientRef.current!.signOut();
+    setReauthNeeded(false);
     setDashboard(null);
     setPreviewStatus(null);
     setLoadState("idle");
@@ -395,10 +406,11 @@ export function DeveloperDashboard({
       await callback();
     } catch (err) {
       if (err instanceof ReauthRequiredError) {
-        // Step-up required: keep the session, prompt a fresh SIWN. The
-        // user re-runs Sign in, then retries the action. We deliberately
-        // do NOT auto-retry — the original action stays explicit.
-        setError("Sign in again to continue.");
+        // Step-up required: keep the session, surface the sign-in panel
+        // again. The user re-signs, then retries the action — we
+        // deliberately do NOT auto-retry, the original action stays explicit.
+        setReauthNeeded(true);
+        setError(err.message || "Sign in again to continue.");
       } else {
         setError(errorMessage(err));
       }
@@ -490,6 +502,7 @@ export function DeveloperDashboard({
 
   return (
     <main className="min-h-screen bg-juke-navy text-juke-text-on-dark">
+      <BrandStripe />
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
         <TopBar
           isSignedIn={isSignedIn}
@@ -498,7 +511,10 @@ export function DeveloperDashboard({
         />
 
         <div className="mt-8 sm:mt-12 max-w-3xl">
-          <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
+          <p className="text-sm font-semibold uppercase tracking-wide text-juke-orange">
+            For developers
+          </p>
+          <h1 className="font-display mt-2 text-3xl font-bold leading-tight sm:text-4xl">
             Juke developer keys
           </h1>
           <p className="mt-3 text-base text-juke-text-on-dark-secondary">
@@ -515,15 +531,13 @@ export function DeveloperDashboard({
               </Banner>
             )}
 
-            {!dashboard && (
-              <SignedOutPanel
-                loadState={loadState}
-                onSignIn={signIn}
-                onCancelSignIn={cancelSignIn}
-                isPolling={pendingAction === "Waiting for Farcaster approval"}
-                approvalUrl={signerApprovalUrl}
-              />
+            {hydrating && <HydratingPanel />}
+
+            {!hydrating && !dashboard && (
+              <SignedOutPanel loadState={loadState} onLogin={handleLogin} />
             )}
+
+            {dashboard && reauthNeeded && <ReauthPanel onLogin={handleLogin} />}
 
             {profile?.status === "none" && (
               <NoApplicationPanel
@@ -588,12 +602,10 @@ function TopBar({
     <div className="flex items-center justify-between">
       <a
         href="/"
-        className="flex items-center gap-2 text-sm font-semibold text-juke-text-on-dark-secondary transition hover:text-white"
+        className="transition-opacity hover:opacity-80"
+        aria-label="Juke home"
       >
-        <span className="grid h-8 w-8 place-items-center rounded-lg bg-juke-orange text-white">
-          J
-        </span>
-        Juke
+        <BrandLockup badge="Developers" />
       </a>
       <div className="flex items-center gap-3">
         {statusChip}
@@ -611,43 +623,58 @@ function TopBar({
   );
 }
 
+// Neutral placeholder shown while the cold-start refresh-cookie probe
+// is in flight. Avoids the "Sign in" flash on hard reload for users
+// who already have a valid session cookie.
+function HydratingPanel() {
+  return (
+    <Card>
+      <p className="text-sm text-juke-text-on-dark-secondary">Loading…</p>
+    </Card>
+  );
+}
+
 function SignedOutPanel({
   loadState,
-  onSignIn,
-  onCancelSignIn,
-  isPolling,
-  approvalUrl,
+  onLogin,
 }: {
   loadState: LoadState;
-  onSignIn: () => void;
-  onCancelSignIn: () => void;
-  isPolling: boolean;
-  approvalUrl: string | null;
+  onLogin: (response: LoginResponse) => Promise<void>;
 }) {
   return (
     <Card>
-      <h2 className="text-xl font-semibold text-white">
+      <h2 className="font-display text-xl font-semibold text-white">
         Sign in with Farcaster
       </h2>
-      {isPolling ? (
-        <SignerApprovalPrompt
-          approvalUrl={approvalUrl}
-          onCancel={onCancelSignIn}
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={onSignIn}
-          className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-juke-orange px-5 text-sm font-semibold text-white transition hover:bg-juke-orange-hover"
-        >
-          Sign in
-        </button>
-      )}
-      {loadState === "error" && !isPolling && (
+      <div className="mt-5">
+        <FarcasterSignIn onLogin={onLogin} />
+      </div>
+      {loadState === "error" && (
         <p className="mt-3 text-xs text-juke-text-on-dark-tertiary">
           Sign in is required before requesting developer access.
         </p>
       )}
+    </Card>
+  );
+}
+
+// Step-up re-auth prompt. Distinct from "session expired" — the session
+// is still valid; a dangerous mutation just needs a fresh sign-in. The
+// sign-in panel mints a fresh session; the user then retries.
+function ReauthPanel({
+  onLogin,
+}: {
+  onLogin: (response: LoginResponse) => Promise<void>;
+}) {
+  return (
+    <Card className="border-juke-orange/40 bg-juke-orange/10">
+      <h2 className="font-display text-xl font-semibold text-white">Confirm it&apos;s you</h2>
+      <p className="mt-2 text-sm text-orange-50/80">
+        For your security, sign in again to continue with that action.
+      </p>
+      <div className="mt-5">
+        <FarcasterSignIn onLogin={onLogin} label="Sign in again" />
+      </div>
     </Card>
   );
 }
@@ -661,7 +688,7 @@ function NoApplicationPanel({
 }) {
   return (
     <Card>
-      <h2 className="text-xl font-semibold text-white">
+      <h2 className="font-display text-xl font-semibold text-white">
         {profileName ? `Welcome, ${profileName}.` : "Welcome."} Request developer access.
       </h2>
       <p className="mt-2 text-sm text-juke-text-on-dark-secondary">
@@ -685,7 +712,7 @@ function NoApplicationPanel({
 function PendingPanel({ profileName }: { profileName?: string | null }) {
   return (
     <Card>
-      <h2 className="text-xl font-semibold text-white">
+      <h2 className="font-display text-xl font-semibold text-white">
         {profileName ? `Thanks, ${profileName}.` : "Thanks."} Your application is in review.
       </h2>
       <p className="mt-2 text-sm text-juke-text-on-dark-secondary">
@@ -704,7 +731,7 @@ function PendingPanel({ profileName }: { profileName?: string | null }) {
 function SuspendedPanel({ reason }: { reason?: string | null }) {
   return (
     <Card>
-      <h2 className="text-xl font-semibold text-white">Developer API paused</h2>
+      <h2 className="font-display text-xl font-semibold text-white">Developer API paused</h2>
       <p className="mt-2 text-sm text-juke-text-on-dark-secondary">
         {reason ||
           "Hosted iframes keep working, but server APIs are disabled until access is restored."}
@@ -729,7 +756,7 @@ function ApprovedPanel({
   return (
     <>
       <Card>
-        <h2 className="text-xl font-semibold text-white">New app</h2>
+        <h2 className="font-display text-xl font-semibold text-white">New app</h2>
         <p className="mt-2 text-sm text-juke-text-on-dark-secondary">
           An app scopes origins and groups keys. Production keys belong on
           your server.
@@ -741,6 +768,7 @@ function ApprovedPanel({
             label="Allowed origins"
             name="allowedOrigins"
             placeholder="https://example.com, https://app.example.com"
+            hint="Full URLs only — must include https:// (or http:// for local). Comma-separated."
             className="sm:col-span-2"
           />
           <TextArea
@@ -794,7 +822,7 @@ function AppCard({
   return (
     <Card>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 className="text-lg font-semibold text-white">{app.name}</h3>
+        <h3 className="font-display text-lg font-semibold text-white">{app.name}</h3>
         <p className="text-xs text-juke-text-on-dark-tertiary">
           Created {formatDate(app.createdAt)}
         </p>
@@ -887,6 +915,8 @@ function AppCard({
           Create key
         </button>
       </form>
+
+      <AppBotsPanel appId={app.id} />
     </Card>
   );
 }
@@ -916,7 +946,7 @@ function SecretReveal({
 
   return (
     <div className="rounded-2xl border border-juke-orange/40 bg-juke-orange/10 p-5">
-      <h2 className="text-lg font-semibold text-white">Copy this key now</h2>
+      <h2 className="font-display text-lg font-semibold text-white">Copy this key now</h2>
       <p className="mt-1.5 text-sm text-orange-50/80">
         Shown once. Lose it and you&apos;ll need to rotate.
       </p>
@@ -967,7 +997,7 @@ function SecretReveal({
 function IntegrationGuide() {
   return (
     <Card>
-      <h2 className="text-lg font-semibold text-white">Quickstart</h2>
+      <h2 className="font-display text-lg font-semibold text-white">Quickstart</h2>
       <div className="mt-4 space-y-4">
         <Snippet title="Iframe" code={SNIPPETS.iframe} />
         <Snippet title="Server API" code={SNIPPETS.server} />
@@ -1039,7 +1069,7 @@ function Card({
 }) {
   return (
     <section
-      className={`rounded-2xl border border-white/10 bg-juke-surface/70 p-5 sm:p-6 ${className}`}
+      className={`rounded-2xl border border-juke-border/60 bg-juke-surface p-5 sm:p-6 ${className}`}
     >
       {children}
     </section>
@@ -1124,6 +1154,7 @@ function Field({
   type = "text",
   required = false,
   placeholder,
+  hint,
   className = "",
 }: {
   label: string;
@@ -1131,6 +1162,7 @@ function Field({
   type?: string;
   required?: boolean;
   placeholder?: string;
+  hint?: string;
   className?: string;
 }) {
   return (
@@ -1146,6 +1178,11 @@ function Field({
         placeholder={placeholder}
         className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 text-sm text-white outline-none transition placeholder:text-juke-text-on-dark-tertiary focus:border-juke-orange"
       />
+      {hint && (
+        <span className="mt-1 block text-xs text-juke-text-on-dark-tertiary">
+          {hint}
+        </span>
+      )}
     </label>
   );
 }
@@ -1188,6 +1225,179 @@ function Snippet({ title, code }: { title: string; code: string }) {
       <pre className="overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-3 text-[11px] leading-5 text-juke-text-on-dark-secondary">
         <code>{code}</code>
       </pre>
+    </div>
+  );
+}
+
+/**
+ * Read-only panel showing bots registered under an app. Polls every 15 s
+ * while any bot has a pending_approval signer. Uses `createDeveloperApiClient()`
+ * to pick up the module-level session — the backend endpoint will 404 until
+ * WS2 ships, so errors are silently swallowed and the panel stays hidden.
+ */
+function AppBotsPanel({ appId }: { appId: string }) {
+  const clientRef = useRef<DeveloperApiClient | null>(null);
+  const [bots, setBots] = useState<DeveloperBot[] | null>(null);
+
+  if (!clientRef.current) clientRef.current = createDeveloperApiClient();
+
+  const hasPending =
+    bots?.some((b) => b.signerStatus === "pending_approval") ?? false;
+
+  const fetchBots = useCallback(async () => {
+    try {
+      const next = await clientRef.current!.listBots(appId);
+      setBots(next);
+    } catch {
+      setBots((prev) => prev ?? []);
+    }
+  }, [appId]);
+
+  useEffect(() => {
+    void fetchBots();
+  }, [fetchBots]);
+
+  useEffect(() => {
+    if (!hasPending) return;
+    const id = setInterval(() => void fetchBots(), 15_000);
+    return () => clearInterval(id);
+  }, [hasPending, fetchBots]);
+
+  if (bots === null) return null;
+
+  return (
+    <div className="mt-5 border-t border-white/[0.06] pt-4">
+      <p className="mb-2 text-xs font-medium text-juke-text-on-dark-secondary">
+        Bots{bots.length > 0 ? ` (${bots.length})` : ""}
+      </p>
+      {bots.length === 0 ? (
+        <Snippet
+          title="Register a bot (server-side)"
+          code={`curl -X POST https://your-api-host.example.com/v1/developer/bots \\
+  -H "X-Juke-Api-Key: $JUKE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"fid": 123456, "label": "my-bot"}'`}
+        />
+      ) : (
+        <div className="space-y-2.5">
+          {bots.map((bot) => (
+            <BotRow key={bot.id} bot={bot} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BotRow({ bot }: { bot: DeveloperBot }) {
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+
+  // Validate approvalUrl is https: before using it as a link or in the
+  // clipboard — guards against a compromised backend injecting javascript: URLs.
+  const safeApprovalUrl = safeImageUrl(bot.approvalUrl);
+
+  useEffect(() => {
+    if (!safeApprovalUrl) {
+      setQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(safeApprovalUrl, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 160,
+      color: { dark: "#0f0f23", light: "#ffffff" },
+    })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [safeApprovalUrl]);
+
+  async function copyUrl() {
+    if (!safeApprovalUrl) return;
+    try {
+      await navigator.clipboard.writeText(safeApprovalUrl);
+      setCopyState("copied");
+    } catch {
+      // clipboard denied — leave button as-is
+    }
+    window.setTimeout(() => setCopyState("idle"), 1800);
+  }
+
+  const statusTone: "success" | "warning" | "muted" =
+    bot.signerStatus === "approved"
+      ? "success"
+      : bot.signerStatus === "pending_approval"
+        ? "warning"
+        : "muted"; // revoked | fid_mismatch | null
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium text-white">{bot.label}</span>
+          <span className="shrink-0 text-xs text-juke-text-on-dark-tertiary">
+            FID {bot.fid}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Chip tone="muted" size="sm">
+            {bot.authMode === "app_key" ? "managed" : "custody-env"}
+          </Chip>
+          <Chip tone={statusTone} size="sm">
+            {bot.signerStatus ?? "none"}
+          </Chip>
+        </div>
+      </div>
+
+      {bot.signerStatus === "pending_approval" && safeApprovalUrl && (
+        <div className="mt-3 space-y-2.5">
+          {qrDataUrl && (
+            <img
+              src={qrDataUrl}
+              alt="Scan with the bot account's Farcaster app"
+              width={160}
+              height={160}
+              style={{ width: 160, height: 160 }}
+              className="rounded-xl bg-white p-1"
+            />
+          )}
+          <p className="text-xs text-juke-text-on-dark-secondary">
+            Open this link from the bot account&apos;s Farcaster app to approve
+            the signer. Waiting for approval…
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={safeApprovalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-9 items-center rounded-full border border-white/15 px-3 text-xs font-medium text-white/80 transition hover:bg-white/5"
+            >
+              Open in Farcaster
+            </a>
+            <button
+              type="button"
+              onClick={copyUrl}
+              className="inline-flex h-9 items-center rounded-full border border-white/15 px-3 text-xs font-medium text-white/80 transition hover:bg-white/5"
+            >
+              {copyState === "copied" ? "Copied" : "Copy link"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(bot.signerStatus === "revoked" || bot.signerStatus === "fid_mismatch") && (
+        <p className="mt-2 text-xs text-juke-text-on-dark-secondary">
+          {bot.signerStatus === "fid_mismatch"
+            ? "Wrong account approved. Re-register via POST /v1/developer/bots/{id}/signer to get a fresh keypair."
+            : "Signer revoked. Re-register to recover."}
+        </p>
+      )}
     </div>
   );
 }

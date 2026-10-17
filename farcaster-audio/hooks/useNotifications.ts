@@ -8,7 +8,7 @@ import {
   removeLike,
   removeRecast,
   publishCast,
-} from "@/services/neynar";
+} from "@/services/feed";
 import { saveLastSeenNotificationTimestamp } from "@/services/storage";
 
 export function useNotifications() {

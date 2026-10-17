@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { encodePathSegment } from "@/lib/api-path";
 
 export const runtime = "edge";
 export const alt = "Juke Recording";
@@ -63,11 +64,14 @@ export default async function Image({
   const { id } = await params;
 
   let data: RecordingDetail | null = null;
+  const segment = encodePathSegment(id);
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/recordings/${id}`, {
-      next: { revalidate: 60 },
-    });
-    if (res.ok) data = await res.json();
+    if (segment) {
+      const res = await fetch(`${API_BASE_URL}/v1/recordings/${segment}`, {
+        next: { revalidate: 60 },
+      });
+      if (res.ok) data = await res.json();
+    }
   } catch {
     // Fall through to fallback rendering
   }

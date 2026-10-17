@@ -1,5 +1,4 @@
 import { useRef, useCallback, useMemo } from "react";
-import { Linking } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -19,6 +18,13 @@ import type {
 import { useAuthStore } from "@/stores/authStore";
 import { useMiniAppStore } from "@/stores/miniappStore";
 import { getAuthAddressStatus, signSiwfMessage } from "@/services/authAddress";
+import {
+  hasSignInConsent,
+  rememberSignInConsent,
+} from "@/services/miniAppSignInConsent";
+import { requestConfirmation } from "@/stores/confirmationStore";
+import { confirmAndOpenExternalUrl } from "@/utils/externalLinks";
+import { isValidMiniAppUrl } from "@/utils/url";
 
 // Juke's Farcaster FID — replace with actual value when registered
 const JUKE_CLIENT_FID = 0;
@@ -118,13 +124,9 @@ export function useMiniAppHost({
       },
 
       openUrl: (url: string) => {
-        try {
-          const parsed = new URL(url);
-          if (parsed.protocol !== "https:") return;
-          Linking.openURL(url);
-        } catch {
-          // Invalid URL — ignore
-        }
+        // Page-initiated: validate (public https only) and make the user
+        // confirm the exact URL before leaving the app.
+        void confirmAndOpenExternalUrl(url, { sourceName: domain });
       },
 
       setPrimaryButton: (options: SetPrimaryButtonOptions) => {
@@ -193,15 +195,10 @@ export function useMiniAppHost({
       },
 
       openMiniApp: async ({ url }: { url: string }) => {
-        // Validate URL
-        try {
-          const parsed = new URL(url);
-          if (parsed.protocol !== "https:") return;
-        } catch {
-          return;
-        }
+        if (!isValidMiniAppUrl(url)) return;
         const { resolveMiniApp } = await import("@/services/manifest");
         const resolved = await resolveMiniApp(url);
+        if (!isValidMiniAppUrl(resolved.launchUrl)) return;
         closeMiniApp();
         // Small delay to allow modal to dismiss before reopening
         setTimeout(() => {
@@ -302,6 +299,22 @@ export function useMiniAppHost({
           if (postSetup !== "approved") {
             throw new SignIn.RejectedByUser();
           }
+        }
+
+        // The signature logs this page in as the user. Ask once per domain
+        // and remember the answer; never sign silently on first contact.
+        if (!(await hasSignInConsent(fid, domain))) {
+          const isConfirmed = await requestConfirmation({
+            title: "Sign in with Farcaster?",
+            message:
+              "This mini app is asking to sign you in with your Farcaster account. Only continue if you trust it.",
+            detail: domain,
+            confirmLabel: "Sign in",
+          });
+          if (!isConfirmed) {
+            throw new SignIn.RejectedByUser();
+          }
+          await rememberSignInConsent(fid, domain);
         }
 
         const { signature, message } = await signSiwfMessage(fid, {

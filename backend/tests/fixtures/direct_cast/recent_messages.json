@@ -1,0 +1,92 @@
+{
+  "result": {
+    "messages": [
+      {
+        "conversationId": "1001-2002",
+        "senderFid": 2002,
+        "messageId": "a1b2c3d4-0003-4000-8000-000000000003",
+        "serverTimestamp": 1760600120000,
+        "type": "text",
+        "message": "",
+        "hasMention": false,
+        "reactions": [],
+        "isPinned": false,
+        "isDeleted": true,
+        "senderContext": {
+          "fid": 2002,
+          "username": "bob",
+          "displayName": "Bob",
+          "pfp": {
+            "url": "https://i.imgur.com/bob.png"
+          }
+        },
+        "viewerContext": {
+          "isLastReadMessage": false,
+          "focused": false,
+          "reactions": []
+        }
+      },
+      {
+        "conversationId": "1001-2002",
+        "senderFid": 1001,
+        "messageId": "a1b2c3d4-0002-4000-8000-000000000002",
+        "serverTimestamp": 1760600060000,
+        "type": "text",
+        "message": "gm bob",
+        "hasMention": false,
+        "reactions": [],
+        "isPinned": false,
+        "isDeleted": false,
+        "senderContext": {
+          "fid": 1001,
+          "username": "alice",
+          "displayName": "Alice",
+          "pfp": {
+            "url": "https://i.imgur.com/alice.png"
+          }
+        },
+        "viewerContext": {
+          "isLastReadMessage": false,
+          "focused": false,
+          "reactions": []
+        },
+        "inReplyTo": {
+          "conversationId": "1001-2002",
+          "senderFid": 2002,
+          "messageId": "a1b2c3d4-0001-4000-8000-000000000001",
+          "serverTimestamp": 1760600000000,
+          "type": "text",
+          "message": "gm alice, check https://juke.audio",
+          "hasMention": false,
+          "reactions": [
+            {
+              "reaction": "🔥",
+              "count": 2
+            },
+            {
+              "reaction": "👍",
+              "count": 1
+            }
+          ],
+          "isPinned": false,
+          "isDeleted": false,
+          "senderContext": {
+            "fid": 2002,
+            "username": "bob",
+            "displayName": "Bob",
+            "pfp": {
+              "url": "https://i.imgur.com/bob.png"
+            }
+          },
+          "viewerContext": {
+            "isLastReadMessage": true,
+            "focused": false,
+            "reactions": [
+              "🔥"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
