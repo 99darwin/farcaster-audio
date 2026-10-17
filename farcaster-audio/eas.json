@@ -5,40 +5,61 @@
       "developmentClient": true,
       "distribution": "internal",
       "channel": "development",
+      "environment": "development",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "ios": {
-        "image": "latest",
+        "image": "macos-tahoe-26.5-xcode-26.6",
         "simulator": true
+      },
+      "android": {
+        "image": "latest",
+        "buildType": "apk"
       }
     },
     "preview": {
       "distribution": "internal",
       "channel": "preview",
+      "environment": "preview",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "ios": {
-        "image": "latest",
+        "image": "macos-tahoe-26.5-xcode-26.6",
         "buildConfiguration": "Release"
+      },
+      "android": {
+        "image": "latest",
+        "buildType": "apk"
       }
     },
     "production": {
       "channel": "production",
+      "environment": "production",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "ios": {
-        "image": "latest",
+        "image": "macos-tahoe-26.5-xcode-26.6",
         "buildConfiguration": "Release",
+        "autoIncrement": true
+      },
+      "android": {
+        "image": "latest",
+        "buildType": "app-bundle",
         "autoIncrement": true
       }
     }
   },
   "submit": {
     "production": {
-      "ios": {}
+      "ios": {},
+      "android": {
+        "serviceAccountKeyPath": "./play-service-account.json",
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
     }
   }
 }

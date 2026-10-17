@@ -43,7 +43,9 @@ def can_demote(actor_role: str, target_role: str) -> bool:
     if actor_role == "co_host" and target_role == "host":
         return False
     # Can demote speakers and co_hosts (host can demote co_host)
-    return target_role in ("speaker", "co_host") or (actor_role == "host" and target_role == "co_host")
+    return target_role in ("speaker", "co_host") or (
+        actor_role == "host" and target_role == "co_host"
+    )
 
 
 def can_mute_other(actor_role: str, target_role: str) -> bool:

@@ -6,20 +6,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.cast_bookmark import CastBookmark
 
 
-def _iter_cast_dicts(value: object) -> Iterator[dict]:
+def iter_cast_dicts(value: object) -> Iterator[dict]:
     if isinstance(value, dict):
         is_cast = (
             isinstance(value.get("hash"), str)
             and value.get("hash", "").startswith("0x")
-            and any(key in value for key in ("author", "reactions", "timestamp", "text"))
+            and any(
+                key in value for key in ("author", "reactions", "timestamp", "text")
+            )
         )
         if is_cast:
             yield value
         for child in value.values():
-            yield from _iter_cast_dicts(child)
+            yield from iter_cast_dicts(child)
     elif isinstance(value, list):
         for item in value:
-            yield from _iter_cast_dicts(item)
+            yield from iter_cast_dicts(item)
 
 
 async def annotate_bookmarked_casts(
@@ -28,7 +30,7 @@ async def annotate_bookmarked_casts(
     payload: dict | list,
 ) -> dict | list:
     """Set viewer_context.bookmarked on every cast-shaped dict in a Neynar payload."""
-    casts = list(_iter_cast_dicts(payload))
+    casts = list(iter_cast_dicts(payload))
     hashes = {cast["hash"] for cast in casts}
     if not hashes:
         return payload

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { LiveSpacesStrip } from "@/components/live-spaces-strip";
 import { RecordingFeedItem } from "@/components/recording-feed-item";
@@ -108,6 +108,30 @@ export default function MiniAppHome() {
 
   const activeFeed = tab === "voice-notes" ? voiceNotes : recordings;
   const activeRetry = tab === "voice-notes" ? fetchVoiceNotes : fetchRecordings;
+
+  // Compute "Part N of M" indicators for spaces with multiple recorded
+  // segments. Single-segment rooms get no badge (keeps the common case
+  // clean). Numbered chronologically (oldest = Part 1) even though the
+  // list sorts DESC by started_at, so the numbering matches the order
+  // recorded in.
+  const recordingPartInfo = useMemo(() => {
+    const map = new Map<string, { index: number; total: number }>();
+    const byRoom = new Map<string, typeof recordings.items>();
+    for (const it of recordings.items) {
+      const arr = byRoom.get(it.recording.room_id) ?? [];
+      arr.push(it);
+      byRoom.set(it.recording.room_id, arr);
+    }
+    for (const segments of byRoom.values()) {
+      if (segments.length < 2) continue;
+      const total = segments.length;
+      segments.forEach((seg, i) => {
+        const key = seg.recording.id ?? seg.recording.room_id;
+        map.set(key, { index: total - i, total });
+      });
+    }
+    return map;
+  }, [recordings.items]);
   const loadMore = useCallback(() => {
     if (tab === "voice-notes" && voiceNotes.cursor) {
       fetchVoiceNotes(voiceNotes.cursor);
@@ -190,12 +214,20 @@ export default function MiniAppHome() {
                     item={item}
                   />
                 ))
-              : recordings.items.map((item) => (
-                  <RecordingFeedItem
-                    key={item.recording.room_id}
-                    item={item}
-                  />
-                ))}
+              : recordings.items.map((item) => {
+                  // Prefer the segment UUID — a host who stops + restarts
+                  // recording in the same space produces multiple items
+                  // that share `room_id`. React would warn on duplicate
+                  // keys and item virtualization would misbehave.
+                  const key = item.recording.id ?? item.recording.room_id;
+                  return (
+                    <RecordingFeedItem
+                      key={key}
+                      item={item}
+                      partInfo={recordingPartInfo.get(key)}
+                    />
+                  );
+                })}
 
             {activeFeed.hasMore && (
               <div className="px-4 py-4">

@@ -1,8 +1,8 @@
 import { create } from "zustand";
-import type { NeynarNotification } from "@/types/neynar";
+import type { FarcasterNotification } from "@/types/farcaster";
 
 interface NotificationStore {
-  notifications: NeynarNotification[];
+  notifications: FarcasterNotification[];
   cursor: string | null;
   isLoading: boolean;
   isRefreshing: boolean;
@@ -13,11 +13,11 @@ interface NotificationStore {
 
   // Actions
   setNotifications: (
-    notifications: NeynarNotification[],
+    notifications: FarcasterNotification[],
     cursor: string | null,
   ) => void;
   appendNotifications: (
-    notifications: NeynarNotification[],
+    notifications: FarcasterNotification[],
     cursor: string | null,
   ) => void;
   setLoading: (loading: boolean) => void;

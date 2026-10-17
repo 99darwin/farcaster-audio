@@ -2,7 +2,7 @@
 through Expo push payloads.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -10,8 +10,9 @@ import pytest
 
 from app.models.room import Room
 from app.services.push_service import PushService
+from tests.hypersnap_fake import V2, fake_hypersnap  # noqa: F401
 
-PFP_URL = "https://example.com/pfp.png"
+PFP_URL = "https://imagedelivery.net/abc/pfp/rectcrop3"
 TOKEN = "ExponentPushToken[abc123]"
 TARGET_FID = 4242
 
@@ -294,6 +295,69 @@ async def test_send_push_with_normal_https_image_includes_rich_content():
     assert message["mutableContent"] is True
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/abc/original",
+        "https://wrpcd.net/cdn-cgi/imagedelivery/x/y/rectcrop3",
+        "https://i.imgur.com/x.jpg",
+        "https://res.cloudinary.com/merkle-manufactory/image/upload/v1/x.png",
+        "https://i.seadn.io/gae/abc",
+        "https://IMAGEDELIVERY.NET/x",
+    ],
+)
+def test_is_safe_image_url_allows_known_cdns(url):
+    from app.services.push_service import _is_safe_image_url
+
+    assert _is_safe_image_url(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/pfp.png",  # arbitrary host = tracking pixel
+        "https://attacker.example/i.imgur.com/x.jpg",
+        "https://i.imgur.com.attacker.example/x.jpg",
+        "https://evilimagedelivery.net/x",
+        "https://i.imgur.com:8443/x.jpg",
+        "https://user@i.imgur.com/x.jpg",
+        "http://i.imgur.com/x.jpg",
+        "https://[::1]/x",
+        # Allowlisted image proxies fetching an attacker origin.
+        "https://wrpcd.net/cdn-cgi/image/fit=contain/"
+        "https%3A%2F%2Fattacker.example%2Fpixel.png",
+        "https://wrpcd.net/cdn-cgi/image/w=1/https%253A%252F%252Fattacker.example",
+        "https://res.cloudinary.com/evil/image/fetch/attacker.example/pixel.png",
+        "https://res.cloudinary.com/evil/image/upload/x.png?u=https://attacker.example",
+        "https://i.imgur.com//attacker.example/x.png",
+        "",
+        None,
+    ],
+)
+def test_is_safe_image_url_rejects_unlisted_hosts(url):
+    """L5: an attacker-chosen pfp host would learn which fids got pushes."""
+    from app.services.push_service import _is_safe_image_url
+
+    assert not _is_safe_image_url(url)
+
+
+@pytest.mark.asyncio
+async def test_send_push_with_unlisted_image_host_omits_rich_content(caplog):
+    db = _make_db_with_tokens([TOKEN])
+    service = PushService(db=db, redis=AsyncMock())
+    client_cls, post_mock = _make_mock_httpx_post()
+    tracker = "https://tracker.example/pixel.png?u=victim"
+    with (
+        caplog.at_level("INFO"),
+        patch("app.services.push_service.httpx.AsyncClient", client_cls),
+    ):
+        await service.send_push(fid=TARGET_FID, title="t", body="b", image_url=tracker)
+    message = post_mock.call_args.kwargs["json"][0]
+    assert "richContent" not in message
+    assert "pfp_url" not in message["data"]
+    assert "tracker.example" not in caplog.text
+
+
 @pytest.mark.asyncio
 async def test_send_push_no_tokens_short_circuits():
     """If the user has no active tokens, no HTTP call is made."""
@@ -508,6 +572,7 @@ async def test_admin_notify_rejects_invalid_room_state():
 # handle_notification_event — probable-spam gate
 # ---------------------------------------------------------------------------
 
+
 def _patch_spam(is_spam_value: bool):
     """Patch SpamService inside push_service so is_spam returns the given value."""
     spam_mock = MagicMock()
@@ -615,3 +680,131 @@ async def test_handle_event_delivers_when_actor_not_spam():
         await service.handle_notification_event("reaction.created", payload)
 
     service.send_push.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_nested_reply_notifies_immediate_parent_and_original_poster():
+    service = _spam_handler_service()
+    service._resolve_thread_root_author_fid = AsyncMock(return_value=111)
+    payload = {
+        "data": {
+            "hash": "0xdeep",
+            "text": "following up",
+            "author": {"fid": 333, "display_name": "Carol"},
+            "parent_author": {"fid": 222},
+            "parent_hash": "0xmiddle",
+            "thread_hash": "0xroot",
+            "mentioned_profiles": [],
+        }
+    }
+
+    with _patch_spam(False):
+        await service.handle_notification_event("cast.created", payload)
+
+    service._resolve_thread_root_author_fid.assert_awaited_once_with("0xroot")
+    service.send_push.assert_has_awaits(
+        [
+            call(
+                fid=222,
+                title="New Reply",
+                body="Carol: following up",
+                data={
+                    "type": "reply",
+                    "url": "/cast/0xdeep?contextHash=0xroot",
+                    "cast_hash": "0xdeep",
+                    "thread_hash": "0xroot",
+                    "focus_hash": "0xdeep",
+                },
+                image_url=None,
+            ),
+            call(
+                fid=111,
+                title="New Reply",
+                body="Carol: following up",
+                data={
+                    "type": "reply",
+                    "url": "/cast/0xdeep?contextHash=0xroot",
+                    "cast_hash": "0xdeep",
+                    "thread_hash": "0xroot",
+                    "focus_hash": "0xdeep",
+                },
+                image_url=None,
+            ),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_direct_root_reply_does_not_lookup_or_double_notify():
+    service = _spam_handler_service()
+    service._resolve_thread_root_author_fid = AsyncMock(return_value=111)
+    payload = {
+        "data": {
+            "hash": "0xreply",
+            "text": "hello",
+            "author": {"fid": 333, "display_name": "Carol"},
+            "parent_author": {"fid": 111},
+            "parent_hash": "0xroot",
+            "thread_hash": "0xroot",
+            "mentioned_profiles": [{"fid": 111}],
+        }
+    }
+
+    with _patch_spam(False):
+        await service.handle_notification_event("cast.created", payload)
+
+    service._resolve_thread_root_author_fid.assert_not_awaited()
+    service.send_push.assert_awaited_once()
+    assert service.send_push.await_args.kwargs["fid"] == 111
+
+
+@pytest.mark.asyncio
+async def test_thread_root_author_cache_avoids_neynar_lookup():
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=b"111")
+    service = PushService(db=AsyncMock(), redis=redis)
+
+    assert await service._resolve_thread_root_author_fid("0xroot") == 111
+    redis.get.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_thread_root_author_resolves_from_hypersnap_and_caches(
+    fake_hypersnap,
+):
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    service = PushService(db=AsyncMock(), redis=redis)
+    fake_hypersnap.route(f"{V2}/cast", {"cast": {"author": {"fid": 111}}})
+
+    assert await service._resolve_thread_root_author_fid("0xroot") == 111
+
+    calls = fake_hypersnap.calls_to(f"{V2}/cast")
+    assert [call.params for call in calls] == [{"identifier": "0xroot", "type": "hash"}]
+    redis.set.assert_awaited_once_with(
+        "push:thread-root-author:0xroot",
+        "111",
+        ex=60 * 60 * 24 * 7,
+    )
+
+
+@pytest.mark.asyncio
+async def test_thread_root_author_upstream_failure_returns_none(fake_hypersnap):
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    service = PushService(db=AsyncMock(), redis=redis)
+    fake_hypersnap.route(f"{V2}/cast", (503, {"message": "down"}))
+
+    assert await service._resolve_thread_root_author_fid("0xroot") is None
+    redis.set.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolve_pfp_url_reads_hypersnap_user_bulk(fake_hypersnap):
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    service = PushService(db=AsyncMock(), redis=redis)
+    fake_hypersnap.route(f"{V2}/user/bulk", {"users": [{"fid": 7, "pfp_url": PFP_URL}]})
+
+    assert await service._resolve_pfp_url(7) == PFP_URL
+    assert fake_hypersnap.calls_to(f"{V2}/user/bulk")[0].params == {"fids": "7"}

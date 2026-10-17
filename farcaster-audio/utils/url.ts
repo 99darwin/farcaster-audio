@@ -1,9 +1,4 @@
-/**
- * Returns true if the URL is safe to hand to `Linking.openURL` or the
- * in-app miniapp host: https-only, real public domain, no loopback /
- * private / link-local addresses, no bare IPs, no custom schemes.
- */
-export function isValidMiniAppUrl(url: string | null | undefined): boolean {
+function isSafePublicHttpsUrl(url: string | null | undefined): boolean {
   if (!url) return false;
   try {
     const parsed = new URL(url);
@@ -20,4 +15,18 @@ export function isValidMiniAppUrl(url: string | null | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+/** Safe to render as an image (https-only, public host, no data: URIs). */
+export function isSafeImageUrl(url: string | null | undefined): url is string {
+  return isSafePublicHttpsUrl(url);
+}
+
+/**
+ * Returns true if the URL is safe to hand to `Linking.openURL` or the
+ * in-app miniapp host: https-only, real public domain, no loopback /
+ * private / link-local addresses, no bare IPs, no custom schemes.
+ */
+export function isValidMiniAppUrl(url: string | null | undefined): boolean {
+  return isSafePublicHttpsUrl(url);
 }

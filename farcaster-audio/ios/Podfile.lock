@@ -109,6 +109,8 @@ PODS:
   - ExpoRouter (55.0.7):
     - ExpoModulesCore
     - RNScreens
+  - ExpoScreenCapture (55.0.18):
+    - ExpoModulesCore
   - ExpoSecureStore (55.0.9):
     - ExpoModulesCore
   - ExpoSymbols (55.0.5):
@@ -2068,6 +2070,28 @@ PODS:
     - React-utils (= 0.83.2)
     - ReactNativeDependencies
   - ReactNativeDependencies (0.83.2)
+  - RNCAsyncStorage (2.2.0):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - RNDateTimePicker (9.1.0):
     - hermes-engine
     - RCTRequired
@@ -2257,51 +2281,6 @@ PODS:
     - ReactNativeDependencies
     - Sentry (= 9.7.0)
     - Yoga
-  - RNSVG (15.15.4):
-    - hermes-engine
-    - RCTRequired
-    - RCTTypeSafety
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - RNSVG/common (= 15.15.4)
-    - Yoga
-  - RNSVG/common (15.15.4):
-    - hermes-engine
-    - RCTRequired
-    - RCTTypeSafety
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - Yoga
   - RNWorklets (0.7.4):
     - hermes-engine
     - RCTRequired
@@ -2419,6 +2398,7 @@ DEPENDENCIES:
   - ExpoModulesJSI (from `../node_modules/expo-modules-core`)
   - ExpoNotifications (from `../node_modules/expo-notifications/ios`)
   - ExpoRouter (from `../node_modules/expo-router/ios`)
+  - ExpoScreenCapture (from `../node_modules/expo-screen-capture/ios`)
   - ExpoSecureStore (from `../node_modules/expo-secure-store/ios`)
   - ExpoSymbols (from `../node_modules/expo-symbols/ios`)
   - ExpoVideo (from `../node_modules/expo-video/ios`)
@@ -2505,12 +2485,12 @@ DEPENDENCIES:
   - ReactCodegen (from `build/generated/ios/ReactCodegen`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
+  - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - "RNDateTimePicker (from `../node_modules/@react-native-community/datetimepicker`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
   - "RNSentry (from `../node_modules/@sentry/react-native`)"
-  - RNSVG (from `../node_modules/react-native-svg`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
@@ -2584,6 +2564,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-notifications/ios"
   ExpoRouter:
     :path: "../node_modules/expo-router/ios"
+  ExpoScreenCapture:
+    :path: "../node_modules/expo-screen-capture/ios"
   ExpoSecureStore:
     :path: "../node_modules/expo-secure-store/ios"
   ExpoSymbols:
@@ -2755,6 +2737,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   ReactNativeDependencies:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
+  RNCAsyncStorage:
+    :path: "../node_modules/@react-native-async-storage/async-storage"
   RNDateTimePicker:
     :path: "../node_modules/@react-native-community/datetimepicker"
   RNGestureHandler:
@@ -2765,8 +2749,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-screens"
   RNSentry:
     :path: "../node_modules/@sentry/react-native"
-  RNSVG:
-    :path: "../node_modules/react-native-svg"
   RNWorklets:
     :path: "../node_modules/react-native-worklets"
   Yoga:
@@ -2801,6 +2783,7 @@ SPEC CHECKSUMS:
   ExpoModulesJSI: 7345645083e98be9c33c10027601aff2e445ba72
   ExpoNotifications: 0e3b12306933444ca6030782eaa0b1b015ee3b42
   ExpoRouter: 2bef44d037beb8ba5a325ec9e9ab870bc7dd96a9
+  ExpoScreenCapture: f70b9fd607ffb46c43cd5322a9ab83633f296a0b
   ExpoSecureStore: 83d31183fecaae7a084e88e29d14d5a02d90882a
   ExpoSymbols: 3d67a96643245a5d933ce7fbf535f95eb541f617
   ExpoVideo: ba3b3de16404dd6affe10e04c1856dc05a8cc600
@@ -2809,7 +2792,7 @@ SPEC CHECKSUMS:
   EXUpdates: 1d1fec5075e1934d83748d723b5ee34d9680b8b6
   EXUpdatesInterface: d48f288b92900bd95a27c6cf92a7b9aff826d49a
   FBLazyVector: 32e9ed0301d0fcbc1b2b341dd7fcbf291f51eb83
-  hermes-engine: 96d1cc75dc42d15e5f1c039650037e4513e832c7
+  hermes-engine: d36d59f0e4ef3bf72602ac14b96845714c0996cf
   JukeVoiceRecorder: a89f40d22b381d3e6d3a08c190a7ba0ba66aa5bb
   libavif: 5f8e715bea24debec477006f21ef9e95432e254d
   libdav1d: 23581a4d8ec811ff171ed5e2e05cd27bad64c39f
@@ -2825,7 +2808,7 @@ SPEC CHECKSUMS:
   React: f4edc7518ccb0b54a6f580d89dd91471844b4990
   React-callinvoker: 79ef4e3f1c021571f6d2dafbe45ca432b2f3a146
   React-Core: c19ad4660fd48bc8abc060d979f8ee37f1fc4a5a
-  React-Core-prebuilt: 9c57476b6fac4a88922933d6dbeba43e6e91061b
+  React-Core-prebuilt: b8a2587581478b1fcce8f9136fcb6f7d4c9ef976
   React-CoreModules: f94ec3ee2bac588d033ad15a2377af746284f8c8
   React-cxxreact: de66364f2d5fb77d3da3cfa927b2fd960892c711
   React-debug: 4f6739c820d7da9c20f48caa985573b6a847e5f5
@@ -2889,13 +2872,13 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: d69159b417e8c9d82b8fe4d0a27def4c3e8f767f
   ReactCodegen: e67cb698a2107da1da9efa55174861d724666a3e
   ReactCommon: 8868269b67561136a7970be188b40738135af077
-  ReactNativeDependencies: 5e90572398172214bff6dc8318ad6cee618561b8
+  ReactNativeDependencies: a158476a4844b56f1cf71ab32da80386511fd706
+  RNCAsyncStorage: 3a4f5e2777dae1688b781a487923a08569e27fe4
   RNDateTimePicker: 9025ccd219b382f246e9ceb85cd4095279b9bad1
   RNGestureHandler: 5494787ce29288a8941fa825663f2b1fa0a5aaf1
   RNReanimated: 86e5991396f1aa514db90d6c79d4c3e37a37bb10
   RNScreens: 02e62f995ceb94ea465864b3bf4d4767b87f0362
   RNSentry: abe87472a87a37bc3513e939adf97f5ed5c9ce92
-  RNSVG: 7bf7808626c62cdf93911573b9358f1601d58003
   RNWorklets: 5eddf924d11308d62920405addeddc3dfe1daaaa
   SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   SDWebImageAVIFCoder: afe194a084e851f70228e4be35ef651df0fc5c57
@@ -2905,6 +2888,6 @@ SPEC CHECKSUMS:
   WebRTC-SDK: 40d4f5ba05cadff14e4db5614aec402a633f007e
   Yoga: dd994d8c85dca5cc9b10f5df8c01f9ef1d0da191
 
-PODFILE CHECKSUM: 5acf25dd8dfd5cb22c746d5adfca7b691ad37501
+PODFILE CHECKSUM: cd2bb149fe69b599123394f80887a07c057fee6f
 
 COCOAPODS: 1.16.2

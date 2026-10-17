@@ -1,21 +1,21 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { View, FlatList } from "react-native";
-import { useRouter } from "expo-router";
 import { useScrollToTop } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "@/stores/authStore";
-import { useComposeStore } from "@/stores/composeStore";
 import { useFeed } from "@/hooks/useFeed";
 import { useLiveSpaces } from "@/hooks/useLiveSpaces";
 import { SpacesRail } from "@/components/spaces/SpacesRail";
 import { FeedList } from "@/components/feed/FeedList";
 import { ComposeModal } from "@/components/feed/ComposeModal";
+import { TAB_BAR_CONTENT_INSET } from "@/components/navigation/GlassTabBar";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
-import type { NeynarCast } from "@/types/neynar";
+import type { FarcasterCast } from "@/types/farcaster";
 
 export default function HomeScreen() {
-  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const styles = useStyles();
+  const insets = useSafeAreaInsets();
 
   const {
     feedItems,
@@ -47,32 +47,18 @@ export default function HomeScreen() {
 
   // Compose modal state
   const [isComposeVisible, setIsComposeVisible] = useState(false);
-  const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+  const [replyTarget, setReplyTarget] = useState<FarcasterCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<FarcasterCast | null>(
     null,
   );
 
-  // Listen for compose requests from the tab bar or snap compose intents
-  const composeSignal = useComposeStore((s) => s.composeSignal);
-  const composeDraft = useComposeStore((s) => s.draft);
-  const clearDraft = useComposeStore((s) => s.clearDraft);
-  const composeSignalRef = useRef(composeSignal);
-  useEffect(() => {
-    if (composeSignal > composeSignalRef.current) {
-      setReplyTarget(null);
-      setQuoteCastTarget(null);
-      setIsComposeVisible(true);
-    }
-    composeSignalRef.current = composeSignal;
-  }, [composeSignal]);
-
-  const openReply = useCallback((cast: NeynarCast) => {
+  const openReply = useCallback((cast: FarcasterCast) => {
     setReplyTarget(cast);
     setQuoteCastTarget(null);
     setIsComposeVisible(true);
   }, []);
 
-  const openQuoteCast = useCallback((cast: NeynarCast) => {
+  const openQuoteCast = useCallback((cast: FarcasterCast) => {
     setQuoteCastTarget(cast);
     setReplyTarget(null);
     setIsComposeVisible(true);
@@ -84,8 +70,7 @@ export default function HomeScreen() {
     setIsComposeVisible(false);
     setReplyTarget(null);
     setQuoteCastTarget(null);
-    clearDraft();
-  }, [clearDraft]);
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -110,6 +95,9 @@ export default function HomeScreen() {
         ListHeaderComponent={feedHeader}
         error={error}
         onRetry={fetch}
+        contentContainerStyle={{
+          paddingBottom: insets.bottom + TAB_BAR_CONTENT_INSET,
+        }}
       />
 
       <ComposeModal
@@ -118,8 +106,6 @@ export default function HomeScreen() {
         onPublish={handlePublishCast}
         replyTo={replyTarget}
         quoteCast={quoteCastTarget}
-        defaultText={composeDraft?.text}
-        defaultEmbeds={composeDraft?.embeds}
       />
     </View>
   );

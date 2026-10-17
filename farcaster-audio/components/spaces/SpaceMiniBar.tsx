@@ -5,6 +5,7 @@ import { useSpaceStore } from "@/stores/spaceStore";
 import { GlassView } from "@/components/common/GlassView";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
+import { markSpaceJoinIntent } from "@/utils/spaceJoinIntent";
 
 interface SpaceMiniBarProps {
   onToggleMute: () => void;
@@ -30,7 +31,10 @@ export function SpaceMiniBar({
     <GlassView style={[styles.container, { bottom: bottomOffset }]}>
       <Pressable
         style={styles.content}
-        onPress={() => router.push(`/space/${room.id}`)}
+        onPress={() => {
+          markSpaceJoinIntent(room.id);
+          router.push(`/space/${room.id}`);
+        }}
         accessibilityLabel={`Active space: ${room.title}`}
         accessibilityRole="button"
       >

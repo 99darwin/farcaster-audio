@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/push", tags=["push"])
 
 
-def _push_service(db: AsyncSession = Depends(get_db), redis=Depends(get_redis)) -> PushService:
+def _push_service(
+    db: AsyncSession = Depends(get_db), redis=Depends(get_redis)
+) -> PushService:
     return PushService(db, redis)
 
 

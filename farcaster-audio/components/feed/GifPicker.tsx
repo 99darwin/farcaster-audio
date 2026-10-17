@@ -8,8 +8,10 @@ import {
   StyleSheet,
   FlatList,
   ActivityIndicator,
+  Platform,
   type ListRenderItem,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
@@ -29,6 +31,7 @@ interface GifPickerProps {
 export function GifPicker({ isVisible, onClose, onSelect }: GifPickerProps) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   const [gifs, setGifs] = useState<GiphyGif[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(0);
@@ -142,7 +145,14 @@ export function GifPicker({ isVisible, onClose, onSelect }: GifPickerProps) {
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      <View
+        style={[
+          styles.container,
+          // Android Modals ignore presentationStyle="pageSheet" and render
+          // edge-to-edge, so the status bar overlaps content.
+          Platform.OS === "android" && { paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.header}>
           <Text style={styles.title}>GIFs</Text>
           <Pressable onPress={onClose} hitSlop={12}>

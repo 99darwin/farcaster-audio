@@ -2,6 +2,13 @@ export const Config = {
   API_BASE_URL:
     process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000",
 
+  /**
+   * Public Hypersnap node for unauthenticated reads (FID lookup on the
+   * sign-in screen). Not a secret; overridable per build.
+   */
+  HYPERSNAP_HTTP_URL:
+    process.env.EXPO_PUBLIC_HYPERSNAP_HTTP_URL ?? "https://haatz.quilibrium.com",
+
   SENTRY_DSN: process.env.EXPO_PUBLIC_SENTRY_DSN ?? "",
 
   LIVEKIT_WS_URL: process.env.EXPO_PUBLIC_LIVEKIT_WS_URL ?? "",

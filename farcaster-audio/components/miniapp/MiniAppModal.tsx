@@ -3,7 +3,6 @@ import {
   View,
   Text,
   Pressable,
-  Linking,
   StyleSheet,
   ActivityIndicator,
   useWindowDimensions,
@@ -24,6 +23,8 @@ import { useMiniAppHost } from "@/hooks/useMiniAppHost";
 import { useMiniAppStore } from "@/stores/miniappStore";
 import { AuthAddressSetup } from "@/components/miniapp/AuthAddressSetup";
 import { GlassView } from "@/components/common/GlassView";
+import { decideMiniAppNavigation } from "@/components/miniapp/miniAppNavigation";
+import { confirmAndOpenExternalUrl } from "@/utils/externalLinks";
 import { typography } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
@@ -217,24 +218,20 @@ function MiniAppContent({
 
   const handleShouldStartLoad = useCallback(
     (request: ShouldStartLoadRequest): boolean => {
-      const requestUrl = request.url;
-      if (requestUrl.startsWith("about:")) return true;
-      try {
-        const parsed = new URL(requestUrl);
-        if (parsed.protocol !== "https:") return false;
-        const requestHost = parsed.hostname;
-        if (requestHost === domain || requestHost.endsWith(`.${domain}`)) {
-          return true;
-        }
-        if (parsed.protocol === "https:") {
-          Linking.openURL(requestUrl).catch(() => {});
-        }
-        return false;
-      } catch {
+      const decision = decideMiniAppNavigation({
+        url: request.url,
+        isTopFrame: request.isTopFrame,
+        domain,
+      });
+      if (decision === "offer_external") {
+        void confirmAndOpenExternalUrl(request.url, {
+          sourceName: config?.name ? `${config.name} (${domain})` : domain,
+        });
         return false;
       }
+      return decision === "allow";
     },
-    [domain],
+    [config?.name, domain],
   );
 
   const handlePrimaryButtonPress = useCallback(() => {

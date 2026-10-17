@@ -83,9 +83,7 @@ def _transform_giphy_response(payload: dict) -> GifSearchResponse:
         # Defense in depth: if Giphy ever returns a non-Giphy URL (compromise
         # or upstream bug), drop the GIF rather than embed an arbitrary URL
         # in a user's public cast under their identity.
-        if not _is_safe_giphy_url(original_url) or not _is_safe_giphy_url(
-            preview_url
-        ):
+        if not _is_safe_giphy_url(original_url) or not _is_safe_giphy_url(preview_url):
             logger.warning(
                 "[gifs] Dropping GIF with non-Giphy URL: id=%s",
                 item.get("id"),
@@ -123,9 +121,7 @@ def _require_api_key() -> str:
     return key
 
 
-async def _enforce_gifs_rate_limit(
-    fid: int, redis: aioredis.Redis
-) -> None:
+async def _enforce_gifs_rate_limit(fid: int, redis: aioredis.Redis) -> None:
     """Per-FID Redis-backed rate limit shared across /search and /trending.
 
     Mirrors ``RoomService._enforce_recording_rate_limit`` — sliding window
@@ -140,8 +136,7 @@ async def _enforce_gifs_rate_limit(
         raise HTTPException(
             status_code=429,
             detail=(
-                f"Rate limit exceeded (max {GIFS_RATE_LIMIT_PER_MIN} "
-                "requests/min)"
+                f"Rate limit exceeded (max {GIFS_RATE_LIMIT_PER_MIN} " "requests/min)"
             ),
             headers={"Retry-After": str(GIFS_RATE_LIMIT_WINDOW_SEC)},
         )
@@ -199,9 +194,7 @@ async def _fetch_giphy(path: str, query: dict) -> dict:
         # newlines/tabs would let it inject fake log lines into structured
         # log parsers.
         raw_preview = resp.text[:200]
-        body_preview = "".join(
-            c if c.isprintable() else " " for c in raw_preview
-        )
+        body_preview = "".join(c if c.isprintable() else " " for c in raw_preview)
         status_code = resp.status_code
         logger.error("[gifs] Giphy %s -> %s: %s", path, status_code, body_preview)
         raise HTTPException(status_code=502, detail="Upstream service error")

@@ -1,0 +1,23 @@
+{
+  "result": {
+    "conversationId": "1001-2002",
+    "messageId": "a1b2c3d4-0001-4000-8000-000000000001",
+    "reactions": [
+      {
+        "fid": 1001,
+        "reaction": "🔥"
+      },
+      {
+        "fid": 3003,
+        "reaction": "🔥"
+      },
+      {
+        "fid": 9999,
+        "reaction": "👍"
+      }
+    ]
+  },
+  "next": {
+    "cursor": "cmVhY3Rpb25zOjI"
+  }
+}

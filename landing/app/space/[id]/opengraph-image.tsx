@@ -1,11 +1,13 @@
 import { ImageResponse } from "next/og";
+import { encodePathSegment } from "@/lib/api-path";
 
 export const runtime = "edge";
 export const alt = "Juke — Live Audio Space";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 type RoomData = {
   room: {
@@ -21,8 +23,10 @@ type RoomData = {
 };
 
 async function fetchRoom(id: string): Promise<RoomData | null> {
+  const segment = encodePathSegment(id);
+  if (!segment) return null;
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/rooms/${id}`, {
+    const res = await fetch(`${API_BASE_URL}/v1/rooms/${segment}`, {
       next: { revalidate: 30 },
     });
     if (!res.ok) return null;

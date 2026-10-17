@@ -9,6 +9,17 @@ API base URL: https://your-api-host.example.com
 Hosted embed base URL: https://juke.audio/embed/{spaceId}
 Developer dashboard: https://juke.audio/developers
 LLM implementation guide: https://juke.audio/SKILL.md
+Release feed (JSON, CORS-open): https://juke.audio/changelog.json
+
+## Sign-In Model
+
+Juke sign-in is Protocol Auth: an `hqa1` token (a SIWE message naming the
+FID, chain-id 10, at most 1h) signed by a key the Farcaster contracts on
+Optimism tie to that FID. Inside a Farcaster Mini App host the host wallet
+signs it; on ordinary webpages a per-browser auth address (KeyRegistry
+keyType 2), linked once with the recovery phrase, signs it. No
+Farcaster-hosted relay or auth server is involved. Anonymous listening needs
+no sign-in.
 
 ## What To Build
 
@@ -20,8 +31,9 @@ Use Juke when a user asks for:
 - creating custom Juke apps or server integrations with developer API keys
 - sharing a canonical Juke space URL
 
-Do not treat MCP or agent participation as part of the normal embed path. Agent
-access is a separate future surface.
+Agent participation is a separate join path (paid via x402, or free for
+approved developer apps joining their own rooms — see "Agents" below).
+It's not part of the normal embed integration.
 
 ## Key Rule: When Keys Are Required
 
@@ -30,8 +42,8 @@ websites, landing pages, blogs, community dashboards, and fast MVP embeds.
 
 Juke developer keys are only for custom SDK or server integrations that call
 protected Juke developer endpoints, such as creating apps, minting rooms from a
-server, or managing custom integration state. Never ask developers for Neynar
-API keys, LiveKit keys, or Juke backend credentials for ordinary embeds.
+server, or managing custom integration state. Never ask developers for Farcaster
+provider API keys, LiveKit keys, or Juke backend credentials for ordinary embeds.
 
 Developers manage Juke apps and keys at:
 
@@ -40,7 +52,7 @@ https://juke.audio/developers
 ```
 
 Developer access states:
-- signed out: prompt Farcaster SIWF before loading developer apps
+- signed out: prompt Farcaster sign-in before loading developer apps
 - pending: no keys yet; hosted iframe still works without keys
 - approved: create apps, create keys, rotate keys, revoke keys
 - suspended: custom API key calls are disabled; hosted public embeds can remain
@@ -62,11 +74,11 @@ Use this when the developer wants spaces live quickly and accepts Juke-owned UI.
 Behavior:
 - no auth is required to render public metadata
 - visitors can listen anonymously
-- visitors sign in with Farcaster/Neynar only when they want to participate
+- visitors sign in with Farcaster only when they want to participate
 - speaking always requires host/co-host promotion inside the Juke permission model
 - "Powered by Juke" attribution must remain visible
 
-Third-party iframe integrations do not need a Neynar API key, LiveKit key, or
+Third-party iframe integrations do not need a Farcaster provider key, LiveKit key, or
 Juke backend credentials. Juke hosts the auth, audio token issuance, and UI.
 
 ## Custom Integration: SDK Shape
@@ -74,7 +86,7 @@ Juke backend credentials. Juke hosts the auth, audio token issuance, and UI.
 Use this when the developer wants custom UI.
 
 ```ts
-import { createJukeEmbedSdk } from "@juke/audio-sdk";
+import { createJukeEmbedSdk, JukeEmbedAuthError } from "@juke/audio-sdk";
 
 const juke = createJukeEmbedSdk();
 const space = await juke.getSpace(spaceId);
@@ -83,22 +95,22 @@ const space = await juke.getSpace(spaceId);
 const anonymousJoin = await juke.joinAnonymousListener(spaceId);
 await juke.connectAudio(anonymousJoin);
 
-// 2. When the visitor opts into participation, run Sign In With Farcaster.
-//    The SDK fetches a single-use nonce from the backend, opens a SIWF
-//    channel via the Farcaster auth relay, and returns a deeplink the
-//    user opens in their Farcaster client.
-const { channelToken, url } = await juke.startSiwfFlow();
+// 2. When the visitor opts into participation, sign in with Protocol Auth.
+//    Inside a Farcaster Mini App host the host wallet signs the token —
+//    no QR, no second app. Returns null outside a host.
+//    On JukeEmbedAuthError, check `err.reason`: fall back to the web flow
+//    only on "verify_failed"; "user_cancelled" is silent; "network" and
+//    "timeout" are retryable.
+let session = await juke.signInWithMiniApp();
 
-// 3. Render `url` (a `farcaster://connect?...` deeplink) as a QR code
-//    on desktop or as a tap button on mobile. The user approves in
-//    their Farcaster client, which displays the signing domain on the
-//    approval screen.
-const approved = await juke.pollSiwfStatus(channelToken);
+// 3. Outside a host, open the web auth-address flow in a first-party
+//    juke.audio window — call this directly from a click handler. A
+//    returning browser signs with its stored key; a new browser links once
+//    there with the recovery phrase. Only the session is posted back. The
+//    embed never renders a phrase field.
+if (!session) session = await juke.signInWithPopup();
 
-// 4. Finish login and join the room as an authenticated participant.
-//    The backend re-verifies the signature, the domain, and the nonce
-//    before issuing a Juke JWT.
-await juke.completeSiwfLogin(approved);
+// 4. Join the room as an authenticated participant.
 const authedJoin = await juke.joinAuthenticated(spaceId);
 await juke.connectAudio(authedJoin);
 await juke.raiseHand(spaceId, true);
@@ -108,11 +120,21 @@ await juke.sendReaction("clap");
 SDK capabilities:
 - `getSpace(id)`
 - `joinAnonymousListener(id)`
-- `startSiwfFlow()` — returns `{channelToken, url}`; render `url` as a
-  QR for desktop scan or as a tap button on mobile.
-- `pollSiwfStatus(channelToken, { signal? })` — resolves to
-  `{message, signature, fid}` when the user signs; rejects on abort.
-- `completeSiwfLogin({message, signature})` — finalizes the Juke session.
+- `signInWithMiniApp({ force? })` — Mini App host sign-in; resolves to the
+  session, or `null` outside a host. Throws `JukeEmbedAuthError` with a
+  `reason` of `user_cancelled`, `network`, `timeout` or `verify_failed`;
+  fall back to the web flow only on `verify_failed`.
+- `signInWithPopup({ signal? })` — web sign-in in a first-party
+  juke.audio window, delivered back by same-origin postMessage. Works only
+  where the SDK runs on the juke.audio origin (the hosted iframe); call it
+  from a click. Rejects with `EmbedSignInPopupError` (`reason`: `blocked`,
+  `closed`, `aborted`). Sandboxed iframes need `allow-popups`.
+- `signInWithAuthAddress(fid, { store? })` — returning browser on the
+  juke.audio origin; throws `LinkRequiredError` when this browser has no
+  linked key for the FID.
+- `adoptLoginResponse(response)` — adopt a session minted with
+  `EMBED_AUTH_OPTIONS`.
+- `adoptPartnerSession(token)` — adopt a partner-minted JWT.
 - `joinAuthenticated(id, token?)`
 - `leaveSpace(id)`
 - `refreshToken(id)`
@@ -121,11 +143,17 @@ SDK capabilities:
 - `connectAudio(joinResponse)`
 - `enableMicrophone()` only after host approval
 
-Do not open the SIWF `url` in a desktop popup — it is a Farcaster
-deeplink (`farcaster://connect?...`) and renders blank in a normal
-browser tab. Show a QR code so the user can scan it with their
-Farcaster app, plus a tap-to-deeplink button for visitors already on
-mobile.
+Breaking changes: `startSiwfFlow()`, `pollSiwfStatus()`,
+`StartSiwfFlowResult`, `SiwfApproved` and `SIWF_POLL_INTERVAL_MS` were
+removed with the relay. `completeSiwfLogin({message, signature})` remains
+but is deprecated. Sessions now carry `source`
+(`"protocol" | "miniapp" | "partner" | "siwf"`). Mini App sessions have no
+refresh token; the SDK re-signs with the host wallet when they near
+expiry.
+
+`linkBrowser()` was removed from the embed SDK: the recovery phrase is never
+collected inside a frame. It is entered only in the top-level juke.audio
+sign-in window, which refuses to render when framed, once per browser.
 
 If building custom UI, keep visible Juke attribution and link to the canonical
 space page: `https://juke.audio/space/{spaceId}`.
@@ -140,7 +168,7 @@ client-side error monitoring.
 End-to-end flow:
 
 1. Open `https://juke.audio/developers`.
-2. Sign in with Farcaster using SIWF.
+2. Sign in with Farcaster.
 3. Request developer access with the app/use-case details.
 4. Wait for Juke admin approval.
 5. Create an app with the production origins where the integration runs.
@@ -160,7 +188,7 @@ Two distinct auth paths:
 - **`/v1/developer/apps/*`** (dashboard routes: list apps, list keys,
   create app, etc.) — **JWT only**, scoped to the developer's signed-in
   session. Dangerous mutations (rotate, revoke, reveal, delete-app)
-  additionally require a recent SIWF within the last 5 minutes; the
+  additionally require a recent sign-in within the last 5 minutes; the
   server signals this with `401 "Recent sign-in required."` and a
   `WWW-Authenticate: ReAuth` header. The dashboard handles this for you
   — server integrations rarely need these endpoints.
@@ -216,24 +244,221 @@ POST /v1/developer/apps/{appId}/keys
 POST /v1/developer/apps/{appId}/keys/{keyId}/reveal
 POST /v1/developer/apps/{appId}/keys/{keyId}/rotate
 POST /v1/developer/apps/{appId}/keys/{keyId}/revoke
+GET  /v1/developer/apps/{appId}/bots
 POST /v1/developer/spaces
+GET  /v1/developer/spaces/{roomId}
+POST /v1/developer/spaces/{roomId}/start
+POST /v1/developer/spaces/{roomId}/end
+POST /v1/developer/bots
+GET  /v1/developer/bots/{botId}
+POST /v1/developer/bots/{botId}/signer
+DELETE /v1/developer/bots/{botId}
+POST /v1/developer/partner-tokens
+POST /v1/developer/rooms/{roomId}/agent-join
+POST /v1/developer/webhooks
+GET  /v1/developer/webhooks
+GET  /v1/developer/webhooks/{webhookId}
+DELETE /v1/developer/webhooks/{webhookId}
 ```
+
+### Reading a room you own
+
+`GET /v1/developer/spaces/{room_id}` (key-auth, app's own rooms only)
+returns the same shape as `GET /v1/rooms/{id}` — room metadata + live
+participant list + hand queue — so you can reconcile against the
+source of truth after a missed webhook delivery or answer "who's
+actually here right now" without polling LiveKit. Cross-app and
+iOS-native rooms 404 (no enumeration oracle).
+
+### Reading a webhook subscription
+
+`GET /v1/developer/webhooks/{webhook_id}` returns a single
+subscription's current state — `url`, `events`, `last_delivery_at`,
+`last_status`, `last_error`, `disabled_at`, `consecutive_failures`.
+Use this to introspect a known-id subscription without paging the
+full list.
+
+### Rate-limit response headers
+
+Every key-authed mutation response (success or 429) includes:
+
+```
+X-Juke-Rate-Limit-Limit:     <bucket size>
+X-Juke-Rate-Limit-Remaining: <calls left in current window>
+X-Juke-Rate-Limit-Reset:     <seconds until window resets>
+```
+
+Use these to back off proactively rather than burning into 429s.
+Multi-tier limits (e.g. partner-tokens has both per-minute and daily
+buckets) expose headers for the per-minute tier; the daily cap
+surfaces only via 429 + `Retry-After` when hit.
+
+### Ending a room from your server
+
+Force-end an active room your app created. The room must have been
+minted via `POST /v1/developer/spaces` (cross-app rooms 404 — same
+response shape so partners can't enumerate other apps' UUIDs).
+
+```http
+POST /v1/developer/spaces/{room_id}/end
+X-Juke-Api-Key: <juke_api_key>
+```
+
+For Farcaster-native rooms where `host_mode == "user_fid"`, include a
+**fresh** `user_jfs_bearer` in the JSON body (the bearer FID must match
+the room's host FID → 403 mismatch). Bot-hosted and Juke-hosted rooms
+need no body.
+
+200 returns `{"status": "ended"}`. Outbound `room.finished` fires
+immediately on success — no waiting on LiveKit's 5-minute empty-room
+timeout. The webhook payload's `ended_via` is `"api"` for server calls,
+`"host"` for a human pressing End Space, or `"upstream"` when the
+reconciler observed the room end on Farcaster's side. Idempotent: a
+second call against an already-ended room returns 200 without re-firing.
+
+### Farcaster-native spaces from your server
+
+Create rooms that appear in the Farcaster spaces carousel as first-party
+Farcaster audio rooms. Two host models:
+
+- **Bot-hosted** — Juke generates and holds an encrypted Ed25519 app key
+  for a bot FID you own. After a one-time Warpcast approval by the bot
+  account, any API-key call can host rooms as that bot with no further
+  user interaction.
+- **User-hosted** — your server passes a fresh JFS bearer signed by the
+  end user's on-device Ed25519 app key (header
+  `{fid, type:"app_key", key}`, payload audience
+  `https://client.farcaster.xyz`, 5-minute expiry). Juke cross-checks
+  the FID, forwards the bearer upstream once, and never stores it.
+
+#### Bot signer setup (one-time per bot FID)
+
+**Step 1.** Register the bot (Juke manages the key):
+
+```bash
+curl -X POST https://your-api-host.example.com/v1/developer/bots \
+  -H "X-Juke-Api-Key: $JUKE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"fid": 123456, "label": "my-space-bot"}'
+```
+
+Response 201:
+
+```json
+{
+  "id": "bot_abc123",
+  "fid": 123456,
+  "label": "my-space-bot",
+  "is_active": true,
+  "auth_mode": "app_key",
+  "signer_status": "pending_approval",
+  "signer_public_key": "0xabc...",
+  "approval_url": "https://client.farcaster.xyz/deeplinks/signed-key-request?...",
+  "ready": false
+}
+```
+
+**Step 2.** Have the bot account open `approval_url` in Warpcast exactly
+**once**, from the bot's own Farcaster app. If the wrong account
+approves, `signer_status` becomes `fid_mismatch` — call
+`POST /v1/developer/bots/{bot_id}/signer` to re-register with a fresh
+keypair (also recovers an expired 24 h deadline or a revoked key).
+`approval_url` is null once the status reaches a terminal state.
+
+**Step 3.** Poll `GET /v1/developer/bots/{bot_id}` (≤ 1 per 30 s is
+safe; the server caches on-chain key checks) until `ready: true`:
+
+```bash
+curl https://your-api-host.example.com/v1/developer/bots/bot_abc123 \
+  -H "X-Juke-Api-Key: $JUKE_API_KEY"
+```
+
+`ready: true` is the single gate field. Cross-app requests return an
+opaque 404 (indistinguishable from unknown IDs).
+
+**Step 4.** Create a bot-hosted native room:
+
+```bash
+curl -X POST https://your-api-host.example.com/v1/developer/spaces \
+  -H "X-Juke-Api-Key: $JUKE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Friday build call",
+    "host": "farcaster",
+    "host_bot_fid": 123456,
+    "scheduled_at": null,
+    "allow_agents": true
+  }'
+```
+
+Unapproved signer → 409 with actionable detail. Response room objects
+include `host_mode: "bot"` and `farcaster_host_fid`.
+
+#### User-hosted native room
+
+```bash
+curl -X POST https://your-api-host.example.com/v1/developer/spaces \
+  -H "X-Juke-Api-Key: $JUKE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "My space",
+    "host": "farcaster",
+    "user_jfs_bearer": "<header.payload.signature>"
+  }'
+```
+
+Supplying both or neither of `host_bot_fid` / `user_jfs_bearer` → 422.
+Response: `host_mode: "user_fid"`, `farcaster_host_fid` set to the
+bearer FID.
+
+#### Going live on a scheduled native room
+
+Use the new developer start endpoint to flip a scheduled room to active:
+
+```bash
+curl -X POST https://your-api-host.example.com/v1/developer/spaces/{room_id}/start \
+  -H "X-Juke-Api-Key: $JUKE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+For user-hosted rooms, supply a **fresh bearer** (fid must match the
+room host → 403 mismatch). Bot-hosted rooms need no body. Idempotent
+(already active → 200). Upstream 4xx → 400; upstream 5xx → 502 (room
+stays scheduled, safe to retry).
+
+#### Reading participants for native rooms
+
+`GET /v1/developer/spaces/{room_id}` proxies the upstream Farcaster
+participant list for native rooms. `is_muted` is always `false` for
+native rooms (not observable upstream). The response header
+`X-Juke-Participants-Source: upstream|unavailable|juke` distinguishes
+an empty room from a read failure (reads never 502).
+
+#### Legacy custody-env bot mode
+
+`POST /v1/developer/bots` still accepts `custody_address` +
+`custody_key_ref: "env:VAR"` for bots whose key lives in Juke's backend
+env. Response includes `auth_mode: "custody_env"`, `ready: true`, and
+null signer fields. Mixed/partial custody pair → 422.
 
 ## Auth Ladder
 
 1. Public metadata: no auth.
 2. Anonymous listen: `POST /v1/rooms/{spaceId}/anonymous-join`.
-3. Human participation on ordinary web: Sign In With Farcaster (SIWF).
-   SDK calls `startSiwfFlow()` → renders the resulting
-   `farcaster://connect` deeplink as a QR for desktop scan or a tap
-   button on mobile → polls `pollSiwfStatus()` until signed →
-   `completeSiwfLogin()`. The signing domain is bound into the SIWE
-   message and displayed to the user at approval.
-4. Farcaster miniapps: Quick Auth via `@farcaster/miniapp-sdk`.
+3. Farcaster Mini App hosts: `signInWithMiniApp()` — the host wallet
+   signs a Protocol Auth token, exchanged at
+   `POST /v1/auth/miniapp-quickauth` for a short-lived Juke JWT.
+4. Human participation on ordinary web: the web auth-address flow
+   (`signInWithPopup()`, a first-party juke.audio window), exchanged at
+   `POST /v1/auth/protocol`. The recovery phrase is entered once per
+   browser, only in that window, and never leaves it.
 5. Native Juke iOS app: on-device secp256k1 auth address registered via
    the developer-managed signed key API (separate from the web SDK).
 6. Speaking: only after host/co-host promotion grants LiveKit publish
-   permission.
+   permission. Promotion + mic publish works the same on web (SDK / hosted
+   iframe via `livekit-client`) and native iOS — desktop speakers are
+   first-class once promoted.
 
 Anonymous listener tokens are short-lived and subscribe-only:
 - `can_subscribe=true`
@@ -278,10 +503,370 @@ POST https://your-api-host.example.com/v1/rooms/{spaceId}/token
 Authorization: Bearer {jukeJwt}
 ```
 
+## Reading Participants
+
+`GET /v1/rooms/{spaceId}` returns the active participant list in the same
+response as room metadata — no separate endpoint needed.
+
+```jsonc
+{
+  "room": {
+    "id": "…",
+    "title": "Weekly builder room",
+    "host_fid": 12345,
+    "host": { "fid": 12345, "username": "host", "display_name": "Host",
+              "pfp_url": "https://…" },
+    "status": "active",            // "scheduled" | "active" | "ended"
+    "started_at": "2026-05-23T16:00:00Z",
+    "ended_at": null,
+    "scheduled_at": null,
+    "speaker_count": 3,
+    "listener_count": 27,
+    "recording": false,
+    "allow_agents": true
+  },
+  "participants": [
+    { "fid": 12345, "display_name": "…", "pfp_url": "https://…",
+      "role": "host",     "is_muted": false, "hand_raised": false },
+    { "fid": 23456, "display_name": "…", "pfp_url": "https://…",
+      "role": "speaker",  "is_muted": false, "hand_raised": false },
+    { "fid": 34567, "display_name": "…", "pfp_url": "https://…",
+      "role": "listener", "is_muted": true,  "hand_raised": true }
+  ],
+  "hand_queue": [34567]
+}
+```
+
+`role` is one of `host`, `co_host`, `speaker`, `listener`. Use this for
+"who's in the space" UIs (member badges, pfp stacks, counts).
+
+## Recording
+
+Hosts toggle recording from the native app or via the developer API:
+
+```http
+POST https://your-api-host.example.com/v1/rooms/{spaceId}/recording/start
+POST https://your-api-host.example.com/v1/rooms/{spaceId}/recording/stop
+```
+
+After the space ends and the LiveKit egress completes, the recording is
+addressable two ways:
+
+- `GET /v1/recordings/{spaceId}` — returns
+  `{ recording_url, started_at, ended_at, duration_seconds, cast_hash, title }`.
+  `recording_url` is a short-lived presigned URL — re-fetch when expired.
+- Hosted web player: `https://juke.audio/r/{spaceId}` (own OG image, embeddable
+  in casts and tweets).
+
+There is no clip / segment API in v1.
+
+## Scheduled Spaces
+
+Pre-create a recurring space with `scheduled_at`:
+
+```ts
+await fetch("https://your-api-host.example.com/v1/developer/spaces", {
+  method: "POST",
+  headers: { "X-Juke-Api-Key": process.env.JUKE_API_KEY!,
+             "Content-Type": "application/json" },
+  body: JSON.stringify({
+    title: "Fractal Call",
+    scheduled_at: "2026-05-25T22:00:00Z",   // ISO 8601, UTC
+    allow_agents: true,
+  }),
+});
+```
+
+Before `scheduled_at`, `GET /v1/rooms/{spaceId}` returns `status: "scheduled"`
+with `title`, `host`, `scheduled_at`, and `allow_agents`, but no LiveKit token
+or join URL. The hosted embed (`/embed/{spaceId}`) renders a "starts in …"
+countdown over the same metadata.
+
+When the host opens the space (or the scheduler auto-starts it), `status`
+transitions to `active` and join becomes available.
+
+For Farcaster-native spaces scheduled via the developer API, use
+`POST /v1/developer/spaces/{room_id}/start` to go live on demand (see
+"Farcaster-native spaces from your server" above). Juke-hosted scheduled
+rooms auto-start at `scheduled_at` without an explicit call.
+
+## Agents
+
+Agents are a separate join path — not part of the normal embed flow.
+Two ways in: pay per-join via x402 (any agent, any room with
+`allow_agents=true`), or use a developer API key for free joins
+scoped to rooms your own app created. Agents join as data-publishing
+participants (transcription, side-channel metadata) and do not publish
+audio in v1.
+
+The room must be created with `allow_agents: true`. To join an active room:
+
+```http
+POST https://your-api-host.example.com/v1/rooms/{spaceId}/agent-join
+Content-Type: application/json
+
+{
+  "agent_name": "ZOE",
+  "agent_pfp_url": "https://…"
+}
+```
+
+The endpoint is gated by x402 payment on first call and returns a
+`session_token` you reuse via `X-Session-Token` for the duration of the
+room. Audio-publishing agents (speaker role) are on the v1.x roadmap.
+
+### Partner agents (free, scoped to your own rooms)
+
+If you're an approved developer and want to run your own bot in rooms
+your app created, skip the x402 path and use the partner-scoped variant.
+Same request/response shape; auth swaps to your developer API key:
+
+```http
+POST https://your-api-host.example.com/v1/developer/rooms/{spaceId}/agent-join
+X-Juke-Api-Key: <juke_api_key>
+Content-Type: application/json
+
+{ "agent_name": "ZOE", "agent_pfp_url": "https://…" }
+```
+
+Constraints:
+- `room.created_by_app_id` must equal your app id; cross-app rooms
+  and unknown rooms both 404 (same response, so the endpoint can't be
+  used to enumerate which UUIDs belong to other developers)
+- `room.status == "active"` and `room.allow_agents == true` (same gates
+  as the public path)
+- iOS-native rooms (no owning developer app) are not reachable here
+- Per-room agent cap: 5 concurrent. Hitting it returns 429.
+- Rate limit: 10/min and 100/day per key. Rejoin via `X-Session-Token`
+  on the same endpoint works identically to the paid path.
+
+The returned `session_token` is interchangeable with the paid path's, so
+the same token-refresh / leave / rejoin flow applies. Sessions spawned
+this way are tagged `payer_address="partner:{app_id}"` for audit.
+
+## Partner SSO Bridge
+
+When the embedding site has already authenticated the visitor (SIWN, SIWE,
+custom session), pre-mint a short-lived Juke JWT from your server and
+pass it on the iframe URL so the visitor doesn't sign in again inside the
+embed.
+
+Server-side mint (key-only auth):
+
+```http
+POST /v1/developer/partner-tokens
+X-Juke-Api-Key: <juke_api_key>
+Content-Type: application/json
+
+{
+  "fid": 12345,
+  "ttl_seconds": 300
+}
+```
+
+`fid` is the Farcaster ID of the visitor you've already verified.
+`ttl_seconds` is `[60, 600]`, defaults to 300.
+
+Response:
+
+```json
+{
+  "token": "eyJ...",
+  "fid": 12345,
+  "expires_at": "2026-05-23T17:05:00Z",
+  "partner_app_id": "<your app uuid>"
+}
+```
+
+Pass the token in the iframe URL's fragment:
+
+```html
+<iframe src="https://juke.audio/embed/{spaceId}#token=eyJ..."></iframe>
+```
+
+A fragment is never sent to the server, so the JWT stays out of request
+logs and Referer headers. `?token=eyJ...` still works but is deprecated —
+switch to `#token=`. The iframe adopts the session client-side, strips the
+token from the URL via `history.replaceState`, and renders as already-authenticated
+— no sign-in prompt. The backend re-verifies the JWT on every authed call (`/join`,
+`/raise-hand`, `/leave`, `/token`) so a forged or expired token still
+fails at use.
+
+Trust model + caveats:
+
+- Possession of an active Juke API key + the partner's assertion of `fid`.
+  We trust the partner because they're an approved developer app.
+- Damage from a leaked API key is bounded by: the TTL cap (≤ 10 min),
+  the `partner_app_id` + `source="partner"` claims baked into each JWT
+  for audit attribution and downstream gating, per-key rate limiting
+  on the mint endpoint (60/min + 5,000/day, also enforced per app and per
+  owning account), and the first-party gate described below. Partner
+  tokens are never issued for Juke admin accounts.
+- Partner-minted JWTs are deliberately limited to an existing
+  **listener seat**: only `POST /v1/rooms/{id}/leave` and
+  `POST /v1/rooms/{id}/token` accept them, and only while that fid is a
+  listener in a room your app created (host / co-host / speaker seats
+  and other apps' rooms get 403). Every
+  other authenticated endpoint, including `/join` and `/raise-hand`,
+  rejects any JWT carrying `source="partner"` with a 401 telling the
+  caller to sign in directly on juke.audio. So a leaked partner token
+  cannot act on the user's account, manage their developer apps, or
+  attribute rooms/recordings to them.
+- No refresh token is issued. When the JWT expires, re-mint from your
+  server or let the visitor sign in with Protocol Auth inside the embed.
+
+## Native App Deeplinks
+
+The Juke iOS app advertises two link forms:
+
+- Custom scheme: `juke://space/{spaceId}` (and `juke://recording/{spaceId}`)
+- Universal link: `https://juke.audio/space/{spaceId}`
+
+Use the **universal link** form for desktop CTAs ("Open in Juke") and shared
+links. iOS resolves it to the native app when installed; everywhere else
+falls back to the hosted web page. `{spaceId}` is a UUID — the handler
+rejects anything else.
+
+## Lifecycle Webhooks
+
+Outbound webhooks fire only for rooms created via the developer API
+(rooms with `created_by_app_id` set).
+
+Available events:
+
+- `room.started` — scheduled→active transition (and immediate room
+  create). Native rooms include additional data fields:
+  `is_farcaster_native: true`, `farcaster_room_id`, `host_mode`
+  (`"bot"` | `"user_fid"`), and `farcaster_host_fid`.
+- `room.finished` — the room ended. Three trigger paths:
+  - **Explicit end by host**: host called End Space in the Farcaster
+    app. Payload's `ended_via` is `"host"`. Fires immediately.
+  - **Explicit end via API**: your server called
+    `POST /v1/developer/spaces/{id}/end`. Payload's `ended_via` is
+    `"api"`. Fires immediately.
+  - **Upstream observed end**: the native-rooms reconciler detected the
+    room ended on Farcaster's side. Payload's `ended_via` is
+    `"upstream"`. Same `is_farcaster_native` / `farcaster_room_id` /
+    `host_mode` / `farcaster_host_fid` fields as `room.started`.
+  - **Empty-room timeout** (Juke-hosted rooms only): LiveKit reports the
+    room emptied for 5 minutes. Payload omits `ended_via`.
+- `participant.joined` / `participant.left` — real humans + agents only
+  (anonymous listeners and LiveKit virtual participants are filtered out).
+  **Not emitted for native rooms** — poll
+  `GET /v1/developer/spaces/{room_id}` instead.
+- `recording.ready` — egress completed; payload includes a presigned
+  URL. **Not emitted for native rooms.**
+
+Register from your server:
+
+```http
+POST /v1/developer/webhooks
+X-Juke-Api-Key: <juke_api_key>
+Content-Type: application/json
+
+{
+  "url": "https://your-app.example/juke-webhooks",
+  "events": ["room.finished", "recording.ready"]
+}
+```
+
+The 201 response includes a `secret` (prefixed `whsec_`) — store it; it
+is never re-revealable. Rotate by deleting + re-creating.
+
+Also available: `GET /v1/developer/webhooks` (list, with `last_delivery_at`
++ `last_status` + `last_error` for debugging) and
+`DELETE /v1/developer/webhooks/{id}`.
+
+Delivery format:
+
+```http
+POST <your_url>
+Content-Type: application/json
+User-Agent: JukeWebhooks/1
+X-Juke-Signature: t=<unix_seconds>,v1=<hex_hmac>
+X-Juke-Idempotency-Key: <event_id>
+
+{
+  "event_id": "uuid-v4",
+  "event_type": "room.finished",
+  "occurred_at": "2026-05-23T16:42:00.000+00:00",
+  "data": { "room_id": "…", "host_fid": 12345, "started_at": "…", "ended_at": "…" }
+}
+```
+
+Verify by recomputing HMAC-SHA256 of `f"{timestamp}.{raw_body}"` with your
+stored secret and comparing in constant time. Reject events older than ~5
+minutes. Dedupe on `X-Juke-Idempotency-Key` (= `event_id`); same value
+on every retry of the same event so a prior successful delivery that
+your side ack'd late is still recognizable.
+
+Retries: 4 attempts at t=0, +10s, +60s, +300s for non-2xx or transport
+failures, then stop. The last status / error is exposed on
+`GET /v1/developer/webhooks` so you can diagnose silently failing
+endpoints. `last_error` is one of a fixed vocabulary — never a raw
+exception or response body — so the field cannot be used as a network
+probe:
+
+```
+"" | timeout | connection_failed
+http_3xx | http_4xx | http_5xx | http_other
+blocked_ip | dns_failure | invalid_url | no_attempts
+```
+
+After 10 consecutive failed deliveries we auto-disable the subscription
+(stamp `disabled_at` and stop dispatching). Re-enable by deleting and
+re-creating it.
+
+The webhook URL must resolve to a globally-routable public IP at delivery
+time. Loopback, link-local (including AWS/GCP IMDS at 169.254.169.254),
+private RFC1918, and other non-public ranges are rejected per-attempt with
+`last_error: blocked_ip`. Redirects are not followed.
+
+Max 5 subscriptions per app, and the same URL cannot be registered twice
+for the same app.
+
+## Release Feed
+
+Structured changelog of shipped developer-facing changes, machine-readable
+and CORS-open for partner integration manifests:
+
+```http
+GET https://juke.audio/changelog.json
+```
+
+Schema:
+
+```jsonc
+{
+  "version": 1,
+  "generated_at": "2026-05-23T...",
+  "canonical_spec": "https://juke.audio/llms.txt",
+  "entries": [
+    {
+      "id": "partner-agent-join",     // globally unique, never reused
+      "shipped_at": "2026-05-23",
+      "category": "developer-api",     // | "embed" | "webhooks" | "docs"
+      "title": "…",
+      "summary": "…",
+      "endpoints": ["POST /v1/developer/rooms/{room_id}/agent-join"],
+      "docs": "https://juke.audio/llms.txt",
+      "docs_section": "Partner agents (free, scoped to your own rooms)",
+      "resolves": ["agents"],          // opaque partner slugs
+      "breaking": false                 // optional
+    }
+  ]
+}
+```
+
+If you maintain a structured integration manifest (e.g.
+`/api/juke/status` listing your open asks against Juke), match each
+entry's `resolves[]` against your `open_asks[].id` to flip resolved
+items deterministically. Diff on `shipped_at` to incrementally update.
+
 ## What You Actually Need (SDK / iframe integration)
 
 The hosted Juke backend runs all the infrastructure for you. SDK and
-iframe integrators do **not** need to provision Neynar API keys, LiveKit
+iframe integrators do **not** need to provision Farcaster provider keys, LiveKit
 keys, JWT secrets, databases, Redis, or anything else.
 
 - **Hosted iframe**: no env vars, no secrets, no setup.
@@ -306,12 +891,15 @@ Backend env keys (the Juke server stack):
 - `REDIS_URL` (Redis 7)
 - `JWT_SECRET`, `JWT_ALGORITHM`, `JWT_EXPIRY_HOURS`,
   `JWT_REFRESH_EXPIRY_DAYS`
-- `NEYNAR_API_KEY`, `NEYNAR_CLIENT_ID`
+- `HYPERSNAP_HTTP_URL` (Farcaster reads/writes; defaults to the public
+  node `https://haatz.quilibrium.com`)
+- `OPTIMISM_RPC_URL`, `KEY_RELAYER_PRIVATE_KEY` (relays KeyGateway
+  `addFor` for signer links), `SIGNER_ENCRYPTION_KEY`
 - `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_WS_URL`
 - `FARCASTER_APP_FID`, `FARCASTER_APP_MNEMONIC` (used by the miniapp
-  auth-address registration and snap signing — SIWF login does not
-  require these; the user's own Farcaster custody signs)
-- `SIWF_DOMAIN` (the domain the backend will require in SIWF signed
+  auth-address registration and snap signing — user sign-in does not
+  require these; the user's own key signs)
+- `SIWF_DOMAIN` (domain required in legacy `/v1/auth/siwf/login`
   messages; e.g. `juke.audio`)
 - `JUKE_API_KEY_PEPPER` (≥32 bytes random; peppers stored API key
   hashes)
@@ -319,7 +907,9 @@ Backend env keys (the Juke server stack):
   key for the once-only revealable secret blob)
 - `JUKE_API_AUDIT_SECRET` (≥32 bytes random; HMAC key for audit
   trail entries — optional but recommended)
-- `QUICKAUTH_ALLOWED_AUDIENCES`, `CORS_ORIGINS`
+- `QUICKAUTH_ALLOWED_AUDIENCES` (domains accepted in Protocol Auth
+  tokens, web and Mini App; include the origin the SDK runs on),
+  `CORS_ORIGINS`
 - `ENVIRONMENT` (`development` or `production`; the backend enforces
   stricter pepper/key length and Secure-cookie/Domain checks when set
   to `production`)
@@ -334,8 +924,6 @@ Landing env keys:
 - `NEXT_PUBLIC_SITE_URL`
 
 Native app env keys:
-- `EXPO_PUBLIC_NEYNAR_CLIENT_ID`
-- `EXPO_PUBLIC_NEYNAR_API_KEY`
 - `EXPO_PUBLIC_API_BASE_URL`
 - `EXPO_PUBLIC_LIVEKIT_WS_URL`
 

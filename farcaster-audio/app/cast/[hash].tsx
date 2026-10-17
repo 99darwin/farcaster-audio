@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { FlatList, View, Text, RefreshControl } from "react-native";
+import { FlatList, View, Text, Pressable, RefreshControl } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
 import { useComposeStore } from "@/stores/composeStore";
@@ -22,9 +22,12 @@ import {
   removeLike,
   removeRecast,
   publishCast,
-} from "@/services/neynar";
+} from "@/services/feed";
 import { blockUser, bookmarkCast, removeBookmark } from "@/services/api";
-import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
+import type {
+  FarcasterCast,
+  FarcasterCastWithReplies,
+} from "@/types/farcaster";
 
 const LIST_PERF_PROPS = {
   initialNumToRender: 6,
@@ -46,6 +49,7 @@ export default function CastThreadScreen() {
   const myFid = user?.fid ?? 0;
   const {
     rootCast,
+    ancestors,
     replies,
     isLoading,
     error,
@@ -55,11 +59,19 @@ export default function CastThreadScreen() {
   } = useCastThread(hash!, myFid);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [composeVisible, setComposeVisible] = useState(false);
-  const [replyTo, setReplyTo] = useState<NeynarCast | null>(null);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+  const [replyTo, setReplyTo] = useState<FarcasterCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<FarcasterCast | null>(
     null,
   );
-  const flatListRef = useRef<FlatList<NeynarCastWithReplies>>(null);
+  const flatListRef = useRef<FlatList<FarcasterCastWithReplies>>(null);
+  const hasAncestors = ancestors.length > 0;
+  const earlierParentHash = ancestors[0]?.parent_hash ?? null;
+  // X pins the focal cast to the top with its ancestors scrolled out of view
+  // above. Track its offset (and the viewport height so the list can always
+  // scroll that far, even with few replies).
+  const [focalOffset, setFocalOffset] = useState<number | null>(null);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const hasPinnedFocalRef = useRef(false);
 
   // Listen for compose intents from snap buttons
   const composeSignal = useComposeStore((s) => s.composeSignal);
@@ -87,7 +99,16 @@ export default function CastThreadScreen() {
   const hasFocusScrolledRef = useRef(false);
   useEffect(() => {
     hasFocusScrolledRef.current = false;
+    hasPinnedFocalRef.current = false;
   }, [hash, focusHash]);
+
+  useEffect(() => {
+    if (hasPinnedFocalRef.current) return;
+    if (!hasAncestors || focalOffset === null || viewportHeight === 0) return;
+    if (focusHash && focusHash !== rootCast?.hash) return; // reply focus wins
+    hasPinnedFocalRef.current = true;
+    flatListRef.current?.scrollToOffset({ offset: focalOffset, animated: false });
+  }, [hasAncestors, focalOffset, viewportHeight, focusHash, rootCast?.hash]);
 
   const { cleanReplies, spamReplies } = useMemo(() => {
     const { clean, spam } = partitionSpamFromTree(replies);
@@ -173,13 +194,13 @@ export default function CastThreadScreen() {
     [updateCastBookmark],
   );
 
-  const handleReply = useCallback((cast: NeynarCast) => {
+  const handleReply = useCallback((cast: FarcasterCast) => {
     setReplyTo(cast);
     setQuoteCastTarget(null);
     setComposeVisible(true);
   }, []);
 
-  const handleQuoteCast = useCallback((cast: NeynarCast) => {
+  const handleQuoteCast = useCallback((cast: FarcasterCast) => {
     setQuoteCastTarget(cast);
     setReplyTo(null);
     setComposeVisible(true);
@@ -232,14 +253,13 @@ export default function CastThreadScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList<NeynarCastWithReplies>
+      <FlatList<FarcasterCastWithReplies>
         {...LIST_PERF_PROPS}
         ref={flatListRef}
         data={cleanReplies}
         keyExtractor={(item) => item.hash}
         onScrollToIndexFailed={handleScrollToIndexFailed}
         onContentSizeChange={attemptFocusScroll}
-        onLayout={attemptFocusScroll}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -247,19 +267,67 @@ export default function CastThreadScreen() {
             tintColor={colors.accent}
           />
         }
+        onLayout={(event) => {
+          setViewportHeight(event.nativeEvent.layout.height);
+          attemptFocusScroll();
+        }}
+        contentContainerStyle={
+          hasAncestors && focalOffset !== null
+            ? { minHeight: focalOffset + viewportHeight }
+            : undefined
+        }
         ListHeaderComponent={
           rootCast ? (
-            <CastCard
-              cast={rootCast}
-              myFid={myFid}
-              onLike={handleLike}
-              onRecast={handleRecast}
-              onBookmark={handleBookmark}
-              onQuoteCast={handleQuoteCast}
-              onReply={handleReply}
-              onBlockAuthor={handleBlockAuthor}
-              expanded
-            />
+            <>
+              {earlierParentHash ? (
+                <Pressable
+                  style={styles.earlierLink}
+                  onPress={() =>
+                    router.push(`/cast/${encodeURIComponent(earlierParentHash)}`)
+                  }
+                  accessibilityRole="link"
+                  accessibilityLabel="Show earlier replies"
+                >
+                  <Text style={styles.earlierLinkText}>
+                    Show earlier replies
+                  </Text>
+                </Pressable>
+              ) : null}
+              {ancestors.map((ancestor, index) => (
+                <CastCard
+                  key={ancestor.hash}
+                  cast={ancestor}
+                  myFid={myFid}
+                  onLike={handleLike}
+                  onRecast={handleRecast}
+                  onBookmark={handleBookmark}
+                  onQuoteCast={handleQuoteCast}
+                  onReply={handleReply}
+                  onBlockAuthor={handleBlockAuthor}
+                  onPress={() => handleCastPress(ancestor.hash)}
+                  connectAbove={index > 0}
+                  connectBelow
+                />
+              ))}
+              <View
+                onLayout={(event) =>
+                  setFocalOffset(event.nativeEvent.layout.y)
+                }
+              >
+                <CastCard
+                  cast={rootCast}
+                  myFid={myFid}
+                  onLike={handleLike}
+                  onRecast={handleRecast}
+                  onBookmark={handleBookmark}
+                  onQuoteCast={handleQuoteCast}
+                  onReply={handleReply}
+                  onBlockAuthor={handleBlockAuthor}
+                  connectAbove={hasAncestors}
+                  focal
+                />
+              </View>
+            </>
           ) : null
         }
         renderItem={({ item }) => (
@@ -330,5 +398,15 @@ const useStyles = () =>
     emptyText: {
       color: colors.text.secondary,
       fontSize: 15,
+    },
+    earlierLink: {
+      minHeight: 44,
+      paddingHorizontal: 16,
+      justifyContent: "center",
+    },
+    earlierLinkText: {
+      color: colors.purple,
+      fontSize: 14,
+      fontWeight: "600" as const,
     },
   }));

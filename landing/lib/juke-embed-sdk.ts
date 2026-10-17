@@ -1,6 +1,5 @@
 "use client";
 
-import { createAppClient, viemConnector } from "@farcaster/auth-client";
 import {
   Room,
   RoomEvent,
@@ -8,6 +7,29 @@ import {
   type RemoteTrack,
   type RoomOptions,
 } from "livekit-client";
+import type { LoginResponse } from "@/lib/api/types";
+import {
+  getBrowserAuthAddressStore,
+  type AuthAddressStore,
+} from "@/lib/auth/authAddressStore";
+import { signInReturningBrowser } from "@/lib/auth/webSignIn";
+import {
+  EMBED_AUTH_OPTIONS,
+  openEmbedSignInPopup,
+} from "@/lib/embed-sign-in-popup";
+import {
+  authenticateMiniapp,
+  clearCachedMiniappAuth,
+  getCachedMiniappAuth,
+  type MiniappAuthError,
+} from "@/lib/miniapp-auth";
+
+// Re-exported so SDK callers can catch it from `signInWithAuthAddress`.
+export { LinkRequiredError } from "@/lib/auth/protocolLogin";
+export {
+  EMBED_AUTH_OPTIONS,
+  EmbedSignInPopupError,
+} from "@/lib/embed-sign-in-popup";
 import {
   API_BASE_URL,
   getSpaceDetail,
@@ -15,42 +37,43 @@ import {
   type SpaceDetailResponse,
 } from "@/lib/spaces";
 
-const siwfAppClient = createAppClient({
-  relay: "https://relay.farcaster.xyz",
-  ethereum: viemConnector(),
-});
+/**
+ * Where an embed session came from. Decides how it is renewed:
+ * - `protocol` / `siwf`: `POST /v1/auth/refresh` with the body refresh token.
+ * - `miniapp`: no refresh token; re-run Protocol Auth with the host wallet.
+ * - `partner`: no refresh token; the partner re-mints server-side.
+ */
+export type JukeEmbedAuthSource = "protocol" | "miniapp" | "partner" | "siwf";
 
-type AuthSession = {
+export type JukeEmbedAuthSession = {
   jwt: string;
   refreshToken: string;
   expiresAt: string;
   fid: number;
+  source: JukeEmbedAuthSource;
 };
 
-type LoginResponse = {
-  jwt: string;
-  refresh_token: string;
-  expires_at: string;
-  user: { fid: number };
-};
+type AuthSession = JukeEmbedAuthSession;
 
-// Sign In With Farcaster — EIP-4361 / SIWE. The signed message
-// includes the requesting `domain`, which the Farcaster client
-// surfaces to the user at approval time, closing the QR phishing
-// vector the legacy `createSigner` flow couldn't defend against.
-export type StartSiwfFlowResult = {
-  channelToken: string;
-  url: string;
-};
+/** Refresh this long before the JWT expires. */
+const SESSION_REFRESH_MARGIN_MS = 60_000;
 
-export type SiwfApproved = {
-  message: string;
-  signature: string;
-  fid: number;
-};
+/**
+ * Why a Mini App sign-in failed, on {@link JukeEmbedAuthError.reason}. Only
+ * `verify_failed` (the host wallet isn't linked to the FID) means another
+ * sign-in method can help; `user_cancelled` should return quietly, and
+ * `network` / `timeout` / `invalid_response` are worth retrying.
+ */
+export type JukeEmbedAuthFailure = Exclude<MiniappAuthError, "not_in_miniapp">;
 
-export const SIWF_POLL_INTERVAL_MS = 2000;
-const SIWF_TIMEOUT_MS = 10 * 60 * 1000;
+const MINIAPP_AUTH_ERROR_MESSAGES: Record<JukeEmbedAuthFailure, string> = {
+  user_cancelled: "Sign-in was cancelled.",
+  network: "Couldn't reach Juke. Check your connection and try again.",
+  verify_failed:
+    "Your Farcaster app's wallet couldn't sign in for this account. Sign in with your Farcaster account instead.",
+  invalid_response: "Sign-in failed. Try again.",
+  timeout: "Your wallet didn't respond. Try again.",
+};
 
 export type TokenRefreshResponse = {
   livekit_token: string;
@@ -77,9 +100,13 @@ const ROOM_OPTIONS: RoomOptions = {
 const PARTICIPANT_ROLES_WITH_MIC = new Set(["host", "co_host", "speaker"]);
 
 export class JukeEmbedAuthError extends Error {
-  constructor(message = "Sign in to participate") {
+  /** Set when a Mini App sign-in failed; absent for other auth errors. */
+  readonly reason?: JukeEmbedAuthFailure;
+
+  constructor(message = "Sign in to participate", reason?: JukeEmbedAuthFailure) {
     super(message);
     this.name = "JukeEmbedAuthError";
+    this.reason = reason;
   }
 }
 
@@ -88,6 +115,31 @@ export class JukeEmbedSdk {
   private activeRoom: Room | null = null;
   private activeSpaceId: string | null = null;
   private activeJoin: JoinSpaceResponse | null = null;
+
+  /**
+   * Adopt a partner-minted Juke JWT (issued by `POST /v1/developer/partner-tokens`).
+   *
+   * Used by the iframe when the embedding site has already authenticated
+   * the visitor and passes a short-lived Juke JWT via `#token=...`
+   * (or the deprecated `?token=...`) on the embed URL. fid and expiresAt come from the JWT claims. No refresh
+   * token is issued for partner sessions; when the JWT expires the iframe
+   * falls back to the regular Protocol Auth sign-in.
+   *
+   * @throws if the token is malformed or expired client-side. The backend
+   *   re-verifies on every authed call, so a forged token still fails at
+   *   join time — this check is a UX guard, not a security boundary.
+   */
+  adoptPartnerSession(token: string): AuthSession {
+    const claims = decodePartnerJwtClaims(token);
+    this.authSession = {
+      jwt: token,
+      refreshToken: "",
+      expiresAt: new Date(claims.exp * 1000).toISOString(),
+      fid: claims.fid,
+      source: "partner",
+    };
+    return this.authSession;
+  }
 
   async getSpace(spaceId: string): Promise<SpaceDetailResponse | null> {
     return getSpaceDetail(spaceId);
@@ -105,85 +157,94 @@ export class JukeEmbedSdk {
   }
 
   /**
-   * Sign In With Farcaster (SIWF) for the embed. Same protocol as the
-   * dashboard — see `landing/lib/developer-api.ts` for the long-form
-   * rationale. The signed SIWE message includes the requesting
-   * `domain`, which the Farcaster client displays at approval time.
+   * Protocol Auth inside a Farcaster Mini App host: the host wallet signs an
+   * `hqa1` token (`@farcasterorg/miniapp-sdk` `protocolAuth`) and
+   * `POST /v1/auth/miniapp-quickauth` exchanges it for a Juke JWT. No auth
+   * relay, no QR, no approval in another app.
    *
-   * Unlike the dashboard, the embed lives in a cross-origin iframe
-   * where third-party storage partitioning makes HttpOnly cookies
-   * unreliable — so `completeSiwfLogin` keeps the refresh token in
-   * JS memory rather than asking for the cookie path.
+   * @param options.force sign a new host token instead of reusing a cached
+   *   one (used for renewal).
+   * @returns the session, or `null` when not running inside a Mini App host
+   *   (or the host has no wallet) — fall back to {@link signInWithPopup}.
+   * @throws {JukeEmbedAuthError} with `reason` set. Only `verify_failed`
+   *   (the host wallet isn't the FID's custody or a linked auth address)
+   *   should fall back to the web flow.
    */
-  async startSiwfFlow(): Promise<StartSiwfFlowResult> {
-    const nonceRes = await fetch(`${API_BASE_URL}/v1/auth/siwf/nonce`, {
-      method: "POST",
-    });
-    const nonceBody = await parseJsonResponse<{ nonce: string }>(
-      nonceRes,
-      "Could not start sign in",
+  async signInWithMiniApp(options?: { force?: boolean }): Promise<AuthSession | null> {
+    const force = options?.force ?? false;
+    if (force) clearCachedMiniappAuth();
+    const result = force
+      ? await authenticateMiniapp({ force })
+      : await getCachedMiniappAuth();
+    if (!result.ok) {
+      if (result.reason === "not_in_miniapp") return null;
+      throw new JukeEmbedAuthError(
+        MINIAPP_AUTH_ERROR_MESSAGES[result.reason],
+        result.reason,
+      );
+    }
+    this.authSession = {
+      jwt: result.token,
+      refreshToken: "",
+      expiresAt: new Date(result.expiresAt).toISOString(),
+      fid: result.fid,
+      source: "miniapp",
+    };
+    return this.authSession;
+  }
+
+  /**
+   * Web sign-in for a returning browser: this browser's stored auth address
+   * (KeyRegistry keyType 2) signs an `hqa1` token and
+   * `POST /v1/auth/protocol` mints the session. No phrase, no other app.
+   *
+   * @throws {LinkRequiredError} (from `@/lib/auth/protocolLogin`) when this
+   *   browser has no linked key for `fid` — use {@link signInWithPopup}.
+   */
+  async signInWithAuthAddress(
+    fid: number,
+    options?: { store?: AuthAddressStore },
+  ): Promise<AuthSession> {
+    const response = await signInReturningBrowser(
+      { fid, store: options?.store ?? getBrowserAuthAddressStore() },
+      EMBED_AUTH_OPTIONS,
     );
-    if (!nonceBody?.nonce) {
-      throw new Error("Could not start sign in");
-    }
-    // See developer-api.ts for the rationale — our backend can't
-    // resolve auth-address (FIP #225) signatures via Neynar's
-    // bulk-by-address lookup, and forcing custody also dodges the
-    // desktop-QR sign-in failure observed in the Farcaster app.
-    const channel = await siwfAppClient.createChannel({
-      siweUri: `${window.location.origin}/embed`,
-      domain: window.location.hostname,
-      nonce: nonceBody.nonce,
-      acceptAuthAddress: false,
-    });
-    if (!channel.data?.channelToken || !channel.data?.url) {
-      throw new Error("Could not start sign in");
-    }
-    return {
-      channelToken: channel.data.channelToken,
-      url: channel.data.url,
-    };
+    return this.adoptLoginResponse(response);
   }
 
-  async pollSiwfStatus(
-    channelToken: string,
-    options?: { signal?: AbortSignal },
-  ): Promise<SiwfApproved> {
-    if (options?.signal?.aborted) {
-      throw new Error("Sign-in cancelled");
-    }
-    let aborted = false;
-    const abortHandler = () => {
-      aborted = true;
-    };
-    options?.signal?.addEventListener("abort", abortHandler);
-    try {
-      const result = await siwfAppClient.watchStatus({
-        channelToken,
-        timeout: SIWF_TIMEOUT_MS,
-        interval: SIWF_POLL_INTERVAL_MS,
-        onResponse: () => {
-          if (aborted) throw new Error("Sign-in cancelled");
-        },
-      });
-      if (aborted) throw new Error("Sign-in cancelled");
-      const data = result.data;
-      if (data.state !== "completed") {
-        throw new Error("Sign-in did not complete");
-      }
-      if (!data.message || !data.signature || !data.fid) {
-        throw new Error("Incomplete SIWF response");
-      }
-      return {
-        message: data.message,
-        signature: data.signature,
-        fid: data.fid,
-      };
-    } finally {
-      options?.signal?.removeEventListener("abort", abortHandler);
-    }
+  /**
+   * Web sign-in in a first-party juke.audio popup: a browser already linked
+   * on juke.audio signs in with its auth address; a new browser links once
+   * with the recovery phrase — in the popup, never in the embed's frame.
+   * Only the session comes back (via a same-origin `postMessage`).
+   *
+   * Works only when the SDK runs on the Juke origin (the hosted iframe);
+   * the popup never posts to another origin. Call it synchronously from a
+   * click handler so the browser doesn't block the popup.
+   *
+   * @throws {EmbedSignInPopupError} when the popup is blocked, closed, or
+   *   `signal` aborts.
+   */
+  async signInWithPopup(options?: { signal?: AbortSignal }): Promise<AuthSession> {
+    const response = await openEmbedSignInPopup({ signal: options?.signal });
+    return this.adoptLoginResponse(response);
   }
 
+  /**
+   * Adopt a `LoginResponse` minted elsewhere with {@link EMBED_AUTH_OPTIONS}.
+   */
+  adoptLoginResponse(response: LoginResponse): AuthSession {
+    return this.storeLoginResponse(response, "protocol");
+  }
+
+  /**
+   * Exchange an already-signed Sign In With Farcaster message for a session.
+   *
+   * @deprecated The relay helpers that produced these credentials
+   *   (`startSiwfFlow` / `pollSiwfStatus`) were removed with the move off
+   *   Farcaster-hosted auth. Use {@link signInWithMiniApp} or the web
+   *   auth-address flow. Kept only so existing callers still compile.
+   */
   async completeSiwfLogin(
     payload: { message: string; signature: string },
   ): Promise<AuthSession> {
@@ -196,9 +257,6 @@ export class JukeEmbedSdk {
       body: JSON.stringify({
         message: payload.message,
         signature: payload.signature,
-        // The embed iframe context can't reliably use HttpOnly cookies
-        // (third-party storage partitioning), so opt into the
-        // body-token response shape.
         use_cookie: false,
       }),
     });
@@ -206,13 +264,7 @@ export class JukeEmbedSdk {
       res,
       "Could not complete sign in",
     );
-    this.authSession = {
-      jwt: body.jwt,
-      refreshToken: body.refresh_token,
-      expiresAt: body.expires_at,
-      fid: body.user.fid,
-    };
-    return this.authSession;
+    return this.storeLoginResponse(body, "siwf");
   }
 
   async joinAuthenticated(spaceId: string): Promise<JoinSpaceResponse> {
@@ -393,8 +445,35 @@ export class JukeEmbedSdk {
   private async getFreshAuthSession(): Promise<AuthSession> {
     const session = this.requireAuthenticated();
     const expiresAt = new Date(session.expiresAt).getTime();
-    if (Number.isFinite(expiresAt) && Date.now() + 60_000 < expiresAt) {
+    if (
+      Number.isFinite(expiresAt) &&
+      Date.now() + SESSION_REFRESH_MARGIN_MS < expiresAt
+    ) {
       return session;
+    }
+
+    // Mini App sessions carry no refresh token: the host wallet signs a
+    // fresh Protocol Auth token instead.
+    if (session.source === "miniapp") {
+      this.authSession = null;
+      const renewed = await this.signInWithMiniApp({ force: true });
+      if (!renewed) {
+        throw new JukeEmbedAuthError(
+          "Session expired — sign in with Farcaster again.",
+        );
+      }
+      return renewed;
+    }
+
+    // Partner-minted sessions don't ship with a refresh token — the
+    // partner is expected to re-mint via their server when needed.
+    // Surface a deterministic error so the embed can prompt for sign-in
+    // instead of looping a doomed refresh call.
+    if (!session.refreshToken) {
+      this.authSession = null;
+      throw new JukeEmbedAuthError(
+        "Partner session expired — re-authenticate via the host site or sign in with Farcaster.",
+      );
     }
 
     const res = await fetch(`${API_BASE_URL}/v1/auth/refresh`, {
@@ -409,14 +488,74 @@ export class JukeEmbedSdk {
       res,
       "Could not refresh sign-in",
     );
+    return this.storeLoginResponse(body, session.source);
+  }
+
+  private storeLoginResponse(
+    response: LoginResponse,
+    source: JukeEmbedAuthSource,
+  ): AuthSession {
+    if (!response?.jwt || !Number.isSafeInteger(response.user?.fid)) {
+      throw new JukeEmbedAuthError("Sign-in returned an invalid session");
+    }
     this.authSession = {
-      jwt: body.jwt,
-      refreshToken: body.refresh_token,
-      expiresAt: body.expires_at,
-      fid: body.user.fid,
+      jwt: response.jwt,
+      refreshToken: response.refresh_token ?? "",
+      expiresAt: response.expires_at,
+      fid: response.user.fid,
+      source,
     };
     return this.authSession;
   }
+}
+
+type PartnerJwtClaims = { fid: number; exp: number };
+
+/**
+ * Decode (but do not verify) a partner-minted Juke JWT to extract the
+ * fid and exp claims for client-side UX rendering. Verification happens
+ * on the backend on every authed call.
+ *
+ * Why decode instead of taking fid + exp as separate URL params: keeps
+ * the partner integration to a single `?token=` parameter and prevents
+ * the partner from passing a fid that disagrees with the signed claim.
+ */
+const PARTNER_TOKEN_MAX_LENGTH = 4096;
+
+function decodePartnerJwtClaims(token: string): PartnerJwtClaims {
+  // Cheap DoS guard before parsing. A real Juke partner JWT is well under
+  // 1 KB; anything beyond 4 KB is either malformed or hostile and should
+  // never reach `atob`/`JSON.parse`.
+  if (token.length > PARTNER_TOKEN_MAX_LENGTH) {
+    throw new Error("Partner token is malformed");
+  }
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("Partner token is malformed");
+  const payload = parts[1];
+  if (!payload) throw new Error("Partner token is malformed");
+  let json: string;
+  try {
+    json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+  } catch {
+    throw new Error("Partner token is malformed");
+  }
+  let claims: unknown;
+  try {
+    claims = JSON.parse(json);
+  } catch {
+    throw new Error("Partner token is malformed");
+  }
+  if (typeof claims !== "object" || claims === null) {
+    throw new Error("Partner token is malformed");
+  }
+  const { fid, exp } = claims as { fid?: unknown; exp?: unknown };
+  if (typeof fid !== "number" || typeof exp !== "number") {
+    throw new Error("Partner token is missing required claims");
+  }
+  if (Date.now() / 1000 >= exp) {
+    throw new Error("Partner token is already expired");
+  }
+  return { fid, exp };
 }
 
 export function createJukeEmbedSdk(): JukeEmbedSdk {

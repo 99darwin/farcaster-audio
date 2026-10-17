@@ -1,30 +1,25 @@
+/**
+ * Thread replies, laid out the way X shows a conversation.
+ *
+ * Each top-level reply is a group: one reply path shown flat (no indentation),
+ * joined avatar-to-avatar by a thread line. Where the tree branches or runs
+ * past `MAX_INLINE_CHAIN`, a "Show more replies" row opens that cast's own
+ * thread (see `selectReplyChain`). A deep-linked `focusHash` is always kept on
+ * the inline path. Spam replies are hoisted into a dismissible footer.
+ */
+
 import { useState, useMemo } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { CastCard } from "@/components/feed/CastCard";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { withAlpha } from "@/constants/theme";
-import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
+import { selectReplyChain, subtreeContainsHash } from "@/utils/replyChain";
+import type {
+  FarcasterCast,
+  FarcasterCastWithReplies,
+} from "@/types/farcaster";
 
-const INDENT_PX = 28;
-const MAX_EXTRA_INDENT_PX = 48; // Max additional indent beyond CastCard's built-in threaded padding
-const DEFAULT_MAX_DEPTH = 3;
-const MAX_RECURSION_DEPTH = 10;
-
-/**
- * Returns true if `hash` matches `reply.hash` or any cast in its nested
- * `direct_replies` subtree.
- */
-export function subtreeContainsHash(
-  reply: NeynarCastWithReplies,
-  hash: string,
-): boolean {
-  if (reply.hash === hash) return true;
-  const children = reply.direct_replies ?? [];
-  for (const child of children) {
-    if (subtreeContainsHash(child, hash)) return true;
-  }
-  return false;
-}
+export { subtreeContainsHash };
 
 /**
  * Walks each top-level reply in `replies` (and its nested subtree) and returns
@@ -32,176 +27,85 @@ export function subtreeContainsHash(
  * if not found.
  */
 export function findTopLevelIndexContaining(
-  replies: NeynarCastWithReplies[],
+  replies: FarcasterCastWithReplies[],
   hash: string,
 ): number {
-  for (let i = 0; i < replies.length; i++) {
-    if (subtreeContainsHash(replies[i], hash)) return i;
-  }
-  return -1;
+  return replies.findIndex((reply) => subtreeContainsHash(reply, hash));
 }
 
-interface ThreadedRepliesProps {
-  replies: NeynarCastWithReplies[];
-  depth?: number;
-  maxDepth?: number;
+interface NodeHandlers {
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
   onBookmark: (hash: string, isBookmarked: boolean) => void;
-  onQuoteCast: (cast: NeynarCast) => void;
-  onReply: (cast: NeynarCast) => void;
+  onQuoteCast: (cast: FarcasterCast) => void;
+  onReply: (cast: FarcasterCast) => void;
   onBlockAuthor?: (fid: number) => Promise<void> | void;
   onCastPress: (hash: string) => void;
   focusHash?: string;
 }
 
-function ReplyNode({
+interface ThreadedRepliesProps extends NodeHandlers {
+  replies: FarcasterCastWithReplies[];
+  /** Casts shown inline per group; defaults to `MAX_INLINE_CHAIN`. */
+  maxChainLength?: number;
+}
+
+function ReplyGroup({
   reply,
-  depth,
-  maxDepth,
-  myFid,
-  onLike,
-  onRecast,
-  onBookmark,
-  onQuoteCast,
-  onReply,
-  onBlockAuthor,
-  onCastPress,
   focusHash,
-}: {
-  reply: NeynarCastWithReplies;
-  depth: number;
-  maxDepth: number;
-  myFid: number;
-  onLike: (hash: string, isLiked: boolean) => void;
-  onRecast: (hash: string, isRecasted: boolean) => void;
-  onBookmark: (hash: string, isBookmarked: boolean) => void;
-  onQuoteCast: (cast: NeynarCast) => void;
-  onReply: (cast: NeynarCast) => void;
-  onBlockAuthor?: (fid: number) => Promise<void> | void;
-  onCastPress: (hash: string) => void;
-  focusHash?: string;
-}) {
+  maxChainLength,
+  onCastPress,
+  ...handlers
+}: NodeHandlers & { reply: FarcasterCastWithReplies; maxChainLength?: number }) {
   const styles = useStyles();
-
-  // L1: Recursion safety valve
-  if (depth > MAX_RECURSION_DEPTH) return null;
-
-  const childReplies = reply.direct_replies ?? [];
-  const hasChildren = childReplies.length > 0;
-  const isAtMaxDepth = depth >= maxDepth;
-  const subtreeContainsFocus = focusHash
-    ? subtreeContainsHash(reply, focusHash)
-    : false;
-  const isFocused = !!focusHash && reply.hash === focusHash;
-  // Auto-expand collapsed nodes whose subtree contains the focused reply,
-  // so the focus target is actually rendered.
-  const [isExpanded, setIsExpanded] = useState<boolean>(
-    () => isAtMaxDepth && hasChildren && subtreeContainsFocus,
-  );
-
-  // CastCard's `threaded` prop already applies 52px left padding + thread line + sm avatar.
-  // We only add extra indent for depth > 0 (nested replies beyond direct replies).
-  const extraIndent =
-    depth > 0 ? Math.min(depth * INDENT_PX, MAX_EXTRA_INDENT_PX) : 0;
-
-  // L2: Memoize inline styles
-  const wrapperStyle = useMemo(
-    () => (extraIndent > 0 ? { paddingLeft: extraIndent } : undefined),
-    [extraIndent],
-  );
-  const unfurlPaddingStyle = useMemo(
-    () => ({ paddingLeft: extraIndent + 68 }),
-    [extraIndent],
+  const { chain, continueFrom } = useMemo(
+    () => selectReplyChain(reply, { focusHash, maxLength: maxChainLength }),
+    [reply, focusHash, maxChainLength],
   );
 
   return (
-    <View accessible accessibilityLabel={`Thread reply, depth ${depth + 1}`}>
-      <View style={wrapperStyle}>
-        <View style={isFocused ? styles.focusHighlight : undefined}>
+    <View>
+      {chain.map((node, index) => (
+        <View
+          key={node.hash}
+          style={node.hash === focusHash ? styles.focusHighlight : undefined}
+          accessibilityLabel={`Thread reply, ${index + 1} of ${chain.length}`}
+        >
           <CastCard
-            cast={reply}
-            myFid={myFid}
-            onLike={onLike}
-            onRecast={onRecast}
-            onBookmark={onBookmark}
-            onQuoteCast={onQuoteCast}
-            onReply={onReply}
-            onBlockAuthor={onBlockAuthor}
-            onPress={() => onCastPress(reply.hash)}
-            threaded
-            hideThreadLine={depth > 0}
+            cast={node}
+            {...handlers}
+            onPress={() => onCastPress(node.hash)}
+            connectAbove={index > 0}
+            connectBelow={index < chain.length - 1 || continueFrom !== null}
           />
         </View>
-      </View>
-
-      {hasChildren && !isAtMaxDepth && (
-        <ThreadedReplies
-          replies={childReplies}
-          depth={depth + 1}
-          maxDepth={maxDepth}
-          myFid={myFid}
-          onLike={onLike}
-          onRecast={onRecast}
-          onBookmark={onBookmark}
-          onQuoteCast={onQuoteCast}
-          onReply={onReply}
-          onBlockAuthor={onBlockAuthor}
-          onCastPress={onCastPress}
-          focusHash={focusHash}
-        />
-      )}
-
-      {hasChildren && isAtMaxDepth && !isExpanded && (
+      ))}
+      {continueFrom && (
         <Pressable
-          style={[styles.unfurlButton, unfurlPaddingStyle]}
-          onPress={() => setIsExpanded(true)}
+          style={styles.showMore}
+          onPress={() => onCastPress(continueFrom.hash)}
+          accessibilityRole="link"
+          accessibilityLabel="Show more replies"
         >
-          <Text style={styles.unfurlText}>
-            View {childReplies.length} more{" "}
-            {childReplies.length === 1 ? "reply" : "replies"}
-          </Text>
+          <View style={styles.showMoreDots}>
+            {[0, 1, 2].map((dot) => (
+              <View key={dot} style={styles.showMoreDot} />
+            ))}
+          </View>
+          <Text style={styles.showMoreText}>Show more replies</Text>
         </Pressable>
-      )}
-
-      {hasChildren && isAtMaxDepth && isExpanded && (
-        <>
-          <ThreadedReplies
-            replies={childReplies}
-            depth={depth + 1}
-            maxDepth={Math.min(
-              maxDepth + DEFAULT_MAX_DEPTH,
-              MAX_RECURSION_DEPTH,
-            )}
-            myFid={myFid}
-            onLike={onLike}
-            onRecast={onRecast}
-            onBookmark={onBookmark}
-            onQuoteCast={onQuoteCast}
-            onReply={onReply}
-            onBlockAuthor={onBlockAuthor}
-            onCastPress={onCastPress}
-            focusHash={focusHash}
-          />
-          <Pressable
-            style={[styles.unfurlButton, unfurlPaddingStyle]}
-            onPress={() => setIsExpanded(false)}
-          >
-            <Text style={styles.unfurlText}>Hide replies</Text>
-          </Pressable>
-        </>
       )}
     </View>
   );
 }
 
-export function partitionSpamFromTree(replies: NeynarCastWithReplies[]): {
-  clean: NeynarCastWithReplies[];
-  spam: NeynarCastWithReplies[];
+export function partitionSpamFromTree(replies: FarcasterCastWithReplies[]): {
+  clean: FarcasterCastWithReplies[];
+  spam: FarcasterCastWithReplies[];
 } {
-  const clean: NeynarCastWithReplies[] = [];
-  const spam: NeynarCastWithReplies[] = [];
+  const clean: FarcasterCastWithReplies[] = [];
+  const spam: FarcasterCastWithReplies[] = [];
   for (const reply of replies) {
     if (reply.author?.is_spam === true) {
       spam.push(reply);
@@ -219,51 +123,24 @@ export function partitionSpamFromTree(replies: NeynarCastWithReplies[]): {
   return { clean, spam };
 }
 
-export function ThreadedReplies({
-  replies,
-  depth = 0,
-  maxDepth = DEFAULT_MAX_DEPTH,
-  myFid,
-  onLike,
-  onRecast,
-  onBookmark,
-  onQuoteCast,
-  onReply,
-  onBlockAuthor,
-  onCastPress,
-  focusHash,
-}: ThreadedRepliesProps) {
+export function ThreadedReplies({ replies, ...handlers }: ThreadedRepliesProps) {
   return (
     <View>
       {replies.map((reply) => (
-        <ReplyNode
-          key={reply.hash}
-          reply={reply}
-          depth={depth}
-          maxDepth={maxDepth}
-          myFid={myFid}
-          onLike={onLike}
-          onRecast={onRecast}
-          onBookmark={onBookmark}
-          onQuoteCast={onQuoteCast}
-          onReply={onReply}
-          onBlockAuthor={onBlockAuthor}
-          onCastPress={onCastPress}
-          focusHash={focusHash}
-        />
+        <ReplyGroup key={reply.hash} reply={reply} {...handlers} />
       ))}
     </View>
   );
 }
 
 interface ThreadSlopFooterProps {
-  spam: NeynarCastWithReplies[];
+  spam: FarcasterCastWithReplies[];
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
   onBookmark: (hash: string, isBookmarked: boolean) => void;
-  onQuoteCast: (cast: NeynarCast) => void;
-  onReply: (cast: NeynarCast) => void;
+  onQuoteCast: (cast: FarcasterCast) => void;
+  onReply: (cast: FarcasterCast) => void;
   onBlockAuthor?: (fid: number) => Promise<void> | void;
   onCastPress: (hash: string) => void;
   focusHash?: string;
@@ -301,10 +178,8 @@ export function ThreadSlopFooter({
     <View style={styles.slopSection}>
       {spam.map((reply) => (
         <View key={reply.hash} style={styles.slopMuted}>
-          <ReplyNode
+          <ReplyGroup
             reply={reply}
-            depth={0}
-            maxDepth={DEFAULT_MAX_DEPTH}
             myFid={myFid}
             onLike={onLike}
             onRecast={onRecast}
@@ -323,19 +198,35 @@ export function ThreadSlopFooter({
 
 const useStyles = () =>
   useThemedStyles(({ colors }) => ({
-    unfurlButton: {
-      paddingVertical: 15,
+    // "Show more replies": dotted continuation of the thread line, aligned
+    // under the 48px avatar column (16 padding + 24 half-avatar).
+    showMore: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 12,
       minHeight: 44,
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.background.border,
     },
-    unfurlText: {
+    showMoreDots: {
+      width: 48,
+      alignItems: "center" as const,
+      gap: 3,
+    },
+    showMoreDot: {
+      width: 2,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: withAlpha(colors.text.secondary, 0.6),
+    },
+    showMoreText: {
       color: colors.purple,
-      fontSize: 14,
-      fontWeight: "500" as const,
+      fontSize: 15,
     },
     focusHighlight: {
       backgroundColor: withAlpha(colors.purple, 0.08),
-      borderLeftWidth: 2,
-      borderLeftColor: colors.purple,
     },
     slopBanner: {
       paddingVertical: 12,

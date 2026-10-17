@@ -34,3 +34,8 @@ export function jukeRecordingUrl(id: string): string | null {
 
 export const APP_STORE_URL =
   "https://apps.apple.com/app/juke-audio/id6746423951";
+
+// Android install link (Firebase App Distribution invite or Play Store
+// listing). Configured per deployment via NEXT_PUBLIC_ANDROID_DOWNLOAD_URL.
+export const ANDROID_BETA_URL =
+  process.env.NEXT_PUBLIC_ANDROID_DOWNLOAD_URL ?? "";

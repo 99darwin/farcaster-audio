@@ -3,10 +3,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useVoiceNotePlayback } from "@/hooks/useVoiceNotePlayback";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
+import { buildRecordingUrl } from "@/utils/shareLinks";
 import type { RecordingItem } from "@/services/api";
 
 interface RecordingFeedItemProps {
   item: RecordingItem;
+  // Optional "Part N of M" hint, populated by the profile screen only
+  // when a space has more than one finalized segment. Single-segment
+  // recordings render without the badge to keep the common case clean.
+  partInfo?: { index: number; total: number };
 }
 
 function formatTime(ms: number): string {
@@ -28,10 +33,12 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString();
 }
 
-export function RecordingFeedItem({ item }: RecordingFeedItemProps) {
+export function RecordingFeedItem({ item, partInfo }: RecordingFeedItemProps) {
   // Reuse the voice-note playback hook — it handles OGG, audio session,
   // background audio, and the "single active player" coordination store.
-  // We use the room_id as the playback key so only one recording plays at a time.
+  // Playback key prefers the segment UUID so two segments of the same
+  // space don't share a player slot (which would cause tapping play on
+  // one to scrub the other). Falls back to room_id for legacy rows.
   //
   // Note: `item.recording_url` is a short-lived presigned GET (~15 min TTL)
   // minted per list request. The hook reads it when the user taps play, so
@@ -42,12 +49,9 @@ export function RecordingFeedItem({ item }: RecordingFeedItemProps) {
   const { colors } = useTheme();
   const styles = useStyles();
   const durationMs = (item.duration_seconds ?? 0) * 1000;
+  const playbackKey = `recording:${item.id ?? item.room_id}`;
   const { isPlaying, positionMs, togglePlay, progress, cycleSpeed, speed } =
-    useVoiceNotePlayback(
-      `recording:${item.room_id}`,
-      item.recording_url,
-      durationMs,
-    );
+    useVoiceNotePlayback(playbackKey, item.recording_url, durationMs);
 
   const displayTime =
     durationMs > 0
@@ -70,9 +74,18 @@ export function RecordingFeedItem({ item }: RecordingFeedItemProps) {
           />
         </Pressable>
         <View style={styles.info}>
-          <Text numberOfLines={1} style={styles.title}>
-            {item.title}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text numberOfLines={1} style={styles.title}>
+              {item.title}
+            </Text>
+            {partInfo ? (
+              <View style={styles.partBadge}>
+                <Text style={styles.partBadgeText}>
+                  Part {partInfo.index} of {partInfo.total}
+                </Text>
+              </View>
+            ) : null}
+          </View>
           <View style={styles.metaRow}>
             <Text style={styles.meta}>{displayTime}</Text>
             <Text style={styles.metaDot}>·</Text>
@@ -88,7 +101,11 @@ export function RecordingFeedItem({ item }: RecordingFeedItemProps) {
           <Text style={styles.speedText}>{speed}x</Text>
         </Pressable>
         <Pressable
-          onPress={() => Share.share({ url: item.recording_url })}
+          // Share the durable web-player link, NOT `item.recording_url` —
+          // that's a ~15-min presigned URL that yields "Request has expired"
+          // once shared and opened later. The player page re-presigns on
+          // load and exposes a Download action.
+          onPress={() => Share.share({ url: buildRecordingUrl(item.room_id) })}
           style={styles.shareButton}
           accessibilityRole="button"
           accessibilityLabel="Share recording"
@@ -134,9 +151,26 @@ const useStyles = () =>
       justifyContent: "center",
     },
     info: { flex: 1 },
+    titleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
     title: {
       color: colors.text.primary,
       fontSize: 15,
+      fontWeight: "600",
+      flexShrink: 1,
+    },
+    partBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      backgroundColor: colors.background.surface,
+    },
+    partBadgeText: {
+      color: colors.text.secondary,
+      fontSize: 11,
       fontWeight: "600",
     },
     metaRow: {

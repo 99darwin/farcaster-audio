@@ -1,4 +1,16 @@
-from pydantic import BaseModel
+import uuid
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+from app.schemas.farcaster_token import (
+    MAX_DC_AUTH_SIGNATURE_CHARS,
+    DirectCastAuthRequest,
+)
+
+# ``users.signer_status`` as exposed to clients; anything but ``approved``
+# means the session is read-only and the client shows the re-link prompt.
+UserSignerStatus = Literal["none", "pending", "approved", "revoked"]
 
 
 class UserResponse(BaseModel):
@@ -9,29 +21,7 @@ class UserResponse(BaseModel):
     custody_address: str | None = None
     is_pro: bool = False
     is_admin: bool = False
-
-
-class AuthUrlResponse(BaseModel):
-    """Neynar-hosted SIWN authorization URL.
-
-    Returned by GET /v1/auth/neynar-auth-url. Used by the native iOS app
-    (`farcaster-audio/`), which opens this URL in a popup for the
-    classic SIWN flow. The web/embed/dashboard surfaces use SIWF
-    instead (POST /v1/auth/siwf/*); see `SiwfLoginRequest`.
-    """
-
-    authorization_url: str
-
-
-class LoginRequest(BaseModel):
-    signer_uuid: str
-    fid: int
-    # When true, the server returns the refresh token via an HttpOnly cookie
-    # (`juke_refresh`) and omits it from the response body. Used by the
-    # developer dashboard at juke.audio to mitigate XSS exfiltration of the
-    # 30-day refresh window. Existing miniapp/embed callers default to false
-    # and continue to receive the body-based refresh token unchanged.
-    use_cookie: bool = False
+    signer_status: UserSignerStatus = "none"
 
 
 class LoginResponse(BaseModel):
@@ -44,6 +34,13 @@ class LoginResponse(BaseModel):
 class RefreshRequest(BaseModel):
     # Optional: the refresh token may instead arrive via the `juke_refresh`
     # HttpOnly cookie. If both are present, the cookie wins.
+    refresh_token: str | None = None
+
+
+class LogoutRequest(BaseModel):
+    # Optional: clients without the HttpOnly cookie (e.g. iOS) can pass the
+    # refresh token in the body so the server revokes it from Redis. Logout
+    # remains idempotent — a missing or unknown token is not an error.
     refresh_token: str | None = None
 
 
@@ -67,7 +64,8 @@ class SiwfLoginRequest(BaseModel):
     verifies the message (siwe-py), confirms the recovered address
     resolves to a Farcaster FID via Neynar, and mints a Juke JWT.
 
-    `use_cookie` semantics match `LoginRequest`.
+    When `use_cookie` is true the refresh token is returned as the
+    HttpOnly `juke_refresh` cookie and omitted from the body.
     """
 
     message: str
@@ -75,14 +73,15 @@ class SiwfLoginRequest(BaseModel):
     use_cookie: bool = False
 
 
-class RegisterAuthAddressRequest(BaseModel):
-    auth_address: str
+class ProtocolLoginRequest(BaseModel):
+    """Body for POST /v1/auth/protocol: an ``hqa1.`` Protocol Auth token.
 
+    Signed by a device auth address listed in KeyRegistry for the FID (or
+    the custody address), carrying a nonce from ``/v1/auth/siwf/nonce``.
+    """
 
-class RegisterAuthAddressResponse(BaseModel):
-    auth_address: str
-    status: str
-    approval_url: str | None = None
+    token: str = Field(min_length=1, max_length=4096)
+    use_cookie: bool = False
 
 
 class AuthAddressStatusResponse(BaseModel):
@@ -93,3 +92,92 @@ class AuthAddressStatusResponse(BaseModel):
 
 class InvalidateAuthAddressRequest(BaseModel):
     auth_address: str
+
+
+# ---------------------------------------------------------------------------
+# App signer (KeyGateway.addFor) flow: /v1/auth/signer/*
+# ---------------------------------------------------------------------------
+
+
+class SignerPrepareRequest(BaseModel):
+    """Body for POST /v1/auth/signer/prepare.
+
+    ``auth_address`` is the device-generated secp256k1 address, added as a
+    keyType 2 auth address in the same custody-signing round trip.
+    """
+
+    fid: int = Field(gt=0)
+    auth_address: str = Field(min_length=1, max_length=64)
+
+
+class SignerTypedData(BaseModel):
+    """Complete EIP-712 ``Add`` payloads, ready for ``signTypedData``."""
+
+    signer: dict[str, Any]
+    auth_address: dict[str, Any]
+
+
+class ProtocolAuthParams(BaseModel):
+    """SIWE fields the custody-signed register token must carry."""
+
+    domain: str
+    uri: str
+    nonce: str
+    expires_at: int
+
+
+class SignerPrepareResponse(BaseModel):
+    prepare_id: str
+    custody_address: str
+    signer_public_key: str
+    typed_data: SignerTypedData
+    protocol_auth: ProtocolAuthParams
+    expires_at: int
+
+
+class SignerRegisterRequest(BaseModel):
+    """Body for POST /v1/auth/signer/register.
+
+    ``signer_add_signature`` signs ``typed_data.signer`` and
+    ``auth_address_add_signature`` signs ``typed_data.auth_address`` (both
+    65-byte 0x-hex, by custody). ``protocol_auth_token`` is an ``hqa1.``
+    token signed by custody with the ``protocol_auth`` fields from prepare.
+
+    ``dc_auth_request`` / ``dc_auth_signature`` (optional, both or neither)
+    are the custody-signed ``generateToken`` request that enables Direct
+    Casts; see ``schemas/farcaster_token.py``.
+    """
+
+    prepare_id: uuid.UUID
+    signer_add_signature: str = Field(min_length=1, max_length=200)
+    auth_address_add_signature: str = Field(min_length=1, max_length=200)
+    protocol_auth_token: str = Field(min_length=1, max_length=4096)
+    dc_auth_request: DirectCastAuthRequest | None = None
+    dc_auth_signature: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_DC_AUTH_SIGNATURE_CHARS,
+        repr=False,
+    )
+
+    @model_validator(mode="after")
+    def _dc_fields_together(self) -> "SignerRegisterRequest":
+        if (self.dc_auth_request is None) != (self.dc_auth_signature is None):
+            raise ValueError("dc_auth_request and dc_auth_signature go together")
+        return self
+
+
+class SignerRegisterResponse(BaseModel):
+    prepare_id: str
+    status: Literal["pending", "submitted", "approved", "failed"]
+
+
+class SignerStatusResponse(BaseModel):
+    prepare_id: str
+    status: Literal["pending", "submitted", "approved", "failed"]
+    signer_tx_hash: str | None = None
+    auth_address_tx_hash: str | None = None
+    error: str | None = None
+    # Always null: kept so older app builds fall back to ``/v1/auth/protocol``
+    # (the status poll no longer hands out sessions).
+    login: LoginResponse | None = None

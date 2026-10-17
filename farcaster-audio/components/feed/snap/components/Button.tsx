@@ -3,7 +3,6 @@ import {
   Text,
   View,
   ActivityIndicator,
-  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import type { ButtonProps, SnapEvents } from "@/types/snap";
@@ -11,6 +10,8 @@ import { useSnapContext } from "../context";
 import { useComposeStore } from "@/stores/composeStore";
 import { resolvePaletteColor } from "@/constants/snapPalette";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
+import { openSafeExternalUrl } from "@/utils/externalLinks";
+import { isValidCastHash, parseFid } from "@/utils/farcasterIds";
 
 interface Props {
   id: string;
@@ -38,28 +39,25 @@ export function SnapButton({ id, props, on }: Props) {
         submitButton(id).catch(() => {});
         break;
 
-      case "open_url": {
-        const target = params?.target as string | undefined;
-        if (target) Linking.openURL(target).catch(() => {});
-        break;
-      }
-
-      case "open_snap": {
-        // TODO: render inline snap — for now open externally
-        const target = params?.target as string | undefined;
-        if (target) Linking.openURL(target).catch(() => {});
+      // TODO: render open_snap inline — for now open externally.
+      case "open_url":
+      case "open_snap":
+      case "open_mini_app": {
+        // Snap params are author-controlled: only public https URLs may
+        // leave the app (no tel:/sms:/other-app schemes, no private hosts).
+        void openSafeExternalUrl(params?.target);
         break;
       }
 
       case "view_cast": {
-        const hash = params?.hash as string | undefined;
-        if (hash) router.push(`/cast/${hash}`);
+        const hash = params?.hash;
+        if (isValidCastHash(hash)) router.push(`/cast/${hash}`);
         break;
       }
 
       case "view_profile": {
-        const fid = params?.fid as number | undefined;
-        if (fid) router.push(`/profile/${fid}`);
+        const fid = parseFid(params?.fid);
+        if (fid !== null) router.push(`/profile/${fid}`);
         break;
       }
 
@@ -68,12 +66,6 @@ export function SnapButton({ id, props, on }: Props) {
           text: (params?.text as string) ?? undefined,
           embeds: (params?.embeds as string[]) ?? undefined,
         });
-        break;
-      }
-
-      case "open_mini_app": {
-        const target = params?.target as string | undefined;
-        if (target) Linking.openURL(target).catch(() => {});
         break;
       }
 

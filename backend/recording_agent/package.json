@@ -1,0 +1,19 @@
+{
+  "name": "juke-recording-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Out-of-process recording worker for Juke's Farcaster-native rooms.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node worker.mjs",
+    "test": "node --test __tests__/worker.test.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1057.0",
+    "@aws-sdk/lib-storage": "^3.1057.0",
+    "@livekit/rtc-node": "^0.13.29"
+  }
+}

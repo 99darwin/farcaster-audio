@@ -29,6 +29,15 @@ function parseObject(value: unknown): UnknownRecord | null {
 
 function normalizeRoute(route: string | null): string | null {
   if (!route) return null;
+  // Notification payload data is external input. Prevent a nominally allowed
+  // prefix such as `/cast/../../settings` from being normalized by the router
+  // into an unrelated in-app destination.
+  if (
+    /[\u0000-\u001f\u007f\\]/u.test(route) ||
+    route.split(/[?#]/u, 1)[0].split("/").includes("..")
+  ) {
+    return null;
+  }
 
   if (APP_ROUTE_PREFIXES.some((prefix) => route.startsWith(prefix))) {
     return route;
@@ -58,14 +67,11 @@ function castRouteFromData(data: UnknownRecord): string | null {
   const focusHash =
     getString(data, "focus_hash") ?? getString(data, "focusHash");
 
-  if (!castHash && !threadHash) return null;
-  if (focusHash && threadHash && focusHash !== threadHash) {
-    return `/cast/${threadHash}?focusHash=${focusHash}`;
-  }
-  if (castHash && threadHash && castHash !== threadHash) {
-    return `/cast/${threadHash}?focusHash=${castHash}`;
-  }
-  return `/cast/${threadHash ?? castHash}`;
+  // The thread screen renders a reply's ancestors inline, so a deep reply
+  // opens as its own page with no separate conversation context.
+  const targetHash = focusHash ?? castHash ?? threadHash;
+  if (!targetHash) return null;
+  return `/cast/${encodeURIComponent(targetHash)}`;
 }
 
 function profileRouteFromData(data: UnknownRecord): string | null {

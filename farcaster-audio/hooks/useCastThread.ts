@@ -1,15 +1,20 @@
 import { useState, useCallback } from "react";
-import { fetchCastThread } from "@/services/neynar";
-import type { NeynarCast, NeynarCastWithReplies } from "@/types/neynar";
+import { fetchCastThread } from "@/services/feed";
+import type {
+  FarcasterCast,
+  FarcasterCastWithReplies,
+} from "@/types/farcaster";
 
 interface ThreadState {
-  rootCast: NeynarCast | null;
-  replies: NeynarCastWithReplies[];
+  rootCast: FarcasterCast | null;
+  /** Casts above `rootCast` in its conversation, oldest first. */
+  ancestors: FarcasterCast[];
+  replies: FarcasterCastWithReplies[];
   isLoading: boolean;
   error: string | null;
 }
 
-function applyReaction<T extends NeynarCast>(
+function applyReaction<T extends FarcasterCast>(
   cast: T,
   type: "like" | "recast",
   added: boolean,
@@ -42,14 +47,14 @@ function applyReaction<T extends NeynarCast>(
 }
 
 function updateReplyTree(
-  replies: NeynarCastWithReplies[],
+  replies: FarcasterCastWithReplies[],
   hash: string,
   type: "like" | "recast",
   added: boolean,
   myFid: number,
-): NeynarCastWithReplies[] {
+): FarcasterCastWithReplies[] {
   return replies.map((reply) => {
-    let next: NeynarCastWithReplies =
+    let next: FarcasterCastWithReplies =
       reply.hash === hash ? applyReaction(reply, type, added, myFid) : reply;
     if (next.direct_replies?.length) {
       const updatedChildren = updateReplyTree(
@@ -67,7 +72,10 @@ function updateReplyTree(
   });
 }
 
-function applyBookmark<T extends NeynarCast>(cast: T, bookmarked: boolean): T {
+function applyBookmark<T extends FarcasterCast>(
+  cast: T,
+  bookmarked: boolean,
+): T {
   return {
     ...cast,
     viewer_context: {
@@ -80,12 +88,12 @@ function applyBookmark<T extends NeynarCast>(cast: T, bookmarked: boolean): T {
 }
 
 function updateReplyTreeBookmark(
-  replies: NeynarCastWithReplies[],
+  replies: FarcasterCastWithReplies[],
   hash: string,
   bookmarked: boolean,
-): NeynarCastWithReplies[] {
+): FarcasterCastWithReplies[] {
   return replies.map((reply) => {
-    let next: NeynarCastWithReplies =
+    let next: FarcasterCastWithReplies =
       reply.hash === hash ? applyBookmark(reply, bookmarked) : reply;
     if (next.direct_replies?.length) {
       next = {
@@ -104,6 +112,7 @@ function updateReplyTreeBookmark(
 export function useCastThread(castHash: string, viewerFid: number) {
   const [state, setState] = useState<ThreadState>({
     rootCast: null,
+    ancestors: [],
     replies: [],
     isLoading: false,
     error: null,
@@ -122,7 +131,8 @@ export function useCastThread(castHash: string, viewerFid: number) {
       // Strip direct_replies from root to avoid duplication
       const { direct_replies: _, ...rootCast } = conversation;
       setState({
-        rootCast: rootCast as NeynarCast,
+        rootCast: rootCast as FarcasterCast,
+        ancestors: data.conversation.chronological_parent_casts ?? [],
         replies,
         isLoading: false,
         error: null,
@@ -144,6 +154,9 @@ export function useCastThread(castHash: string, viewerFid: number) {
           s.rootCast && s.rootCast.hash === hash
             ? applyReaction(s.rootCast, type, added, myFid)
             : s.rootCast,
+        ancestors: s.ancestors.map((cast) =>
+          cast.hash === hash ? applyReaction(cast, type, added, myFid) : cast,
+        ),
         replies: updateReplyTree(s.replies, hash, type, added, myFid),
       }));
     },
@@ -157,6 +170,9 @@ export function useCastThread(castHash: string, viewerFid: number) {
         s.rootCast && s.rootCast.hash === hash
           ? applyBookmark(s.rootCast, bookmarked)
           : s.rootCast,
+      ancestors: s.ancestors.map((cast) =>
+        cast.hash === hash ? applyBookmark(cast, bookmarked) : cast,
+      ),
       replies: updateReplyTreeBookmark(s.replies, hash, bookmarked),
     }));
   }, []);

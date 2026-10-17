@@ -22,5 +22,7 @@ export default async function DevelopersPage({ searchParams }: DevelopersPagePro
       ? status
       : null;
 
-  return <DeveloperDashboard initialPreviewStatus={previewStatus} />;
+  return (
+    <DeveloperDashboard initialPreviewStatus={previewStatus} />
+  );
 }

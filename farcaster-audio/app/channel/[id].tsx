@@ -11,7 +11,7 @@ import { ComposeModal } from "@/components/feed/ComposeModal";
 import { GlassView } from "@/components/common/GlassView";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
-import type { NeynarCast } from "@/types/neynar";
+import type { FarcasterCast } from "@/types/farcaster";
 
 export default function ChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -38,8 +38,8 @@ export default function ChannelScreen() {
     handlePublishCast,
   } = useChannelFeed(normalizedChannelId);
   const [isComposeVisible, setIsComposeVisible] = useState(false);
-  const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+  const [replyTarget, setReplyTarget] = useState<FarcasterCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<FarcasterCast | null>(
     null,
   );
   const composeDraft = useComposeStore((s) => s.draft);
@@ -49,13 +49,13 @@ export default function ChannelScreen() {
     fetch();
   }, [fetch]);
 
-  const openReply = useCallback((cast: NeynarCast) => {
+  const openReply = useCallback((cast: FarcasterCast) => {
     setReplyTarget(cast);
     setQuoteCastTarget(null);
     setIsComposeVisible(true);
   }, []);
 
-  const openQuoteCast = useCallback((cast: NeynarCast) => {
+  const openQuoteCast = useCallback((cast: FarcasterCast) => {
     setQuoteCastTarget(cast);
     setReplyTarget(null);
     setIsComposeVisible(true);

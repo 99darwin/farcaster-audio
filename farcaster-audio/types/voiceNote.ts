@@ -48,5 +48,5 @@ export interface UploadUrlResponse {
 
 /** Union type for mixed feed items (cast or voice note) */
 export type FeedItem =
-  | { type: "cast"; data: import("@/types/neynar").NeynarCast }
+  | { type: "cast"; data: import("@/types/farcaster").FarcasterCast }
   | { type: "voice_note"; data: VoiceNoteDetail };

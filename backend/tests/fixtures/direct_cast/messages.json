@@ -1,0 +1,198 @@
+{
+  "result": {
+    "messages": [
+      {
+        "conversationId": "1001-2002",
+        "senderFid": 2002,
+        "messageId": "a1b2c3d4-0003-4000-8000-000000000003",
+        "serverTimestamp": 1760600120000,
+        "type": "text",
+        "message": "",
+        "hasMention": false,
+        "reactions": [],
+        "isPinned": false,
+        "isDeleted": true,
+        "senderContext": {
+          "fid": 2002,
+          "username": "bob",
+          "displayName": "Bob",
+          "pfp": {
+            "url": "https://i.imgur.com/bob.png"
+          }
+        },
+        "viewerContext": {
+          "isLastReadMessage": false,
+          "focused": false,
+          "reactions": []
+        }
+      },
+      {
+        "conversationId": "1001-2002",
+        "senderFid": 1001,
+        "messageId": "a1b2c3d4-0002-4000-8000-000000000002",
+        "serverTimestamp": 1760600060000,
+        "type": "text",
+        "message": "gm bob",
+        "hasMention": false,
+        "reactions": [],
+        "isPinned": false,
+        "isDeleted": false,
+        "senderContext": {
+          "fid": 1001,
+          "username": "alice",
+          "displayName": "Alice",
+          "pfp": {
+            "url": "https://i.imgur.com/alice.png"
+          }
+        },
+        "viewerContext": {
+          "isLastReadMessage": false,
+          "focused": false,
+          "reactions": []
+        },
+        "inReplyTo": {
+          "conversationId": "1001-2002",
+          "senderFid": 2002,
+          "messageId": "a1b2c3d4-0001-4000-8000-000000000001",
+          "serverTimestamp": 1760600000000,
+          "type": "text",
+          "message": "gm alice, check https://juke.audio",
+          "hasMention": false,
+          "reactions": [
+            {
+              "reaction": "🔥",
+              "count": 2
+            },
+            {
+              "reaction": "👍",
+              "count": 1
+            }
+          ],
+          "isPinned": false,
+          "isDeleted": false,
+          "senderContext": {
+            "fid": 2002,
+            "username": "bob",
+            "displayName": "Bob",
+            "pfp": {
+              "url": "https://i.imgur.com/bob.png"
+            }
+          },
+          "viewerContext": {
+            "isLastReadMessage": true,
+            "focused": false,
+            "reactions": [
+              "🔥"
+            ]
+          }
+        }
+      },
+      {
+        "conversationId": "1001-2002",
+        "senderFid": 2002,
+        "messageId": "a1b2c3d4-0001-4000-8000-000000000001",
+        "serverTimestamp": 1760600000000,
+        "type": "text",
+        "message": "gm alice, check https://juke.audio",
+        "hasMention": false,
+        "reactions": [
+          {
+            "reaction": "🔥",
+            "count": 2
+          },
+          {
+            "reaction": "👍",
+            "count": 1
+          }
+        ],
+        "isPinned": false,
+        "isDeleted": false,
+        "senderContext": {
+          "fid": 2002,
+          "username": "bob",
+          "displayName": "Bob",
+          "pfp": {
+            "url": "https://i.imgur.com/bob.png"
+          }
+        },
+        "viewerContext": {
+          "isLastReadMessage": true,
+          "focused": false,
+          "reactions": [
+            "🔥"
+          ]
+        },
+        "metadata": {
+          "urls": [
+            {
+              "type": "url",
+              "openGraph": {
+                "url": "https://juke.audio",
+                "sourceUrl": "https://juke.audio",
+                "title": "Juke",
+                "description": "Live audio on Farcaster",
+                "domain": "juke.audio",
+                "image": {
+                  "url": "https://juke.audio/og.png"
+                },
+                "useLargeImage": true
+              }
+            }
+          ],
+          "medias": [
+            {
+              "version": "2",
+              "width": 1200,
+              "height": 630,
+              "staticRaster": "https://imagedelivery.net/abc/original",
+              "mimeType": "image/png"
+            }
+          ],
+          "mentions": [
+            {
+              "fid": 1001,
+              "username": "alice",
+              "displayName": "Alice",
+              "pfp": {
+                "url": "https://i.imgur.com/alice.png"
+              }
+            }
+          ],
+          "casts": [
+            {
+              "hash": "0xabc123"
+            }
+          ]
+        }
+      },
+      {
+        "conversationId": "1001-2002",
+        "senderFid": 2002,
+        "messageId": "a1b2c3d4-0004-4000-8000-000000000004",
+        "serverTimestamp": 1760600180000,
+        "type": "future_type",
+        "message": "",
+        "hasMention": false,
+        "reactions": [],
+        "isPinned": false,
+        "isDeleted": false,
+        "senderContext": {
+          "fid": 2002,
+          "username": "bob",
+          "displayName": "Bob",
+          "pfp": {
+            "url": "https://i.imgur.com/bob.png"
+          }
+        },
+        "viewerContext": {
+          "isLastReadMessage": false,
+          "focused": false,
+          "reactions": []
+        }
+      }
+    ]
+  },
+  "next": {
+    "cursor": "eyJiZWZvcmUiOjE3NjA2MDAwMDAwMDB9"
+  }
+}

@@ -1,7 +1,14 @@
+import { encodePathSegment } from "@/lib/api-path";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export interface Recording {
+  // Segment UUID — populated on the multi-recording backend. Optional
+  // so older backend builds (and rows from before the migration) still
+  // parse cleanly. When present, use this as the canonical link/route
+  // key; otherwise fall back to room_id.
+  id?: string;
   room_id: string;
   title: string;
   recording_url: string;
@@ -42,12 +49,31 @@ export async function getRecentRecordings(
 export async function getRecording(
   id: string,
 ): Promise<RecordingFeedItem | null> {
+  // The route's `id` slug may be either a recording UUID (new format,
+  // for individual segments of a multi-segment space) OR a room UUID
+  // (legacy format for shared links that pre-date the recordings
+  // migration). Both UUID shapes are identical so we try the canonical
+  // per-segment lookup first, then fall back to the legacy room
+  // lookup which the backend resolves to "the most recent segment for
+  // that room".
+  const segment = encodePathSegment(id);
+  if (!segment) return null;
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/recordings/${id}`, {
+    const segRes = await fetch(
+      `${API_BASE_URL}/v1/recordings/by-id/${segment}`,
+      { next: { revalidate: 60 } },
+    );
+    if (segRes.ok) return segRes.json();
+    if (segRes.status !== 404) return null;
+  } catch {
+    // Network/parse error — fall through and try the legacy path.
+  }
+  try {
+    const roomRes = await fetch(`${API_BASE_URL}/v1/recordings/${segment}`, {
       next: { revalidate: 60 },
     });
-    if (!res.ok) return null;
-    return res.json();
+    if (!roomRes.ok) return null;
+    return roomRes.json();
   } catch {
     return null;
   }

@@ -15,9 +15,7 @@ class MiniAppNotification(Base):
     """
 
     __tablename__ = "miniapp_notifications"
-    __table_args__ = (
-        UniqueConstraint("fid", name="uq_miniapp_notifications_fid"),
-    )
+    __table_args__ = (UniqueConstraint("fid", name="uq_miniapp_notifications_fid"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     fid: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)

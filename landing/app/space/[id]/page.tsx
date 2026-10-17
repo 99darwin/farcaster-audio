@@ -2,27 +2,17 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import {
   buildGoogleCalendarUrl,
+  formatScheduledTime,
   getSpaceDetail,
   isUpcomingScheduledSpace,
   type SpaceDetailResponse,
 } from "@/lib/spaces";
+import { ANDROID_BETA_URL } from "@/lib/deeplink";
 
 const TESTFLIGHT_URL = process.env.NEXT_PUBLIC_APP_DOWNLOAD_URL ?? "";
 
 async function fetchRoom(id: string): Promise<SpaceDetailResponse | null> {
   return getSpaceDetail(id);
-}
-
-function formatScheduledTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-  }) + " UTC";
 }
 
 function getRelativeTime(iso: string): string {
@@ -250,7 +240,15 @@ export default async function SpacePage({
               rel="noopener noreferrer"
               className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-juke-border px-6 text-sm font-bold text-juke-text-on-dark-secondary transition-colors hover:bg-juke-surface hover:text-juke-text-on-dark sm:text-base"
             >
-              Get Juke on TestFlight
+              Get Juke on iOS
+            </a>
+            <a
+              href={ANDROID_BETA_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-juke-border px-6 text-sm font-bold text-juke-text-on-dark-secondary transition-colors hover:bg-juke-surface hover:text-juke-text-on-dark sm:text-base"
+            >
+              Get Juke on Android
             </a>
           </div>
         </div>

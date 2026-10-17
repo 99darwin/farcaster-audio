@@ -28,6 +28,9 @@ export interface ThemeGlass {
   blurIntensity: number;
   tint: "light" | "dark" | "default";
   overlayColor: string;
+  /** A lighter material reserved for the floating navigation surface. */
+  navigationBlurIntensity: number;
+  navigationOverlayColor: string;
   accentOverlay: string;
   dangerOverlay: string;
   mutedOverlay: string;
@@ -94,6 +97,11 @@ export const darkGlass: ThemeGlass = {
   blurIntensity: 80,
   tint: "dark",
   overlayColor: "rgba(26, 26, 46, 0.45)",
+  // The tab bar needs to read as a floating material, not a second opaque
+  // footer. Let the feed remain legible through it while preserving icon
+  // contrast over bright media.
+  navigationBlurIntensity: 26,
+  navigationOverlayColor: "rgba(20, 22, 48, 0.16)",
   accentOverlay: "rgba(133, 93, 205, 0.35)",
   dangerOverlay: "rgba(220, 38, 38, 0.4)",
   mutedOverlay: "rgba(216, 90, 48, 0.4)",
@@ -112,6 +120,8 @@ export const lightGlass: ThemeGlass = {
   blurIntensity: 60,
   tint: "light",
   overlayColor: "rgba(255, 248, 240, 0.65)",
+  navigationBlurIntensity: 24,
+  navigationOverlayColor: "rgba(255, 248, 240, 0.24)",
   accentOverlay: "rgba(133, 93, 205, 0.18)",
   dangerOverlay: "rgba(185, 28, 28, 0.20)",
   mutedOverlay: "rgba(216, 90, 48, 0.20)",

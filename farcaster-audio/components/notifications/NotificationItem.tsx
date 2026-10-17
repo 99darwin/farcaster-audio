@@ -6,17 +6,17 @@ import { NotificationHeader } from "@/components/notifications/NotificationHeade
 import { getTypeMeta } from "@/components/notifications/NotificationTypeBadge";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
-import type { NeynarCast, NeynarNotification } from "@/types/neynar";
+import type { FarcasterCast, FarcasterNotification } from "@/types/farcaster";
 
 interface NotificationItemProps {
-  notification: NeynarNotification;
+  notification: FarcasterNotification;
   isUnread: boolean;
   myFid: number;
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
   onBookmark: (hash: string, isBookmarked: boolean) => void;
-  onReply: (cast: NeynarCast) => void;
-  onQuoteCast: (cast: NeynarCast) => void;
+  onReply: (cast: FarcasterCast) => void;
+  onQuoteCast: (cast: FarcasterCast) => void;
 }
 
 export function NotificationItem({
@@ -36,13 +36,9 @@ export function NotificationItem({
 
   const handleCastPress = useCallback(() => {
     if (!cast) return;
-    const threadHash = cast.thread_hash ?? cast.parent_hash ?? cast.hash;
-    const focusHash = cast.hash !== threadHash ? cast.hash : undefined;
-    router.push(
-      focusHash
-        ? `/cast/${threadHash}?focusHash=${focusHash}`
-        : `/cast/${threadHash}`,
-    );
+    // The thread screen renders ancestors inline above the focal cast, so a
+    // deep reply opens as its own page and still reads in context.
+    router.push(`/cast/${encodeURIComponent(cast.hash)}`);
   }, [cast, router]);
 
   // Spam guards — mirror NotificationHeader so the row collapses cleanly.

@@ -65,37 +65,42 @@ export function MentionSuggestions({
   const [users, setUsers] = useState<MentionUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastQueryRef = useRef("");
+  const requestRef = useRef<AbortController | null>(null);
 
   const mention = extractMentionQuery(text, cursorPosition);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    requestRef.current?.abort();
 
     if (!mention || mention.query.length === 0) {
       setUsers([]);
-      lastQueryRef.current = "";
+      setIsLoading(false);
       return;
     }
 
     const query = mention.query;
-    if (query === lastQueryRef.current) return;
+    setUsers([]);
 
     debounceRef.current = setTimeout(async () => {
-      lastQueryRef.current = query;
+      const controller = new AbortController();
+      requestRef.current = controller;
       setIsLoading(true);
       try {
-        const data = await searchUsers(query);
-        setUsers(data.users);
+        const data = await searchUsers(query, 5, {
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) setUsers(data.users);
       } catch {
-        setUsers([]);
+        if (!controller.signal.aborted) setUsers([]);
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     }, 200);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      requestRef.current?.abort();
     };
   }, [mention?.query]);
 
@@ -112,6 +117,7 @@ export function MentionSuggestions({
           data={users}
           keyExtractor={(item) => String(item.fid)}
           keyboardShouldPersistTaps="always"
+          accessibilityLabel="Mention suggestions"
           renderItem={({ item }) => (
             <Pressable
               style={styles.row}

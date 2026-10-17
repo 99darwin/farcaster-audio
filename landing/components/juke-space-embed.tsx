@@ -3,10 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { safeImageUrl } from "@/lib/safe-url";
 import {
+  readPartnerTokenFromHash,
+  stripPartnerToken,
+} from "@/lib/embed-partner-token";
+import {
   createJukeEmbedSdk,
+  EmbedSignInPopupError,
+  JukeEmbedAuthError,
   type JukeEmbedSdk,
 } from "@/lib/juke-embed-sdk";
-import { SignerApprovalPrompt } from "@/components/signer-approval-prompt";
 import type {
   JoinSpaceResponse,
   SpaceDetailResponse,
@@ -16,6 +21,21 @@ import type {
 interface JukeSpaceEmbedProps {
   spaceId: string;
   initialData: SpaceDetailResponse;
+  /**
+   * `"off"` renders a passive second-screen view: shows title, host, and
+   * participants but never connects audio or prompts to listen. Use when
+   * the visitor already has audio playing elsewhere (the iOS app, another
+   * tab) and would otherwise double-broadcast.
+   */
+  audioMode?: "on" | "off";
+  /**
+   * Partner-minted Juke JWT (from `POST /v1/developer/partner-tokens`)
+   * passed via the deprecated `?token=` query. A `#token=` fragment, read
+   * client-side, takes precedence. When present, the embed adopts the
+   * session on mount and skips sign-in. The backend re-verifies on every
+   * authed call so a forged token still fails at join time.
+   */
+  partnerToken?: string;
 }
 
 type Phase =
@@ -25,6 +45,7 @@ type Phase =
   | "listening"
   | "authenticating"
   | "participating"
+  | "scheduled"
   | "ended"
   | "unsupported"
   | "error";
@@ -35,12 +56,21 @@ const REACTIONS: { key: string; glyph: string; label: string }[] = [
   { key: "heart", glyph: "♡", label: "Heart" },
 ];
 
-export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
+export function JukeSpaceEmbed({
+  spaceId,
+  initialData,
+  audioMode = "on",
+  partnerToken,
+}: JukeSpaceEmbedProps) {
+  const isAudioOff = audioMode === "off";
   const sdkRef = useRef<JukeEmbedSdk | null>(null);
-  const signerAbortRef = useRef<AbortController | null>(null);
-  const [phase, setPhase] = useState<Phase>(() =>
-    initialData.room.status === "active" ? "idle" : "ended",
-  );
+  // Bumped on cancel/unmount so a late sign-in result is ignored.
+  const signInAttemptRef = useRef(0);
+  const [phase, setPhase] = useState<Phase>(() => {
+    if (initialData.room.status === "scheduled") return "scheduled";
+    if (initialData.room.status === "active") return "idle";
+    return "ended";
+  });
   const [error, setError] = useState<string | null>(null);
   const [roomMeta, setRoomMeta] = useState(initialData.room);
   const [participants, setParticipants] = useState(initialData.participants);
@@ -51,11 +81,46 @@ export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
     new Set(),
   );
   const [isMicEnabled, setIsMicEnabled] = useState(false);
-  const [signerApprovalUrl, setSignerApprovalUrl] = useState<string | null>(
-    null,
-  );
+  // Outside a Mini App host, sign-in continues in a first-party juke.audio
+  // popup. This frame can be embedded anywhere, so it never asks for the
+  // recovery phrase itself.
+  const [isWebSignInOpen, setIsWebSignInOpen] = useState(false);
+  const popupAbortRef = useRef<AbortController | null>(null);
 
   if (!sdkRef.current) sdkRef.current = createJukeEmbedSdk();
+
+  // Adopt a partner-minted JWT on mount when one was passed on the URL —
+  // preferably as `#token=` (never sent to the server), else the deprecated
+  // `?token=` (`lib/embed-partner-token.ts`). Runs once. Malformed/expired
+  // tokens surface as a soft error so the visitor falls back to the regular
+  // sign-in flow. Either form is stripped from the URL straight away so the
+  // JWT doesn't linger in history, Referer headers or screen recordings.
+  useEffect(() => {
+    if (typeof window === "undefined" || !sdkRef.current) return;
+    const token =
+      readPartnerTokenFromHash(window.location.hash) ?? partnerToken;
+    try {
+      const stripped = stripPartnerToken(window.location.href);
+      if (stripped !== window.location.href) {
+        window.history.replaceState(window.history.state, "", stripped);
+      }
+    } catch {
+      // No-op: a malformed location shouldn't break the embed.
+    }
+    if (!token) return;
+    try {
+      const session = sdkRef.current.adoptPartnerSession(token);
+      setIsAuthenticated(true);
+      setAuthenticatedFid(session.fid);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Partner sign-in is invalid — sign in with Farcaster to participate.",
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const syncFromJoin = useCallback(
     (join: JoinSpaceResponse) => {
@@ -116,59 +181,91 @@ export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
     }
   }, [connectJoin, spaceId, syncFromJoin]);
 
-  const handleStartSiwn = useCallback(async () => {
-    // Cancel any previous in-flight sign-in.
-    signerAbortRef.current?.abort();
-    const abort = new AbortController();
-    signerAbortRef.current = abort;
-
-    setError(null);
-    setPhase("authenticating");
-    setSignerApprovalUrl(null);
-
-    try {
-      const { channelToken, url } = await sdkRef.current!.startSiwfFlow();
-      setSignerApprovalUrl(url);
-
-      const approved = await sdkRef.current!.pollSiwfStatus(channelToken, {
-        signal: abort.signal,
-      });
-
-      const session = await sdkRef.current!.completeSiwfLogin({
-        message: approved.message,
-        signature: approved.signature,
-      });
+  const joinAsParticipant = useCallback(
+    async (fid: number) => {
       setIsAuthenticated(true);
-      setAuthenticatedFid(session.fid);
-      setSignerApprovalUrl(null);
-
+      setAuthenticatedFid(fid);
+      setIsWebSignInOpen(false);
       const join = await sdkRef.current!.joinAuthenticated(spaceId);
       syncFromJoin(join);
       await connectJoin(join, "participating");
-    } catch (err) {
-      if (abort.signal.aborted) {
-        // user cancelled — quietly return to prior state
-        setPhase(isAuthenticated ? "participating" : "listening");
+    },
+    [connectJoin, spaceId, syncFromJoin],
+  );
+
+  const restoreConnectedPhase = useCallback(() => {
+    setIsWebSignInOpen(false);
+    setPhase(sdkRef.current?.isAuthenticated ? "participating" : "listening");
+  }, []);
+
+  const handleStartSignIn = useCallback(async () => {
+    const attempt = ++signInAttemptRef.current;
+    setError(null);
+    setPhase("authenticating");
+
+    try {
+      // Protocol Auth via the Mini App host's wallet; null outside a host.
+      const session = await sdkRef.current!.signInWithMiniApp();
+      if (attempt !== signInAttemptRef.current) return;
+      if (!session) {
+        setIsWebSignInOpen(true);
         return;
       }
-      setError(err instanceof Error ? err.message : "Could not sign in");
-      setPhase(isAuthenticated ? "participating" : "listening");
-    } finally {
-      if (signerAbortRef.current === abort) signerAbortRef.current = null;
+      await joinAsParticipant(session.fid);
+    } catch (err) {
+      if (attempt !== signInAttemptRef.current) return;
+      const reason = err instanceof JukeEmbedAuthError ? err.reason : undefined;
+      // Dismissing the wallet prompt is a choice, not an error.
+      if (reason !== "user_cancelled") {
+        setError(err instanceof Error ? err.message : "Could not sign in");
+      }
+      // Only a host wallet that isn't linked to the FID warrants the web
+      // flow; network/timeout failures are retried from the same button.
+      if (reason === "verify_failed") {
+        setIsWebSignInOpen(true);
+        return;
+      }
+      restoreConnectedPhase();
     }
-  }, [connectJoin, isAuthenticated, spaceId, syncFromJoin]);
+  }, [joinAsParticipant, restoreConnectedPhase]);
+
+  // Must run synchronously from the click so the popup isn't blocked.
+  const handleOpenSignInPopup = useCallback(async () => {
+    const attempt = signInAttemptRef.current;
+    popupAbortRef.current?.abort();
+    const controller = new AbortController();
+    popupAbortRef.current = controller;
+    setError(null);
+    try {
+      const session = await sdkRef.current!.signInWithPopup({
+        signal: controller.signal,
+      });
+      if (attempt !== signInAttemptRef.current) return;
+      await joinAsParticipant(session.fid);
+    } catch (err) {
+      if (attempt !== signInAttemptRef.current) return;
+      if (err instanceof EmbedSignInPopupError) {
+        // Closing the window keeps the offer open; a blocked popup says why.
+        if (err.reason === "blocked") setError(err.message);
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Could not join");
+      restoreConnectedPhase();
+    } finally {
+      if (popupAbortRef.current === controller) popupAbortRef.current = null;
+    }
+  }, [joinAsParticipant, restoreConnectedPhase]);
 
   const handleCancelSignIn = useCallback(() => {
-    signerAbortRef.current?.abort();
-    signerAbortRef.current = null;
-    setSignerApprovalUrl(null);
-    setPhase(isAuthenticated ? "participating" : "listening");
-  }, [isAuthenticated]);
+    signInAttemptRef.current += 1;
+    popupAbortRef.current?.abort();
+    restoreConnectedPhase();
+  }, [restoreConnectedPhase]);
 
   useEffect(() => {
     return () => {
-      signerAbortRef.current?.abort();
-      signerAbortRef.current = null;
+      signInAttemptRef.current += 1;
+      popupAbortRef.current?.abort();
       sdkRef.current?.leaveSpace().catch(() => {});
     };
   }, []);
@@ -236,6 +333,12 @@ export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
                 Listening
               </span>
             )}
+            {isAudioOff && (
+              <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-white/55">
+                <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
+                Audio off
+              </span>
+            )}
           </div>
 
           <h1 className="text-pretty text-2xl font-bold leading-tight text-white">
@@ -268,22 +371,31 @@ export function JukeSpaceEmbed({ spaceId, initialData }: JukeSpaceEmbedProps) {
             </div>
           )}
 
-          <ActionFooter
-            phase={phase}
-            canListen={canListen}
-            isBusy={isBusy}
-            isAuthenticated={isAuthenticated}
-            handRaised={handRaised}
-            isMicEnabled={isMicEnabled}
-            signerApprovalUrl={signerApprovalUrl}
-            onListen={handleListen}
-            onSignIn={handleStartSiwn}
-            onCancelSignIn={handleCancelSignIn}
-            onLeave={handleLeave}
-            onReaction={handleReaction}
-            onRaiseHand={handleRaiseHand}
-            onMic={handleMic}
-          />
+          {phase === "scheduled" ? (
+            <ScheduledCountdown scheduledAt={roomMeta.scheduled_at} />
+          ) : isAudioOff ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-center text-sm text-white/60">
+              Audio is off here — keep listening in the Juke app.
+            </div>
+          ) : (
+            <ActionFooter
+              phase={phase}
+              canListen={canListen}
+              isBusy={isBusy}
+              isAuthenticated={isAuthenticated}
+              handRaised={handRaised}
+              isMicEnabled={isMicEnabled}
+              isWebSignInOpen={isWebSignInOpen}
+              onListen={handleListen}
+              onSignIn={handleStartSignIn}
+              onOpenSignInPopup={handleOpenSignInPopup}
+              onCancelSignIn={handleCancelSignIn}
+              onLeave={handleLeave}
+              onReaction={handleReaction}
+              onRaiseHand={handleRaiseHand}
+              onMic={handleMic}
+            />
+          )}
         </div>
 
         <div className="flex items-center justify-between border-t border-white/5 px-5 py-3 text-xs text-white/35 sm:px-6">
@@ -318,9 +430,10 @@ function ActionFooter({
   isAuthenticated,
   handRaised,
   isMicEnabled,
-  signerApprovalUrl,
+  isWebSignInOpen,
   onListen,
   onSignIn,
+  onOpenSignInPopup,
   onCancelSignIn,
   onLeave,
   onReaction,
@@ -333,24 +446,40 @@ function ActionFooter({
   isAuthenticated: boolean;
   handRaised: boolean;
   isMicEnabled: boolean;
-  signerApprovalUrl: string | null;
+  isWebSignInOpen: boolean;
   onListen: () => void;
   onSignIn: () => void;
+  onOpenSignInPopup: () => void;
   onCancelSignIn: () => void;
   onLeave: () => void;
   onReaction: (key: string) => void;
   onRaiseHand: () => void;
   onMic: () => void;
 }) {
-  // SIWN polling: QR code + mobile deeplink button. Compact 160px QR
-  // fits inside the 420×620 embed card without scrolling.
-  if (phase === "authenticating" && signerApprovalUrl) {
+  // Web fallback (no Mini App host, or a host wallet that isn't linked):
+  // sign in on juke.audio in a popup, never inside this frame.
+  if (phase === "authenticating" && isWebSignInOpen) {
     return (
-      <SignerApprovalPrompt
-        approvalUrl={signerApprovalUrl}
-        onCancel={onCancelSignIn}
-        qrSize={160}
-      />
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={onOpenSignInPopup}
+          className="h-12 w-full rounded-full bg-[#855DCD] text-sm font-semibold text-white transition hover:bg-[#9670DB]"
+        >
+          Continue on juke.audio
+        </button>
+        <p className="text-center text-xs text-white/45">
+          Opens a juke.audio window. Never enter your recovery phrase on any
+          other site.
+        </p>
+        <button
+          type="button"
+          onClick={onCancelSignIn}
+          className="h-10 w-full rounded-full text-sm font-medium text-white/60 transition hover:text-white/85"
+        >
+          Cancel
+        </button>
+      </div>
     );
   }
 
@@ -469,6 +598,68 @@ function ActionFooter({
   );
 }
 
+function ScheduledCountdown({ scheduledAt }: { scheduledAt: string | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  if (!scheduledAt) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-center text-sm text-white/60">
+        Starts soon — check back in a minute.
+      </div>
+    );
+  }
+
+  const startsAtMs = new Date(scheduledAt).getTime();
+  const remainingMs = Number.isFinite(startsAtMs) ? startsAtMs - now : 0;
+
+  if (remainingMs <= 0) {
+    return (
+      <div className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-4 py-4 text-center text-sm text-emerald-100">
+        Going live now — refresh in a moment to listen.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-5 text-center">
+      <p className="text-[11px] uppercase tracking-wider text-white/45">
+        Starts in
+      </p>
+      <p
+        className="mt-1 font-mono text-2xl font-semibold tabular-nums text-white"
+        aria-live="polite"
+      >
+        {formatRemaining(remainingMs)}
+      </p>
+      <p className="mt-2 text-xs text-white/45">
+        {new Date(scheduledAt).toLocaleString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          timeZoneName: "short",
+        })}
+      </p>
+    </div>
+  );
+}
+
+function formatRemaining(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
 function HostLine({ room }: { room: SpaceDetailResponse["room"] }) {
   const safePfp = safeImageUrl(room.host.pfp_url);
   return (
@@ -499,16 +690,26 @@ function HostLine({ room }: { room: SpaceDetailResponse["room"] }) {
 
 function StatusPill({ status }: { status: string }) {
   const live = status === "active";
+  const scheduled = status === "scheduled";
+  const label = live
+    ? "Live"
+    : scheduled
+      ? "Scheduled"
+      : status === "ended"
+        ? "Ended"
+        : status;
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
         live
           ? "bg-[#D85A30]/20 text-[#ffb199]"
-          : "bg-white/10 text-white/50"
+          : scheduled
+            ? "bg-[#855DCD]/20 text-[#c4afe8]"
+            : "bg-white/10 text-white/50"
       }`}
     >
       {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#D85A30]" />}
-      {live ? "Live" : status}
+      {label}
     </span>
   );
 }

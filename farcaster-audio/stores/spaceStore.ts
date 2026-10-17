@@ -1,5 +1,96 @@
 import { create } from "zustand";
 import type { Room, Participant, ParticipantRole } from "@/types/space";
+import type { FarcasterNativeSpace } from "@/services/api";
+
+export interface DiscoveryLists {
+  activeLiveSpaces: Room[];
+  scheduledSpaces: Room[];
+  farcasterLiveSpaces: FarcasterNativeSpace[];
+  farcasterScheduledSpaces: FarcasterNativeSpace[];
+}
+
+function isPastScheduled(
+  value: string | null | undefined,
+  nowMs: number,
+): boolean {
+  if (!value) return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp <= nowMs;
+}
+
+function uniqueBy<T>(items: T[], key: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const identity = key(item);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
+/** Enforce discovery invariants across all four endpoint snapshots at once. */
+export function normalizeDiscoveryLists(
+  lists: DiscoveryLists,
+  nowMs = Date.now(),
+): DiscoveryLists {
+  const activeLiveSpaces = uniqueBy(
+    lists.activeLiveSpaces.filter((room) => room.status === "active"),
+    (room) =>
+      room.farcaster_room_id
+        ? `fc:${room.farcaster_room_id}`
+        : `juke:${room.id}`,
+  );
+  const mirroredLiveIds = new Set(
+    activeLiveSpaces.flatMap((room) =>
+      room.farcaster_room_id ? [room.farcaster_room_id] : [],
+    ),
+  );
+  const farcasterLiveSpaces = uniqueBy(
+    lists.farcasterLiveSpaces.filter(
+      (space) => space.state === "live" && !mirroredLiveIds.has(space.id),
+    ),
+    (space) => space.id,
+  );
+  const liveNativeIds = new Set([
+    ...mirroredLiveIds,
+    ...farcasterLiveSpaces.map((space) => space.id),
+  ]);
+
+  const scheduledSpaces = uniqueBy(
+    lists.scheduledSpaces.filter(
+      (room) =>
+        room.status === "scheduled" &&
+        !isPastScheduled(room.scheduled_at, nowMs) &&
+        !(room.farcaster_room_id && liveNativeIds.has(room.farcaster_room_id)),
+    ),
+    (room) =>
+      room.farcaster_room_id
+        ? `fc:${room.farcaster_room_id}`
+        : `juke:${room.id}`,
+  );
+  const mirroredScheduledIds = new Set(
+    scheduledSpaces.flatMap((room) =>
+      room.farcaster_room_id ? [room.farcaster_room_id] : [],
+    ),
+  );
+  const farcasterScheduledSpaces = uniqueBy(
+    lists.farcasterScheduledSpaces.filter(
+      (space) =>
+        space.state === "scheduled" &&
+        !isPastScheduled(space.scheduled_at, nowMs) &&
+        !liveNativeIds.has(space.id) &&
+        !mirroredScheduledIds.has(space.id),
+    ),
+    (space) => space.id,
+  );
+
+  return {
+    activeLiveSpaces,
+    scheduledSpaces,
+    farcasterLiveSpaces,
+    farcasterScheduledSpaces,
+  };
+}
 
 interface SpaceStore {
   // Current active space state
@@ -15,6 +106,10 @@ interface SpaceStore {
   // Live spaces for discovery rail
   activeLiveSpaces: Room[];
   scheduledSpaces: Room[];
+  // Farcaster-native (proxied) discovery — separate from Juke-hosted so
+  // the UI can render them with a different tap-handler / chip.
+  farcasterLiveSpaces: FarcasterNativeSpace[];
+  farcasterScheduledSpaces: FarcasterNativeSpace[];
 
   // Actions - space state
   setRoom: (room: Room) => void;
@@ -32,7 +127,12 @@ interface SpaceStore {
 
   // Actions - discovery
   setActiveLiveSpaces: (spaces: Room[]) => void;
+  setDiscoverySpaces: (spaces: DiscoveryLists) => void;
+  addActiveLiveSpace: (room: Room) => void;
+  removeActiveLiveSpace: (roomId: string) => void;
   setScheduledSpaces: (spaces: Room[]) => void;
+  setFarcasterLiveSpaces: (spaces: FarcasterNativeSpace[]) => void;
+  setFarcasterScheduledSpaces: (spaces: FarcasterNativeSpace[]) => void;
 
   // Chat — incremented when a new reply data message arrives via LiveKit
   chatNewReplyTick: number;
@@ -64,6 +164,8 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
   ...INITIAL_STATE,
   activeLiveSpaces: [],
   scheduledSpaces: [],
+  farcasterLiveSpaces: [],
+  farcasterScheduledSpaces: [],
 
   // Space state actions
   setRoom: (room) => set({ room }),
@@ -118,8 +220,31 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
     set((state) => ({ chatNewReplyTick: state.chatNewReplyTick + 1 })),
 
   // Discovery
-  setActiveLiveSpaces: (activeLiveSpaces) => set({ activeLiveSpaces }),
-  setScheduledSpaces: (scheduledSpaces) => set({ scheduledSpaces }),
+  setDiscoverySpaces: (spaces) => set(normalizeDiscoveryLists(spaces)),
+  setActiveLiveSpaces: (activeLiveSpaces) =>
+    set((state) => normalizeDiscoveryLists({ ...state, activeLiveSpaces })),
+  addActiveLiveSpace: (room) =>
+    set((state) =>
+      normalizeDiscoveryLists({
+        ...state,
+        activeLiveSpaces: [
+          room,
+          ...state.activeLiveSpaces.filter((r) => r.id !== room.id),
+        ],
+      }),
+    ),
+  removeActiveLiveSpace: (roomId) =>
+    set((state) => ({
+      activeLiveSpaces: state.activeLiveSpaces.filter((r) => r.id !== roomId),
+    })),
+  setScheduledSpaces: (scheduledSpaces) =>
+    set((state) => normalizeDiscoveryLists({ ...state, scheduledSpaces })),
+  setFarcasterLiveSpaces: (farcasterLiveSpaces) =>
+    set((state) => normalizeDiscoveryLists({ ...state, farcasterLiveSpaces })),
+  setFarcasterScheduledSpaces: (farcasterScheduledSpaces) =>
+    set((state) =>
+      normalizeDiscoveryLists({ ...state, farcasterScheduledSpaces }),
+    ),
 
   // Lifecycle
   joinSpace: (room, participants, myRole) =>
@@ -137,5 +262,11 @@ export const useSpaceStore = create<SpaceStore>((set) => ({
   leaveSpace: () => set(INITIAL_STATE),
 
   reset: () =>
-    set({ ...INITIAL_STATE, activeLiveSpaces: [], scheduledSpaces: [] }),
+    set({
+      ...INITIAL_STATE,
+      activeLiveSpaces: [],
+      scheduledSpaces: [],
+      farcasterLiveSpaces: [],
+      farcasterScheduledSpaces: [],
+    }),
 }));

@@ -1,29 +1,111 @@
-import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 from datetime import datetime, timezone
+from typing import NoReturn
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import ValidationError
 from sqlalchemy import select, update
+from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from livekit import api as livekit_api
 
+from app.clients.hypersnap_webhooks import (
+    HEADER_SIGNATURE as HYPERSNAP_SIGNATURE_HEADER,
+    verify_delivery_signature,
+)
+from app.clients.hypersnap import HypersnapError
 from app.config import settings
 from app.dependencies import get_db, get_redis
 from app.models.miniapp_notification import MiniAppNotification
 from app.models.participant import Participant
+from app.models.recording import Recording
 from app.models.room import Room
+from app.services.client_ip import client_ip as _client_ip
+from app.services.dev_webhook_service import dispatch as dispatch_dev_webhook
+from app.services.hypersnap_webhook_service import (
+    EVENT_CAST_CREATED,
+    ROOM_REPLY_WEBHOOK,
+    cast_of,
+    dedupe_key,
+    normalize_cast_hash,
+    schedule_room_reply_sync,
+    secrets_by_event_type,
+    to_push_payload,
+)
+from app.services.livekit_admission_service import (
+    AdmissionAction,
+    enforce_admission,
+)
 from app.services.livekit_service import LiveKitService
+from app.services.miniapp_webhook_service import (
+    JfsEnvelope,
+    JfsVerificationError,
+    is_app_key_active_for_fid,
+    verify_jfs_signature,
+)
 from app.services.redis_service import RedisService
-from app.services.storage_service import extract_recording_s3_key
+from app.services.storage_service import (
+    StorageService,
+    extract_recording_s3_key,
+)
+from app.services.webhook_guard import (
+    enforce_ip_rate_limit,
+    ensure_auth_failure_budget,
+    read_capped_body,
+    record_auth_failure,
+)
 
 logger = logging.getLogger(__name__)
 
+SYSTEM_ACTOR_FID = 0  # sentinel for system-initiated actions (not a real Farcaster FID)
+
+# At-least-once delivery dedupe for Hypersnap events. Hypersnap deliveries
+# carry no timestamp header to bound freshness, so the dedupe window is the
+# replay window: keep it long enough that a captured delivery can't be
+# replayed once its key expires.
+WEBHOOK_SEEN_KEY_PREFIX = "hypersnap:webhook:seen:"
+ROOM_REPLY_SEEN_KEY_PREFIX = "hypersnap:webhook:seen:room_reply:"
+WEBHOOK_SEEN_TTL_SECONDS = 14 * 24 * 60 * 60
+
+# Per-IP volume caps per route. Senders are a handful of upstream IPs, so
+# these are sized well above their legitimate burst rate.
+RATE_LIMIT_WINDOW_SECONDS = 60
+LIVEKIT_RATE_LIMIT = 1200
+HYPERSNAP_RATE_LIMIT = 3000
+MINIAPP_RATE_LIMIT = 300
+
+ROUTE_LIVEKIT = "livekit"
+ROUTE_HYPERSNAP_ROOM_REPLY = "hypersnap"
+ROUTE_HYPERSNAP_NOTIFICATIONS = "hypersnap_notifications"
+ROUTE_MINIAPP = "miniapp"
+ROUTE_MINIAPP_PROXY = "miniapp_proxy"
+# Set by landing/app/api/webhook/route.ts; trusted only with a valid secret.
+MINIAPP_SENDER_IP_HEADER = "x-juke-sender-ip"
+
 router = APIRouter(prefix="/v1/webhooks", tags=["webhooks"])
+
+
+async def _guard_unauthenticated(
+    request: Request, redis, *, route: str, limit: int
+) -> str:
+    """Per-IP volume + failed-auth budget, checked before any body/crypto work.
+
+    Returns the client IP so the caller can record auth failures against it.
+    """
+    client_ip = _client_ip(request)
+    await enforce_ip_rate_limit(
+        redis,
+        route=route,
+        client_ip=client_ip,
+        limit=limit,
+        window_seconds=RATE_LIMIT_WINDOW_SECONDS,
+    )
+    await ensure_auth_failure_budget(redis, route=route, client_ip=client_ip)
+    return client_ip
 
 
 @router.post("/livekit")
@@ -33,7 +115,10 @@ async def livekit_webhook(
     redis=Depends(get_redis),
 ):
     """Receive and process LiveKit webhook events."""
-    body = await request.body()
+    client_ip = await _guard_unauthenticated(
+        request, redis, route=ROUTE_LIVEKIT, limit=LIVEKIT_RATE_LIMIT
+    )
+    body = await read_capped_body(request)
     auth_header = request.headers.get("Authorization", "")
 
     try:
@@ -45,20 +130,25 @@ async def livekit_webhook(
         event = receiver.receive(body.decode(), auth_header)
     except Exception as exc:
         logger.warning("LiveKit webhook verification failed: %s", exc)
+        await record_auth_failure(redis, route=ROUTE_LIVEKIT, client_ip=client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Webhook verification failed",
         )
 
     redis_service = RedisService(redis)
+    recording_agent = getattr(request.app.state, "recording_agent_service", None)
+    farcaster_spaces = getattr(request.app.state, "farcaster_spaces_service", None)
 
     match event.event:
         case "participant_joined":
-            await _handle_participant_joined(event, redis_service)
+            await _handle_participant_joined(event, db, redis_service)
         case "participant_left":
             await _handle_participant_left(event, db, redis_service)
         case "room_finished":
-            await _handle_room_finished(event, db, redis_service)
+            await _handle_room_finished(
+                event, db, redis_service, recording_agent, farcaster_spaces
+            )
         case "track_published":
             pass  # No action needed for MVP
         case "egress_ended":
@@ -67,11 +157,78 @@ async def livekit_webhook(
     return {"status": "ok"}
 
 
-async def _handle_participant_joined(event, redis_service: RedisService):
-    """Log participant join — actual join is handled by POST /join endpoint."""
-    # The /join endpoint already handles Redis state.
-    # This webhook is for reconciliation / logging only.
-    pass
+async def _load_room_for_dev_webhook(db: AsyncSession, room_id: str) -> Room | None:
+    """Fetch the Room row keyed by id string, tolerating UUID parse errors.
+
+    Returns ``None`` only for the known-benign cases — malformed UUIDs and
+    nonexistent rooms. Real DB outages (``OperationalError``,
+    ``DisconnectionError``, etc.) intentionally propagate so LiveKit's
+    webhook retry kicks in instead of silently dropping the event.
+    """
+    try:
+        result = await db.execute(select(Room).where(Room.id == room_id))
+    except (DataError, ValueError):
+        logger.info("Ignoring dev webhook dispatch for non-UUID room id %r", room_id)
+        return None
+    return result.scalar_one_or_none()
+
+
+async def _handle_participant_joined(
+    event, db: AsyncSession, redis_service: RedisService
+):
+    """Dispatch ``participant.joined`` to outbound developer webhooks.
+
+    The /join endpoint owns Redis state; this hook fires after LiveKit
+    confirms the participant is actually connected. Anonymous listeners
+    and LiveKit virtual participants (egress workers, etc.) are skipped
+    so dev webhooks only see real humans + agents.
+    """
+    room_name = event.room.name
+    identity = event.participant.identity
+
+    if isinstance(identity, str) and identity.startswith("anon:"):
+        return
+    try:
+        fid = int(identity)
+    except (TypeError, ValueError):
+        return
+
+    # Join tokens can't be revoked, so re-validate every (re)connect
+    # against bans, kick/demote markers and the authoritative Redis role.
+    livekit_svc = LiveKitService()
+    try:
+        action = await enforce_admission(
+            db=db,
+            redis_service=redis_service,
+            livekit=livekit_svc,
+            room_id=room_name,
+            fid=fid,
+            participant=event.participant,
+        )
+    finally:
+        await livekit_svc.close()
+    if action is AdmissionAction.REMOVE:
+        return
+
+    room = await _load_room_for_dev_webhook(db, room_name)
+    if room is None or room.created_by_app_id is None:
+        return
+
+    participant_data = await redis_service.get_participant(room_name, fid)
+    role = (participant_data or {}).get("role", "listener")
+    display_name = (participant_data or {}).get("display_name")
+
+    await dispatch_dev_webhook(
+        db,
+        app_id=room.created_by_app_id,
+        event_type="participant.joined",
+        data={
+            "room_id": room_name,
+            "fid": fid,
+            "role": role,
+            "display_name": display_name,
+        },
+    )
 
 
 async def _handle_participant_left(
@@ -128,12 +285,30 @@ async def _handle_participant_left(
         },
     )
 
+    room = await _load_room_for_dev_webhook(db, room_name)
+    if room is not None and room.created_by_app_id is not None:
+        await dispatch_dev_webhook(
+            db,
+            app_id=room.created_by_app_id,
+            event_type="participant.left",
+            data={
+                "room_id": room_name,
+                "fid": fid,
+            },
+        )
 
-async def _handle_room_finished(event, db: AsyncSession, redis_service: RedisService):
+
+async def _handle_room_finished(
+    event,
+    db: AsyncSession,
+    redis_service: RedisService,
+    recording_agent=None,
+    farcaster_spaces=None,
+):
     """Handle LiveKit room auto-close (empty_timeout reached)."""
     room_name = event.room.name
 
-    # Fetch room before updating so we can clean up the Neynar webhook
+    # Fetch room before updating so end-of-room cleanup can use it
     result = await db.execute(
         select(Room).where(Room.id == room_name, Room.status == "active")
     )
@@ -146,24 +321,43 @@ async def _handle_room_finished(event, db: AsyncSession, redis_service: RedisSer
     )
     await db.commit()
 
-    # Clean up Neynar webhook (best-effort)
-    if room and room.neynar_webhook_id:
+    # Auto-stop any active native recording so the file is saved even when
+    # the space ends on Farcaster's side without the host pressing Stop.
+    if (
+        room is not None
+        and room.recording
+        and room.recording_id
+        and recording_agent
+        and farcaster_spaces
+    ):
+        livekit_svc = LiveKitService()
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.delete(
-                    "https://api.neynar.com/v2/farcaster/webhook",
-                    params={"webhook_id": room.neynar_webhook_id},
-                    headers={"x-api-key": settings.NEYNAR_API_KEY},
-                )
-                resp.raise_for_status()
-                logger.info(
-                    "Deleted Neynar webhook %s (room auto-closed)",
-                    room.neynar_webhook_id,
-                )
-        except Exception as e:
-            logger.warning(
-                "Failed to delete Neynar webhook %s: %s", room.neynar_webhook_id, e
+            from app.services.room_service import RoomService
+
+            rs = RoomService(
+                db,
+                redis_service,
+                livekit_svc,
+                farcaster_spaces=farcaster_spaces,
+                recording_agent=recording_agent,
             )
+            await rs.admin_stop_native_recording(
+                str(room.id), admin_fid=SYSTEM_ACTOR_FID
+            )
+            logger.info(
+                "Auto-stopped native recording for room %s on room_finished",
+                room_name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Auto-stop native recording failed for room %s: %s", room_name, exc
+            )
+        finally:
+            await livekit_svc.close()
+
+    # Drop the room's announcement cast from the global room-reply webhook.
+    if room is not None and room.cast_hash:
+        schedule_room_reply_sync(redis_service.redis)
 
     await redis_service.clear_room_state(room_name)
 
@@ -176,6 +370,19 @@ async def _handle_room_finished(event, db: AsyncSession, redis_service: RedisSer
             "status": "ended",
         }
     )
+
+    if room is not None and room.created_by_app_id is not None:
+        await dispatch_dev_webhook(
+            db,
+            app_id=room.created_by_app_id,
+            event_type="room.finished",
+            data={
+                "room_id": room_name,
+                "host_fid": room.host_fid,
+                "started_at": room.started_at.isoformat() if room.started_at else None,
+                "ended_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
 
 async def _handle_egress_ended(event, db: AsyncSession, redis_service: RedisService):
@@ -253,6 +460,35 @@ async def _handle_egress_ended(event, db: AsyncSession, redis_service: RedisServ
             recording=False,
         )
     )
+
+    # Insert a per-segment row in `recordings` so re-recording the
+    # same space doesn't overwrite the prior segment. The rooms
+    # columns above still get updated (always pointing at the latest
+    # segment) for backward compat with older clients. Bounds come
+    # from the parent room; egress doesn't surface per-segment start/
+    # end timestamps separately.
+    room_row = (
+        await db.execute(select(Room).where(Room.id == room_name))
+    ).scalar_one_or_none()
+    if room_row is not None:
+        started_at = room_row.started_at
+        ended_at = room_row.ended_at
+        duration = None
+        if started_at and ended_at:
+            duration = max(0, int((ended_at - started_at).total_seconds()))
+        db.add(
+            Recording(
+                room_id=room_row.id,
+                source="egress",
+                recording_url=file_url,
+                s3_key=recording_key,
+                started_at=started_at,
+                ended_at=ended_at,
+                duration_seconds=duration,
+                upstream_recording_id=egress_id,
+            )
+        )
+
     await db.commit()
 
     # Clear the stashed egress_id now that we've recorded a successful
@@ -284,67 +520,133 @@ async def _handle_egress_ended(event, db: AsyncSession, redis_service: RedisServ
         except Exception:
             pass
 
+    # Dispatch ``recording.ready`` to outbound dev webhooks with a fresh
+    # presigned URL (the stored ``recording_url`` is presign-friendly via
+    # ``recording_key``; we generate a short-lived URL the developer can
+    # fetch immediately rather than handing them a raw S3 path).
+    room = await _load_room_for_dev_webhook(db, room_name)
+    if room is not None and room.created_by_app_id is not None:
+        presigned_url: str | None = file_url
+        try:
+            storage = StorageService()
+            presigned_url = storage.generate_presigned_get_url(recording_key)
+        except Exception:
+            logger.warning(
+                "Failed to presign recording_url for dev webhook (room=%s); "
+                "falling back to stored URL",
+                room_name,
+            )
+        duration_seconds: int | None = None
+        if room.started_at is not None:
+            duration_seconds = int(
+                (datetime.now(timezone.utc) - room.started_at).total_seconds()
+            )
+        await dispatch_dev_webhook(
+            db,
+            app_id=room.created_by_app_id,
+            event_type="recording.ready",
+            data={
+                "room_id": room_name,
+                "recording_url": presigned_url,
+                "duration_seconds": duration_seconds,
+            },
+        )
 
-def _verify_neynar_signature(body: bytes, secret: str, signature: str) -> bool:
-    """Verify Neynar webhook HMAC-SHA512 signature."""
-    expected = hmac.new(
-        secret.encode(),
-        body,
-        hashlib.sha512,
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)
+
+def _require_hypersnap_configured(accepted_secrets: list[str]) -> None:
+    """Fail closed: 503 when no secret is configured."""
+    if not accepted_secrets:
+        logger.error("Hypersnap webhook secret not configured; rejecting delivery")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook receiver not configured",
+        )
 
 
-@router.post("/neynar")
-async def neynar_webhook(
+async def _reject_auth_failure(redis, *, route: str, client_ip: str) -> NoReturn:
+    """Count the failed authentication, then answer 401."""
+    await record_auth_failure(redis, route=route, client_ip=client_ip)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid webhook signature",
+    )
+
+
+def _parse_json_object(body: bytes) -> dict:
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body"
+        ) from None
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body"
+        )
+    return payload
+
+
+@router.post("/hypersnap")
+async def hypersnap_room_reply_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ):
-    """Receive Neynar webhook events for cast replies and broadcast via LiveKit data channel."""
-    body = await request.body()
-    signature = request.headers.get("x-neynar-signature", "")
+    """Replies to live rooms' announcement casts (global room-reply webhook).
 
-    if not signature:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature"
-        )
-
-    payload = json.loads(body)
-    event_type = payload.get("type")
-
-    if event_type != "cast.created":
-        return {"status": "ok"}
-
-    parent_hash = payload.get("data", {}).get("parent_hash")
-    if not parent_hash:
-        return {"status": "ok"}
-
-    # Find the active room whose announcement cast matches this parent_hash
-    result = await db.execute(
-        select(Room).where(Room.cast_hash == parent_hash, Room.status == "active")
+    Broadcasts ``new_reply`` over the room's LiveKit data channel so clients
+    refresh the space chat. Deliveries are de-duplicated on the cast hash in
+    their own namespace, so a reply that is also delivered to the
+    notifications route is not suppressed there.
+    """
+    route = ROUTE_HYPERSNAP_ROOM_REPLY
+    accepted_secrets = ROOM_REPLY_WEBHOOK.secrets()
+    _require_hypersnap_configured(accepted_secrets)
+    client_ip = await _guard_unauthenticated(
+        request, redis, route=route, limit=HYPERSNAP_RATE_LIMIT
     )
-    room = result.scalar_one_or_none()
+    body = await read_capped_body(request)
+    signature = request.headers.get(HYPERSNAP_SIGNATURE_HEADER, "")
+    if not verify_delivery_signature(body, signature, accepted_secrets):
+        await _reject_auth_failure(redis, route=route, client_ip=client_ip)
 
-    # Uniform 401 for no room, missing secret, or bad signature — prevents oracle
-    if (
-        not room
-        or not room.neynar_webhook_secret
-        or not _verify_neynar_signature(body, room.neynar_webhook_secret, signature)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid webhook signature",
+    payload = _parse_json_object(body)
+    if payload.get("type") != EVENT_CAST_CREATED:
+        return {"status": "ok"}
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return {"status": "ok"}
+    parent_hash = normalize_cast_hash(cast_of(data).get("parent_hash"))
+    if parent_hash is None:
+        return {"status": "ok"}
+
+    # Stored hashes may predate normalization: match with and without 0x.
+    result = await db.execute(
+        select(Room).where(
+            Room.cast_hash.in_([parent_hash, parent_hash.removeprefix("0x")]),
+            Room.status == "active",
         )
+    )
+    room = result.scalars().first()
+    if room is None:
+        return {"status": "ok"}
 
-    # Broadcast a "new_reply" data message to all participants in the LiveKit room
+    # Marked seen only once we know we'll act on it, so a failed lookup above
+    # (5xx, Hypersnap retries) isn't recorded as handled.
+    key = dedupe_key(EVENT_CAST_CREATED, data)
+    if key and not await redis.set(
+        f"{ROOM_REPLY_SEEN_KEY_PREFIX}{key}",
+        "1",
+        nx=True,
+        ex=WEBHOOK_SEEN_TTL_SECONDS,
+    ):
+        return {"status": "duplicate"}
+
     room_id = str(room.id)
     livekit = LiveKitService()
     try:
         message = json.dumps(
-            {
-                "type": "new_reply",
-                "cast_hash": parent_hash,
-            }
+            {"type": "new_reply", "cast_hash": room.cast_hash}
         ).encode()
         await livekit.send_data(room_id, message, topic="space_chat")
     except Exception as e:
@@ -360,12 +662,10 @@ async def neynar_webhook(
 # ---------------------------------------------------------------------------
 
 
-class MiniAppWebhookRequest(BaseModel):
-    fid: int
-    event: str
-    notification_url: str | None = None
-    notification_token: str | None = None
-
+MINIAPP_EVENTS_ENABLE = frozenset({"miniapp_added", "notifications_enabled"})
+MINIAPP_EVENTS_DISABLE = frozenset({"miniapp_removed", "notifications_disabled"})
+MAX_NOTIFICATION_TOKEN_CHARS = 1024
+MAX_NOTIFICATION_URL_CHARS = 2048
 
 ALLOWED_NOTIFICATION_HOSTS = {
     "api.warpcast.com",
@@ -387,120 +687,208 @@ def _validate_notification_url(url: str) -> bool:
         return False
 
 
+def _has_valid_proxy_secret(request: Request) -> bool:
+    """Constant-time check of the juke.audio proxy's shared secret."""
+    expected = settings.MINIAPP_WEBHOOK_SECRET
+    if not expected:
+        return False
+    provided = request.headers.get("x-webhook-secret", "")
+    return hmac.compare_digest(provided.encode(), expected.encode())
+
+
+def _forwarded_sender_ip(request: Request) -> str | None:
+    """End-sender IP reported by the juke.audio proxy, if well-formed.
+
+    Only meaningful after the proxy secret has been verified; the proxy sets
+    it from Vercel's edge-assigned client address.
+    """
+    raw = request.headers.get(MINIAPP_SENDER_IP_HEADER, "").strip()
+    if not raw:
+        return None
+    try:
+        return str(ipaddress.ip_address(raw))
+    except ValueError:
+        return None
+
+
+def _notification_details(payload: dict) -> tuple[str, str] | None:
+    """``(url, token)`` from a JFS event payload, when present and acceptable."""
+    details = payload.get("notificationDetails")
+    if not isinstance(details, dict):
+        return None
+    url, token = details.get("url"), details.get("token")
+    if not isinstance(url, str) or not isinstance(token, str) or not token:
+        return None
+    if len(url) > MAX_NOTIFICATION_URL_CHARS:
+        return None
+    if len(token) > MAX_NOTIFICATION_TOKEN_CHARS:
+        return None
+    if not _validate_notification_url(url):
+        return None
+    return url, token
+
+
 @router.post("/miniapp")
 async def miniapp_webhook(
-    body: MiniAppWebhookRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ):
-    """Handle Farcaster miniapp server events forwarded from the Next.js webhook.
+    """Handle Farcaster Mini App server events forwarded by juke.audio.
 
-    Protected by a shared secret in the X-Webhook-Secret header. Only the
-    Next.js proxy at juke.audio/api/webhook should call this endpoint.
+    The Next.js route at ``juke.audio/api/webhook`` forwards the client's raw
+    JFS envelope ``{header, payload, signature}`` with the shared
+    ``X-Webhook-Secret``. The secret only proves the request came through our
+    proxy; the FID is trusted only after the Ed25519 signature verifies under
+    ``header.key`` and that key is an active app key of ``header.fid``.
     """
-    webhook_secret = request.headers.get("x-webhook-secret", "")
-    if (
-        not settings.MINIAPP_WEBHOOK_SECRET
-        or webhook_secret != settings.MINIAPP_WEBHOOK_SECRET
-    ):
+    # Every legitimate request arrives from the proxy's egress IP, so only
+    # proxy-secret failures are budgeted against it; envelope failures are
+    # budgeted against the end sender the proxy reports (below). Otherwise any
+    # internet user could exhaust a shared budget and lock out every client.
+    proxy_ip = _client_ip(request)
+    await ensure_auth_failure_budget(
+        redis, route=ROUTE_MINIAPP_PROXY, client_ip=proxy_ip
+    )
+    # Checked before the body is read or parsed.
+    if not _has_valid_proxy_secret(request):
+        await record_auth_failure(redis, route=ROUTE_MINIAPP_PROXY, client_ip=proxy_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid webhook secret",
         )
 
-    match body.event:
-        case "miniapp_added" | "notifications_enabled":
-            if (
-                body.notification_url
-                and body.notification_token
-                and _validate_notification_url(body.notification_url)
-            ):
-                result = await db.execute(
-                    select(MiniAppNotification).where(
-                        MiniAppNotification.fid == body.fid
-                    )
-                )
-                existing = result.scalar_one_or_none()
-                if existing:
-                    existing.notification_url = body.notification_url
-                    existing.notification_token = body.notification_token
-                    existing.is_active = True
-                else:
-                    db.add(
-                        MiniAppNotification(
-                            fid=body.fid,
-                            notification_url=body.notification_url,
-                            notification_token=body.notification_token,
-                            is_active=True,
-                        )
-                    )
-                await db.commit()
+    route = ROUTE_MINIAPP
+    client_ip = _forwarded_sender_ip(request) or proxy_ip
+    await enforce_ip_rate_limit(
+        redis,
+        route=route,
+        client_ip=client_ip,
+        limit=MINIAPP_RATE_LIMIT,
+        window_seconds=RATE_LIMIT_WINDOW_SECONDS,
+    )
+    await ensure_auth_failure_budget(redis, route=route, client_ip=client_ip)
 
-        case "miniapp_removed" | "notifications_disabled":
-            await db.execute(
-                update(MiniAppNotification)
-                .where(MiniAppNotification.fid == body.fid)
-                .values(is_active=False)
+    body = await read_capped_body(request)
+    try:
+        envelope = JfsEnvelope.model_validate_json(body)
+    except ValidationError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid signature envelope",
+        ) from None
+
+    try:
+        verified = verify_jfs_signature(envelope)
+    except JfsVerificationError as exc:
+        logger.info("Rejected miniapp webhook: %s", exc)
+        await _reject_auth_failure(redis, route=route, client_ip=client_ip)
+
+    try:
+        key_is_active = await is_app_key_active_for_fid(verified.fid, verified.key)
+    except HypersnapError as exc:
+        logger.warning("Miniapp webhook app-key lookup failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to verify app key",
+        ) from None
+    if not key_is_active:
+        logger.info("Rejected miniapp webhook: key is not an active app key of fid")
+        await _reject_auth_failure(redis, route=route, client_ip=client_ip)
+
+    fid = verified.fid
+    event = verified.payload.get("event")
+    if event in MINIAPP_EVENTS_ENABLE:
+        details = _notification_details(verified.payload)
+        if details is None:
+            return {"status": "ok"}
+        notification_url, notification_token = details
+        result = await db.execute(
+            select(MiniAppNotification).where(MiniAppNotification.fid == fid)
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.notification_url = notification_url
+            existing.notification_token = notification_token
+            existing.is_active = True
+        else:
+            db.add(
+                MiniAppNotification(
+                    fid=fid,
+                    notification_url=notification_url,
+                    notification_token=notification_token,
+                    is_active=True,
+                )
             )
-            await db.commit()
+        await db.commit()
+    elif event in MINIAPP_EVENTS_DISABLE:
+        await db.execute(
+            update(MiniAppNotification)
+            .where(MiniAppNotification.fid == fid)
+            .values(is_active=False)
+        )
+        await db.commit()
 
     return {"status": "ok"}
 
 
-@router.post("/neynar/notifications")
-async def neynar_notification_webhook(
+@router.post("/hypersnap/notifications")
+async def hypersnap_notification_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
 ):
-    """Receive global Neynar webhook events for push notifications (follows, likes, replies, recasts)."""
-    body = await request.body()
-    signature = request.headers.get("x-neynar-signature", "")
+    """Push-notification events (replies, mentions, reactions, follows).
 
-    if not signature:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature"
-        )
-
-    # Verify the HMAC over raw bytes BEFORE parsing JSON. We don't yet know
-    # which event type this is (that lives inside the body), so try each
-    # configured secret. The body is authentic iff at least one matches —
-    # this avoids doing JSON parse work for unauthenticated requests.
-    secret_map = {
-        "cast.created": settings.NEYNAR_WEBHOOK_SECRET_CAST,
-        "reaction.created": settings.NEYNAR_WEBHOOK_SECRET_REACTION,
-        "follow.created": settings.NEYNAR_WEBHOOK_SECRET_FOLLOW,
+    Several webhooks share this route, each with its own secret. The HMAC is
+    checked over the raw body before parsing; the event type it implies must
+    match the body's ``type`` (cross-event replay defense). Deliveries are
+    at-least-once, so events are de-duplicated on their natural key.
+    """
+    route = ROUTE_HYPERSNAP_NOTIFICATIONS
+    configured = [
+        (event, accepted) for event, accepted in secrets_by_event_type() if accepted
+    ]
+    _require_hypersnap_configured(
+        [secret for _, accepted in configured for secret in accepted]
+    )
+    client_ip = await _guard_unauthenticated(
+        request, redis, route=route, limit=HYPERSNAP_RATE_LIMIT
+    )
+    body = await read_capped_body(request)
+    signature = request.headers.get(HYPERSNAP_SIGNATURE_HEADER, "")
+    # One HMAC pass per configured event type, before any parsing.
+    signed_types = {
+        event
+        for event, accepted in configured
+        if verify_delivery_signature(body, signature, accepted)
     }
-    matched_event_type: str | None = None
-    for candidate_event, candidate_secret in secret_map.items():
-        if not candidate_secret:
-            continue
-        if _verify_neynar_signature(body, candidate_secret, signature):
-            matched_event_type = candidate_event
-            break
-    if matched_event_type is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature"
-        )
-
-    # Body is authenticated — safe to parse. Reject if the declared event
-    # type doesn't match the secret that signed the body (cross-event
-    # replay defense).
-    try:
-        payload = json.loads(body)
-    except (ValueError, json.JSONDecodeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body"
-        )
+    if not signed_types:
+        await _reject_auth_failure(redis, route=route, client_ip=client_ip)
+    payload = _parse_json_object(body)
     event_type = payload.get("type", "")
-    if event_type != matched_event_type:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature"
-        )
+    if event_type not in signed_types:
+        await _reject_auth_failure(redis, route=route, client_ip=client_ip)
+
+    data = payload.get("data")
+    key = dedupe_key(event_type, data) if isinstance(data, dict) else None
+    seen_key = f"{WEBHOOK_SEEN_KEY_PREFIX}{key}" if key else None
+    if seen_key and not await redis.set(
+        seen_key, "1", nx=True, ex=WEBHOOK_SEEN_TTL_SECONDS
+    ):
+        return {"status": "duplicate"}
 
     from app.services.push_service import PushService
 
-    push_service = PushService(db, redis)
-    await push_service.handle_notification_event(event_type, payload)
+    try:
+        push_payload = await to_push_payload(event_type, payload)
+        if push_payload is None:
+            return {"status": "ok"}
+        await PushService(db, redis).handle_notification_event(event_type, push_payload)
+    except Exception:
+        # Let Hypersnap retry (5xx) rather than dropping the event as seen.
+        if seen_key:
+            await redis.delete(seen_key)
+        raise
 
     return {"status": "ok"}

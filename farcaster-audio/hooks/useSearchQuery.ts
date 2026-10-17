@@ -12,7 +12,7 @@ import type {
   ChannelSearchItem,
   MiniappResult,
 } from "@/types/api";
-import type { NeynarCast } from "@/types/neynar";
+import type { FarcasterCast } from "@/types/farcaster";
 
 export type SearchTab = "top" | "people" | "casts" | "channels" | "miniapps";
 export type CastSort = "popular" | "recent";
@@ -21,14 +21,14 @@ const DEBOUNCE_MS = 250;
 
 export interface TopResults {
   users: UserSearchItem[];
-  casts: NeynarCast[];
+  casts: FarcasterCast[];
   channels: ChannelSearchItem[];
 }
 
 export interface SearchResults {
   top: TopResults;
   people: UserSearchItem[];
-  casts: NeynarCast[];
+  casts: FarcasterCast[];
   channels: ChannelSearchItem[];
   miniapps: MiniappResult[];
 }
@@ -235,7 +235,7 @@ export function useSearchQuery() {
           }).catch((err) => {
             if (isAbortError(err)) throw err;
             return {
-              casts: [] as NeynarCast[],
+              casts: [] as FarcasterCast[],
               next: { cursor: null },
               meta: {
                 parsed: {

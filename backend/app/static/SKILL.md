@@ -95,24 +95,23 @@ Response 200:
 
 Response also includes PAYMENT-RESPONSE header with settlement details.
 
+### Rejoin / Refresh LiveKit Token
+Re-call the join endpoint with your session token instead of paying
+again. It returns a fresh livekit_token for the same seat:
+
+POST /v1/rooms/{room_id}/agent-join
+
+    Header: X-Session-Token: <token>
+
+Response 200: same shape as the join response above.
+
+The session token is only valid on agent-join for the room it was
+issued for. `/v1/rooms/{room_id}/leave` and `/v1/rooms/{room_id}/token`
+are signed-in user routes and do NOT accept X-Session-Token.
+
 ### Leave a Space
-POST /v1/rooms/{room_id}/leave
-
-    Header: X-Session-Token: <token>
-
-Response 200: `{"status": "ok"}`
-
-### Refresh LiveKit Token
-POST /v1/rooms/{room_id}/token
-
-    Header: X-Session-Token: <token>
-
-Response 200:
-
-    {
-      "livekit_token": "eyJ...",
-      "expires_at": "2026-04-12T18:00:00Z"
-    }
+Disconnect from LiveKit. Juke removes you from the participant list
+when LiveKit reports that you left.
 
 ## LiveKit Connection
 After joining, connect to LiveKit using the returned livekit_token

@@ -2,20 +2,22 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import { View, FlatList, Text, ActivityIndicator } from "react-native";
 import { useNavigation } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useAuthStore } from "@/stores/authStore";
-import { useNotificationStore } from "@/stores/notificationStore";
 import { NotificationItem } from "@/components/notifications/NotificationItem";
 import { ComposeModal } from "@/components/feed/ComposeModal";
+import { TAB_BAR_CONTENT_INSET } from "@/components/navigation/GlassTabBar";
 import { getLastSeenNotificationTimestamp } from "@/services/storage";
 import { typography } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
-import type { NeynarCast, NeynarNotification } from "@/types/neynar";
+import type { FarcasterCast, FarcasterNotification } from "@/types/farcaster";
 
 export default function NotificationsScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
+  const insets = useSafeAreaInsets();
   const myFid = useAuthStore((s) => s.user?.fid) ?? 0;
   const {
     notifications,
@@ -35,21 +37,23 @@ export default function NotificationsScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const [lastSeenTs, setLastSeenTs] = useState<string | null>(null);
-  const hasFetched = useRef(false);
+  const listRef = useRef<FlatList<FarcasterNotification>>(null);
+  const activationRefreshInFlight = useRef(false);
+  const hasOpenedRef = useRef(false);
 
   const [isComposeVisible, setIsComposeVisible] = useState(false);
-  const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+  const [replyTarget, setReplyTarget] = useState<FarcasterCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<FarcasterCast | null>(
     null,
   );
 
-  const openReply = useCallback((cast: NeynarCast) => {
+  const openReply = useCallback((cast: FarcasterCast) => {
     setReplyTarget(cast);
     setQuoteCastTarget(null);
     setIsComposeVisible(true);
   }, []);
 
-  const openQuoteCast = useCallback((cast: NeynarCast) => {
+  const openQuoteCast = useCallback((cast: FarcasterCast) => {
     setQuoteCastTarget(cast);
     setReplyTarget(null);
     setIsComposeVisible(true);
@@ -62,24 +66,43 @@ export default function NotificationsScreen() {
   }, []);
 
   useEffect(() => {
-    if (hasFetched.current) return;
-    hasFetched.current = true;
-    const lastFetchedAt = useNotificationStore.getState().lastFetchedAt;
-    const isFresh =
-      lastFetchedAt !== null && Date.now() - lastFetchedAt < 60_000;
-    if (!isFresh) {
-      fetch();
-    }
     getLastSeenNotificationTimestamp().then(setLastSeenTs);
   }, []);
 
-  // Mark as read when the tab gains focus
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("focus", () => {
-      markAsRead();
+  const refreshFromTabActivation = useCallback(() => {
+    // Keep scrolling independent from refresh de-duplication so a quick
+    // second tap still takes the user to the beginning of the list.
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+
+    if (activationRefreshInFlight.current) return;
+    activationRefreshInFlight.current = true;
+    void refresh().finally(() => {
+      activationRefreshInFlight.current = false;
     });
-    return unsubscribe;
-  }, [navigation, markAsRead]);
+  }, [refresh]);
+
+  const fetchFirstPageSilently = useCallback(() => {
+    if (activationRefreshInFlight.current) return;
+    activationRefreshInFlight.current = true;
+    // `fetch` uses the loading state, not FlatList's `refreshing` state, so
+    // first entry never produces the pull-to-refresh overscroll animation.
+    void fetch().finally(() => {
+      activationRefreshInFlight.current = false;
+    });
+  }, [fetch]);
+
+  // useIsFocused also covers the initial lazy mount, where a focus listener
+  // registered after navigation can miss the event that opened this tab.
+  useEffect(() => {
+    if (!isFocused) return;
+    if (!hasOpenedRef.current) {
+      hasOpenedRef.current = true;
+      fetchFirstPageSilently();
+    } else {
+      refreshFromTabActivation();
+    }
+    markAsRead();
+  }, [fetchFirstPageSilently, isFocused, markAsRead, refreshFromTabActivation]);
 
   // Refresh when the already-focused notifications tab is tapped again.
   useEffect(() => {
@@ -88,11 +111,11 @@ export default function NotificationsScreen() {
     };
     const unsubscribe = tabNavigation.addListener("tabPress", () => {
       if (isFocused) {
-        refresh();
+        refreshFromTabActivation();
       }
     });
     return unsubscribe;
-  }, [navigation, isFocused, refresh]);
+  }, [navigation, isFocused, refreshFromTabActivation]);
 
   // Also mark as read after initial data load (focus fires before fetch completes)
   const hasNotifications = notifications.length > 0;
@@ -103,7 +126,7 @@ export default function NotificationsScreen() {
   }, [hasNotifications, markAsRead]);
 
   const isUnread = useCallback(
-    (notification: NeynarNotification) => {
+    (notification: FarcasterNotification) => {
       if (!lastSeenTs) return true;
       return (
         new Date(notification.most_recent_timestamp).getTime() >
@@ -114,7 +137,7 @@ export default function NotificationsScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: NeynarNotification }) => (
+    ({ item }: { item: FarcasterNotification }) => (
       <NotificationItem
         notification={item}
         isUnread={isUnread(item)}
@@ -143,7 +166,7 @@ export default function NotificationsScreen() {
     }
   }, [isLoading, fetchMore]);
 
-  if (isLoading && notifications.length === 0) {
+  if ((isLoading || isRefreshing) && notifications.length === 0) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={colors.text.secondary} />
@@ -154,6 +177,7 @@ export default function NotificationsScreen() {
   return (
     <View style={styles.container}>
       <FlatList
+        ref={listRef}
         data={notifications}
         keyExtractor={(item, index) =>
           `${item.type}-${item.most_recent_timestamp}-${index}`
@@ -175,9 +199,10 @@ export default function NotificationsScreen() {
             <Text style={styles.emptyText}>No notifications yet</Text>
           </View>
         }
-        contentContainerStyle={
-          notifications.length === 0 ? styles.emptyContainer : undefined
-        }
+        contentContainerStyle={[
+          notifications.length === 0 && styles.emptyContainer,
+          { paddingBottom: insets.bottom + TAB_BAR_CONTENT_INSET },
+        ]}
       />
 
       <ComposeModal

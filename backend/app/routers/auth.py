@@ -1,94 +1,99 @@
 import logging
 import re
 import secrets
-import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
-from eth_account.messages import encode_defunct
-from eth_account import Account
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+import redis.asyncio as aioredis
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
+from fastapi.security import HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from siwe import SiweMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import httpx
-import redis.asyncio as aioredis
 
+from app.clients import hypersnap
+from app.clients.key_gateway import KeyGatewayError
 from app.config import settings
-from app.dependencies import get_db, get_redis
-from app.models.user import User
+from app.database import async_session
+from app.dependencies import (
+    DEMO_SIGNER_UUID,
+    get_current_user,
+    get_db,
+    get_farcaster_spaces_service,
+    get_redis,
+)
+from app.middleware.auth import _is_first_party, optional_security
+from app.models.user import (
+    SIGNER_STATUS_APPROVED,
+    SIGNER_STATUS_DEMO,
+    SIGNER_STATUS_NONE,
+    User,
+)
+from app.routing import RedactedValidationRoute
 from app.schemas.auth import (
-    AuthUrlResponse,
-    InvalidateAuthAddressRequest,
-    LoginRequest,
-    LoginResponse,
-    RefreshRequest,
-    RegisterAuthAddressRequest,
-    RegisterAuthAddressResponse,
     AuthAddressStatusResponse,
+    InvalidateAuthAddressRequest,
+    LoginResponse,
+    LogoutRequest,
+    ProtocolLoginRequest,
+    RefreshRequest,
+    SignerPrepareRequest,
+    SignerPrepareResponse,
+    SignerRegisterRequest,
+    SignerRegisterResponse,
+    SignerStatusResponse,
     SiwfLoginRequest,
     SiwfNonceResponse,
     UserResponse,
 )
+from app.services import (
+    farcaster_token_service,
+    signer_crypto,
+    user_signer_service,
+)
+from app.services.auth_address_service import (
+    get_auth_address_status_cached,
+    mark_auth_address_revoked,
+)
 from app.services.auth_service import (
+    consume_refresh_token,
     create_jwt,
     create_refresh_token,
     fetch_user_profile,
     get_or_create_user,
-    verify_neynar_signer,
-    verify_refresh_token,
 )
-from app.services.auth_address_service import (
-    generate_signed_key_request,
-    get_auth_address_status_cached,
-    mark_auth_address_revoked,
-    register_auth_address_with_neynar,
-    upsert_auth_address_from_registration,
-)
+from app.services.client_ip import client_ip as _client_ip
+from app.services.rate_limit import RateLimit, enforce_rate_limits
+from app.services.redis_service import RedisService
 from app.services.siwf_service import (
+    ProtocolAuthError,
+    allowed_protocol_auth_domains,
     consume_siwf_nonce,
     lookup_fid_by_custody,
     mint_siwf_nonce,
+    verify_miniapp_siwf_message,
+    verify_protocol_auth_token,
     verify_siwf_message,
 )
-from app.dependencies import DEMO_SIGNER_UUID, get_current_user, require_non_demo_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/auth", tags=["auth"])
-
-
-# ---------------------------------------------------------------------------
-# Proxy-aware client IP
-# ---------------------------------------------------------------------------
-
-
-def _client_ip(request: Request) -> str:
-    """Best-effort real client IP behind Railway's L7 proxy.
-
-    Reads the leftmost `X-Forwarded-For` entry first, then `X-Real-IP`,
-    then the raw socket peer. The leftmost XFF value is the originating
-    client as documented by RFC 7239 / MDN; subsequent values are the
-    chain of intermediate proxies.
-
-    We deliberately parse these headers in-process rather than enabling
-    uvicorn's `ProxyHeadersMiddleware`: that middleware's own threat
-    model around `forwarded-allow-ips` adds attack surface (mis-trusting
-    a proxy IP would let a client forge their own source). Doing it here
-    keeps the trust decision explicit and scoped to rate-limit keys.
-    """
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        first = forwarded_for.split(",")[0].strip()
-        if first:
-            return first
-    real_ip = request.headers.get("x-real-ip", "").strip()
-    if real_ip:
-        return real_ip
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+# Register/login bodies carry custody signatures and auth tokens: 422s
+# must not echo them (``RedactedValidationRoute``).
+router = APIRouter(
+    prefix="/v1/auth", tags=["auth"], route_class=RedactedValidationRoute
+)
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +104,71 @@ def _client_ip(request: Request) -> str:
 # `use_cookie=true` on login. The cookie is scoped to `/v1/auth` so it's only
 # ever sent on auth endpoints, HttpOnly so JS can't read it, and (in prod)
 # Domain=.juke.audio so it covers your-api-host.example.com across the subdomain.
+
+
+def _is_pro(profile: dict) -> bool:
+    return (profile.get("pro") or {}).get("status") == "subscribed"
+
+
+async def _fetch_profile_or_error(fid: int) -> dict:
+    """Profile for a freshly authenticated FID; 400/502 when unavailable."""
+    try:
+        return await fetch_user_profile(fid)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from None
+    except hypersnap.HypersnapError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not load Farcaster profile.",
+        ) from None
+
+
+def _user_response(user: User, *, is_pro: bool = False) -> UserResponse:
+    # ``demo`` is internal: the shared demo login is read-only, like ``none``.
+    signer_status = user.signer_status or SIGNER_STATUS_NONE
+    if signer_status == SIGNER_STATUS_DEMO:
+        signer_status = SIGNER_STATUS_NONE
+    return UserResponse(
+        fid=user.fid,
+        username=user.username or "",
+        display_name=user.display_name or "",
+        pfp_url=user.pfp_url,
+        custody_address=user.custody_address,
+        is_pro=is_pro,
+        is_admin=user.is_admin,
+        signer_status=signer_status,
+    )
+
+
+async def _issue_login(
+    redis: aioredis.Redis,
+    response: Response,
+    user: User,
+    *,
+    is_pro: bool,
+    use_cookie: bool,
+) -> LoginResponse:
+    """Mint a session for a freshly authenticated user.
+
+    Marks a recent SIWN (step-up window for developer-key mutations). With
+    ``use_cookie`` the refresh token goes in the HttpOnly cookie only.
+    """
+    jwt_token, expires_at = create_jwt(user.fid)
+    refresh_token = await create_refresh_token(user.fid, redis)
+    await RedisService(redis).mark_siwn(user.fid)
+    body_refresh_token: str | None = refresh_token
+    if use_cookie:
+        _set_refresh_cookie(response, refresh_token)
+        body_refresh_token = None
+    return LoginResponse(
+        jwt=jwt_token,
+        refresh_token=body_refresh_token,
+        expires_at=expires_at,
+        user=_user_response(user, is_pro=is_pro),
+    )
+
 
 REFRESH_COOKIE_NAME = "juke_refresh"
 REFRESH_COOKIE_PATH = "/v1/auth"
@@ -123,13 +193,6 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     )
 
 
-# Sentinel `signer_uuid` for users who authed via SIWF (Sign In With
-# Farcaster). SIWF proves FID ownership but doesn't grant write access
-# — there's no Neynar signer attached. Same shape as the miniapp Quick
-# Auth flow's read-only sessions.
-SIWF_SENTINEL_SIGNER_UUID = "siwf-auth"
-
-
 def _clear_refresh_cookie(response: Response) -> None:
     """Expire the refresh cookie. Attributes must match the original set."""
     is_prod = settings.ENVIRONMENT == "production"
@@ -145,39 +208,6 @@ def _clear_refresh_cookie(response: Response) -> None:
     )
 
 
-@router.get("/neynar-auth-url", response_model=AuthUrlResponse)
-async def get_neynar_auth_url():
-    """Fetch the Neynar SIWN authorization URL.
-
-    Native client SIWN flow (the iOS app at `farcaster-audio/` opens
-    this URL in a popup, the user signs in inside Neynar's hosted
-    flow, Neynar redirects back to the configured callback with a
-    one-time code). The web/embed/dashboard surfaces use SIWF
-    instead — see `POST /v1/auth/siwf/*`.
-
-    This route was briefly removed in PR #160 as part of a dead-code
-    audit; the audit covered `landing/` but not `farcaster-audio/`,
-    which is still on this flow. Restored to unblock iOS sign-in.
-    """
-    if not settings.NEYNAR_API_KEY or not settings.NEYNAR_CLIENT_ID:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Neynar not configured.",
-        )
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-        resp = await client.get(
-            "https://api.neynar.com/v2/farcaster/login/authorize",
-            params={
-                "client_id": settings.NEYNAR_CLIENT_ID,
-                "response_type": "code",
-            },
-            headers={"x-api-key": settings.NEYNAR_API_KEY},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    return AuthUrlResponse(authorization_url=data["authorization_url"])
-
-
 @router.post("/dev-login", response_model=LoginResponse)
 async def dev_login(
     db: AsyncSession = Depends(get_db),
@@ -191,7 +221,7 @@ async def dev_login(
     result = await db.execute(select(User).where(User.fid == fid))
     user = result.scalar_one_or_none()
     if not user:
-        # Fetch real profile from Neynar for a realistic review experience
+        # Fetch the real profile for a realistic review experience
         try:
             profile = await fetch_user_profile(fid)
             user = User(
@@ -200,6 +230,7 @@ async def dev_login(
                 display_name=profile.get("display_name", "Farcaster"),
                 pfp_url=profile.get("pfp_url"),
                 signer_uuid=DEMO_SIGNER_UUID,
+                signer_status=SIGNER_STATUS_DEMO,
             )
         except Exception:
             user = User(
@@ -207,6 +238,7 @@ async def dev_login(
                 username="farcaster",
                 display_name="Farcaster",
                 signer_uuid=DEMO_SIGNER_UUID,
+                signer_status=SIGNER_STATUS_DEMO,
             )
         db.add(user)
         await db.commit()
@@ -219,14 +251,8 @@ async def dev_login(
         jwt=jwt_token,
         refresh_token=refresh_token,
         expires_at=expires_at,
-        user=UserResponse(
-            fid=user.fid,
-            username=user.username or "",
-            display_name=user.display_name or "",
-            pfp_url=user.pfp_url,
-            custody_address=user.custody_address,
-            is_admin=False,  # demo users never get admin access
-        ),
+        # Demo users never get admin access.
+        user=_user_response(user).model_copy(update={"is_admin": False}),
     )
 
 
@@ -285,14 +311,14 @@ async def siwf_login(
        timestamps). On any failure → 401 with a generic detail; we
        don't leak which check failed.
     3. Resolve the recovered custody address → Farcaster FID via
-       Neynar's bulk-by-address endpoint. We do NOT trust a
+       ``IdRegistry.idOf`` on Optimism. We do NOT trust a
        client-supplied FID — the FID is derived server-side from the
        cryptographically-verified address.
     4. Mint JWT + (optional) HttpOnly refresh cookie, mark a recent
        SIWN for step-up auth on developer-key mutations.
 
-    Same per-IP rate limit as `/v1/auth/login` so this endpoint is
-    bounded against credential-stuffing-style attempts.
+    Per-IP rate limited so this endpoint is bounded against
+    credential-stuffing-style attempts.
     """
     ip = _client_ip(request)
     login_rate_key = f"siwf_login_rate:{ip}"
@@ -351,7 +377,7 @@ async def siwf_login(
         expected_nonce=msg_nonce,
     )
 
-    # Resolve custody → fid via Neynar. The recovered address has
+    # Resolve custody → fid on-chain. The recovered address has
     # already been cryptographically tied to the message; this just
     # turns it into a Farcaster identity.
     fid = await lookup_fid_by_custody(custody)
@@ -361,133 +387,12 @@ async def siwf_login(
             detail="No Farcaster account found for this address.",
         )
 
-    # Profile lookup + user upsert. SIWF doesn't grant write access,
-    # so users authenticated this way use the same `siwf-auth`
-    # sentinel signer the miniapp Quick Auth flow uses for read-only
-    # sessions.
-    try:
-        profile = await fetch_user_profile(fid)
-    except (httpx.HTTPStatusError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        )
-
-    user = await get_or_create_user(db, fid, SIWF_SENTINEL_SIGNER_UUID, profile)
-
-    jwt_token, expires_at = create_jwt(user.fid)
-    refresh_token = await create_refresh_token(user.fid, redis)
-
-    # Mark recent SIWN — sign-in completed within the step-up window
-    # required for developer-key mutations.
-    from app.services.redis_service import RedisService
-
-    await RedisService(redis).mark_siwn(user.fid)
-
-    if body.use_cookie:
-        _set_refresh_cookie(response, refresh_token)
-        body_refresh_token: str | None = None
-    else:
-        body_refresh_token = refresh_token
-
-    is_pro = profile.get("pro", {}).get("status") == "subscribed"
-    return LoginResponse(
-        jwt=jwt_token,
-        refresh_token=body_refresh_token,
-        expires_at=expires_at,
-        user=UserResponse(
-            fid=user.fid,
-            username=user.username or "",
-            display_name=user.display_name or "",
-            pfp_url=user.pfp_url,
-            custody_address=user.custody_address,
-            is_pro=is_pro,
-            is_admin=user.is_admin,
-        ),
-    )
-
-
-@router.post("/login", response_model=LoginResponse)
-async def login(
-    body: LoginRequest,
-    request: Request,
-    response: Response,
-    db: AsyncSession = Depends(get_db),
-    redis: aioredis.Redis = Depends(get_redis),
-):
-    """Login with Neynar SIWF credentials."""
-    # Per-IP rate limit before any other work. Login is the redemption
-    # endpoint for the managed-signer flow, so it must not be unrate-limited
-    # — otherwise a leaked {fid, signer_uuid} pair from the QR-phishing
-    # chain could be replayed without throttling.
-    ip = _client_ip(request)
-    rate_key = f"login_rate:{ip}"
-    attempts = await redis.incr(rate_key)
-    if attempts == 1:
-        await redis.expire(rate_key, 60)
-    if attempts > 10:
-        ttl = await redis.ttl(rate_key)
-        retry_after = max(int(ttl), 1) if ttl and ttl > 0 else 60
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many login attempts. Try again in a minute.",
-            headers={"Retry-After": str(retry_after)},
-        )
-
-    try:
-        await verify_neynar_signer(body.signer_uuid, body.fid, redis=redis)
-    except httpx.HTTPStatusError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid signer",
-        )
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Signer does not belong to this user",
-        )
-
-    try:
-        profile = await fetch_user_profile(body.fid)
-    except (httpx.HTTPStatusError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        )
-
-    user = await get_or_create_user(db, body.fid, body.signer_uuid, profile)
-    is_pro = profile.get("pro", {}).get("status") == "subscribed"
-
-    jwt_token, expires_at = create_jwt(user.fid)
-    refresh_token = await create_refresh_token(user.fid, redis)
-
-    # Record a "recent SIWN" marker so step-up-protected developer-key
-    # mutations (rotate/revoke/reveal/delete-app) accept this session for
-    # a short window. Refresh deliberately does NOT touch this marker —
-    # a long-lived session must SIWN again to perform dangerous mutations.
-    from app.services.redis_service import RedisService
-
-    await RedisService(redis).mark_siwn(user.fid)
-
-    if body.use_cookie:
-        _set_refresh_cookie(response, refresh_token)
-        body_refresh_token: str | None = None
-    else:
-        body_refresh_token = refresh_token
-
-    return LoginResponse(
-        jwt=jwt_token,
-        refresh_token=body_refresh_token,
-        expires_at=expires_at,
-        user=UserResponse(
-            fid=user.fid,
-            username=user.username or "",
-            display_name=user.display_name or "",
-            pfp_url=user.pfp_url,
-            custody_address=user.custody_address,
-            is_pro=is_pro,
-            is_admin=user.is_admin,
-        ),
+    # Profile lookup + user upsert. SIWF proves FID ownership but adds no
+    # signer, so an existing user's signer state is left untouched.
+    profile = await _fetch_profile_or_error(fid)
+    user = await get_or_create_user(db, fid, profile)
+    return await _issue_login(
+        redis, response, user, is_pro=_is_pro(profile), use_cookie=body.use_cookie
     )
 
 
@@ -499,37 +404,49 @@ async def refresh(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Refresh JWT using a refresh token and an (optionally expired) bearer JWT."""
+    """Refresh JWT using a refresh token.
 
-    # Extract FID from the Authorization header even if the JWT has expired.
+    The Authorization bearer JWT is optional — on a cold page reload the
+    client may not yet have a JWT in memory, but the HttpOnly refresh
+    cookie still rides along. When a bearer is present we cross-check
+    its FID against the FID stored alongside the refresh token as
+    defense in depth.
+    """
+
+    # Authorization header is optional. If present *and* well-formed, we
+    # decode it (ignoring expiry) to get a candidate FID; if present but
+    # malformed, that's a client bug and we 401 rather than silently
+    # falling through to the cookie-only path.
+    fid_from_bearer: int | None = None
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or malformed Authorization header",
-        )
+    if auth_header:
+        if not auth_header.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing or malformed Authorization header",
+            )
 
-    raw_token = auth_header.removeprefix("Bearer ").strip()
+        raw_token = auth_header.removeprefix("Bearer ").strip()
 
-    try:
-        payload = jwt.decode(
-            raw_token,
-            settings.JWT_SECRET,
-            algorithms=[settings.JWT_ALGORITHM],
-            options={"verify_exp": False},
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not decode token",
-        )
+        try:
+            payload = jwt.decode(
+                raw_token,
+                settings.JWT_SECRET,
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"verify_exp": False},
+            )
+        except JWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not decode token",
+            )
 
-    fid: int | None = payload.get("fid")
-    if fid is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing FID claim",
-        )
+        fid_from_bearer = payload.get("fid")
+        if fid_from_bearer is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token missing FID claim",
+            )
 
     # Cookie wins over body so a dashboard that's transitioned to cookie-based
     # refresh can't accidentally keep leaking a stale body token.
@@ -543,11 +460,23 @@ async def refresh(
             detail="Invalid refresh token",
         )
 
-    if not await verify_refresh_token(refresh_token_value, fid, redis):
+    fid_from_token = await consume_refresh_token(refresh_token_value, redis)
+    if fid_from_token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
         )
+
+    # Defense in depth: if a bearer was provided, its FID must match the
+    # FID stored alongside the refresh token. This prevents an attacker
+    # from pairing one user's bearer with another user's refresh cookie.
+    if fid_from_bearer is not None and fid_from_bearer != fid_from_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    fid = fid_from_token
 
     result = await db.execute(select(User).where(User.fid == fid))
     user = result.scalar_one_or_none()
@@ -561,9 +490,9 @@ async def refresh(
     is_pro = False
     try:
         profile = await fetch_user_profile(user.fid)
-        is_pro = profile.get("pro", {}).get("status") == "subscribed"
-    except Exception:
-        pass
+        is_pro = _is_pro(profile)
+    except (hypersnap.HypersnapError, ValueError):
+        logger.warning("refresh profile fetch failed fid=%s", user.fid)
 
     jwt_token, expires_at = create_jwt(user.fid)
     new_refresh_token = await create_refresh_token(user.fid, redis)
@@ -578,121 +507,114 @@ async def refresh(
         jwt=jwt_token,
         refresh_token=body_refresh_token,
         expires_at=expires_at,
-        user=UserResponse(
-            fid=user.fid,
-            username=user.username or "",
-            display_name=user.display_name or "",
-            pfp_url=user.pfp_url,
-            custody_address=user.custody_address,
-            is_pro=is_pro,
-            is_admin=user.is_admin,
-        ),
+        user=_user_response(user, is_pro=is_pro),
     )
+
+
+def _first_party_fid_from_bearer(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> int | None:
+    """Fid of a validly signed first-party access JWT, else ``None``.
+
+    The token may be expired -- a client typically logs out after its access
+    token lapsed -- but by no more than the refresh-token lifetime, past
+    which no session it belonged to can still exist. The fid is used solely
+    to delete that fid's Direct Casts token, never to authorize anything.
+
+    Never raises: logout must succeed (204) whatever the header holds.
+    Partner JWTs are ignored -- a third-party assertion must not be able to
+    wipe the user's Direct Casts credential.
+    """
+    if credentials is None:
+        return None
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.JWT_SECRET,
+            algorithms=[settings.JWT_ALGORITHM],
+            options={"verify_exp": False},
+        )
+    except JWTError:
+        return None
+    # First-party allowlist (not a partner denylist): any non-sign-in source,
+    # partner or otherwise, must not be able to wipe the Direct Casts token.
+    if not _is_first_party(payload):
+        return None
+    exp = payload.get("exp")
+    if not isinstance(exp, int) or isinstance(exp, bool):
+        return None
+    max_staleness = timedelta(days=settings.JWT_REFRESH_EXPIRY_DAYS)
+    if datetime.now(timezone.utc).timestamp() - exp > max_staleness.total_seconds():
+        return None
+    fid = payload.get("fid")
+    if not isinstance(fid, int) or isinstance(fid, bool):
+        return None
+    return fid
 
 
 @router.post("/logout")
 async def logout(
     request: Request,
+    body: LogoutRequest | None = None,
     redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
 ) -> Response:
     """Clear the `juke_refresh` cookie and revoke any presented refresh token.
 
     Callable without a bearer — the primary job is clearing the cookie. If
-    a refresh token is present in the cookie, we also delete it from Redis
-    so it can't be replayed. Logout is idempotent: we never 401 here.
+    a refresh token is present in the cookie or in the request body, we also
+    delete it from Redis so it can't be replayed. iOS (which never receives
+    a cookie) passes the token in the body. Logout is idempotent: a missing
+    or already-revoked token is not an error.
+
+    A live refresh token, or a valid first-party access JWT in the
+    ``Authorization`` header, identifies the fid whose stored Direct Casts
+    token is deleted (the user re-enables messages after signing back in).
+    The bearer covers a refresh that raced this logout and already consumed
+    (atomically) the refresh token.
     """
+    from app.services.auth_service import _hash_token
+
+    logged_out_fids: set[int] = set()
+
+    async def revoke(token: str) -> None:
+        stored_fid = await redis.getdel(f"refresh_token:{_hash_token(token)}")
+        if stored_fid is not None:
+            logged_out_fids.add(int(stored_fid))
+
     cookie_token = request.cookies.get(REFRESH_COOKIE_NAME)
     if cookie_token:
         # The refresh_token Redis key is keyed by the hash of the token,
         # not by fid, so we can revoke without parsing the JWT.
-        from app.services.auth_service import _hash_token
+        await revoke(cookie_token)
 
-        await redis.delete(f"refresh_token:{_hash_token(cookie_token)}")
+    body_token = body.refresh_token if body else None
+    if body_token and body_token != cookie_token:
+        await revoke(body_token)
+
+    bearer_fid = _first_party_fid_from_bearer(credentials)
+    if bearer_fid is not None:
+        logged_out_fids.add(bearer_fid)
+
+    for fid in sorted(logged_out_fids):
+        await farcaster_token_service.delete_direct_cast_token(db, fid)
 
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     _clear_refresh_cookie(response)
     return response
 
 
-@router.post("/auth-address", response_model=RegisterAuthAddressResponse)
-async def register_auth_address(
-    body: RegisterAuthAddressRequest,
-    fid: int = Depends(require_non_demo_user),
-    redis: aioredis.Redis = Depends(get_redis),
-    db: AsyncSession = Depends(get_db),
-):
-    """Register an auth address for miniapp signIn (SIWF).
+@router.post("/auth-address", status_code=status.HTTP_410_GONE)
+async def register_auth_address() -> None:
+    """Removed: auth addresses are now added on-chain with the app signer.
 
-    The client generates a secp256k1 keypair and sends the address here.
-    We sign the EIP-712 key request with the app's Farcaster account and
-    register it with Neynar, which returns an approval URL for the user.
+    Pass ``auth_address`` to ``POST /v1/auth/signer/prepare`` and sign the
+    second ``Add`` it returns.
     """
-    # Rate limit: max 3 registrations per hour per user
-    rate_key = f"auth_addr_rate:{fid}"
-    attempts = await redis.incr(rate_key)
-    if attempts == 1:
-        await redis.expire(rate_key, 3600)  # 1 hour window
-    if attempts > 3:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many registration attempts. Try again later.",
-        )
-
-    if not re.match(r'^0x[0-9a-fA-F]{40}$', body.auth_address):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid Ethereum address",
-        )
-
-    try:
-        signature, deadline = generate_signed_key_request(body.auth_address)
-    except ValueError as exc:
-        logger.error("Auth address signing failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Auth address signing unavailable",
-        )
-
-    try:
-        result = await register_auth_address_with_neynar(
-            auth_address=body.auth_address,
-            signature=signature,
-            deadline=deadline,
-        )
-    except httpx.HTTPStatusError as exc:
-        logger.error(
-            "Neynar auth address registration failed for fid=%s address=%s: %s",
-            fid, body.auth_address, exc.response.text,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Auth address registration failed",
-        )
-
-    # Store address -> FID mapping so status checks can verify ownership
-    await redis.set(f"auth_addr:{result['address']}", str(fid))
-
-    upstream_status = result.get("status", "pending_approval")
-    approval_url = result.get("auth_address_approval_url")
-
-    # Persist to local DB so subsequent status checks don't hit Neynar.
-    try:
-        await upsert_auth_address_from_registration(
-            db=db,
-            address=result["address"],
-            fid=fid,
-            status=upstream_status,
-            approval_url=approval_url,
-        )
-    except Exception as exc:
-        logger.exception(
-            "Failed to persist auth address for fid=%s: %s", fid, exc
-        )
-
-    return RegisterAuthAddressResponse(
-        auth_address=result["address"],
-        status=upstream_status,
-        approval_url=approval_url,
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Use POST /v1/auth/signer/prepare with auth_address.",
     )
 
 
@@ -706,9 +628,9 @@ async def get_auth_address_status(
     """Check whether an auth address has been approved.
 
     Reads from the local `auth_addresses` table first; only falls through
-    to Neynar for missing rows or stale pending entries (>30s old).
+    to ``KeyRegistry.keyDataOf`` for missing rows or stale pending entries.
     """
-    if not re.match(r'^0x[0-9a-fA-F]{40}$', address):
+    if not re.match(r"^0x[0-9a-fA-F]{40}$", address):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid Ethereum address",
@@ -729,11 +651,8 @@ async def get_auth_address_status(
 
     try:
         result = await get_auth_address_status_cached(db, address)
-    except httpx.HTTPStatusError as exc:
-        logger.error(
-            "Neynar auth address status check failed for fid=%s address=%s: %s",
-            fid, address, exc.response.text,
-        )
+    except KeyGatewayError:
+        logger.error("auth address status check failed fid=%s address=%s", fid, address)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to check auth address status",
@@ -746,9 +665,7 @@ async def get_auth_address_status(
     )
 
 
-@router.post(
-    "/auth-address/invalidate", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.post("/auth-address/invalidate", status_code=status.HTTP_204_NO_CONTENT)
 async def invalidate_auth_address(
     body: InvalidateAuthAddressRequest,
     fid: int = Depends(get_current_user),
@@ -761,7 +678,7 @@ async def invalidate_auth_address(
     so a malicious client cannot grief the table.
     """
     address = body.auth_address
-    if not re.match(r'^0x[0-9a-fA-F]{40}$', address):
+    if not re.match(r"^0x[0-9a-fA-F]{40}$", address):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid Ethereum address",
@@ -794,7 +711,195 @@ async def invalidate_auth_address(
 
 
 # ---------------------------------------------------------------------------
-# Miniapp SIWF token exchange
+# App signer: KeyGateway.addFor relayed by Juke
+# ---------------------------------------------------------------------------
+
+
+@router.post("/signer/prepare", response_model=SignerPrepareResponse)
+async def prepare_signer(
+    body: SignerPrepareRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> SignerPrepareResponse:
+    """Generate an app signer for ``fid`` and the payloads custody must sign.
+
+    Unauthenticated: nothing is granted until ``/signer/register`` proves
+    control of the FID. The custody wallet signs ``typed_data.signer`` and
+    ``typed_data.auth_address`` as-is, plus a Protocol Auth token with the
+    ``protocol_auth`` fields.
+    """
+    try:
+        prepared = await user_signer_service.prepare_signer(
+            db,
+            redis,
+            fid=body.fid,
+            auth_address=body.auth_address,
+            client_ip=_client_ip(request),
+        )
+    except KeyGatewayError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="registry_unavailable"
+        ) from None
+    except (ValueError, signer_crypto.SignerKeyConfigError):
+        logger.error("signer_prepare_unconfigured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="signer_unavailable",
+        ) from None
+    return SignerPrepareResponse(**prepared)
+
+
+@router.post(
+    "/signer/register",
+    response_model=SignerRegisterResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def register_signer(
+    body: SignerRegisterRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> SignerRegisterResponse:
+    """Validate the signed ``Add``s and token, then relay in the background.
+
+    Both signatures must recover to custody, the token must be custody-signed
+    with the prepare nonce, and the signer ``addFor`` must simulate cleanly,
+    all before anything is broadcast. Poll ``GET /signer/status``.
+
+    An optional custody-signed ``dc_auth_request`` is exchanged for the
+    Direct Casts token in the background, best effort: it never fails the
+    link (the client falls back to ``POST /v1/messages/enable``).
+    """
+    accepted, should_relay = await user_signer_service.register_signer(
+        db,
+        redis,
+        prepare_id=body.prepare_id,
+        signer_add_signature=body.signer_add_signature,
+        auth_address_add_signature=body.auth_address_add_signature,
+        protocol_auth_token=body.protocol_auth_token,
+        client_ip=_client_ip(request),
+    )
+    if should_relay:
+        background_tasks.add_task(
+            user_signer_service.relay_prepared_signer,
+            redis,
+            prepare_id=body.prepare_id,
+            signer_add_signature=body.signer_add_signature,
+            auth_address_add_signature=body.auth_address_add_signature,
+            session_factory=async_session,
+        )
+        if body.dc_auth_request is not None and body.dc_auth_signature is not None:
+            background_tasks.add_task(
+                farcaster_token_service.enable_after_signer_register,
+                session_factory=async_session,
+                spaces_service=get_farcaster_spaces_service(request),
+                prepare_id=body.prepare_id,
+                auth_request=body.dc_auth_request,
+                signature=body.dc_auth_signature,
+            )
+    return SignerRegisterResponse(**accepted)
+
+
+@router.get("/signer/status", response_model=SignerStatusResponse)
+async def get_signer_status(
+    request: Request,
+    prepare_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> SignerStatusResponse:
+    """Progress of one prepare. Never carries a session.
+
+    Unauthenticated, keyed by ``prepare_id``. Once ``approved``, the device
+    signs in with ``POST /v1/auth/protocol`` using an ``hqa1`` token from the
+    auth address the link just added on-chain, so knowing a ``prepare_id``
+    (it travels in this query string) grants nothing. ``login`` stays in the
+    response as ``null`` so older app builds fall back to that same login
+    instead of failing; their ``use_cookie`` parameter is ignored.
+    """
+    progress = await user_signer_service.get_prepare_status(
+        db, redis, prepare_id=prepare_id, client_ip=_client_ip(request)
+    )
+    return SignerStatusResponse(
+        prepare_id=str(progress.prepare_id),
+        status=progress.status,
+        signer_tx_hash=progress.signer_tx_hash,
+        auth_address_tx_hash=progress.auth_address_tx_hash,
+        error=progress.error,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Protocol Auth login (every login after the first link)
+# ---------------------------------------------------------------------------
+
+PROTOCOL_LOGIN_RATE_PREFIX = "protocol_login_rate:"
+PROTOCOL_LOGIN_RATE_LIMIT = 10
+PROTOCOL_LOGIN_RATE_WINDOW_SECONDS = 60
+
+
+@router.post("/protocol", response_model=LoginResponse)
+async def protocol_login(
+    body: ProtocolLoginRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> LoginResponse:
+    """Sign in with an ``hqa1.`` token from a linked device or custody.
+
+    The token's nonce must come from ``/v1/auth/siwf/nonce`` and is consumed
+    here, after the signature checks, so the token works exactly once.
+    """
+    await user_signer_service.enforce_rate_limit(
+        redis,
+        f"{PROTOCOL_LOGIN_RATE_PREFIX}{_client_ip(request)}",
+        limit=PROTOCOL_LOGIN_RATE_LIMIT,
+        window=PROTOCOL_LOGIN_RATE_WINDOW_SECONDS,
+    )
+    try:
+        claims = await verify_protocol_auth_token(
+            body.token,
+            allowed_domains=allowed_protocol_auth_domains(
+                settings.QUICKAUTH_ALLOWED_AUDIENCES
+            ),
+        )
+    except ProtocolAuthError as exc:
+        logger.warning("protocol_login_rejected reason=%s", exc.reason)
+        if exc.reason == "signer_not_linked":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="signer_not_linked"
+            ) from None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_token"
+        ) from None
+    except KeyGatewayError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="registry_unavailable"
+        ) from None
+    if not await consume_siwf_nonce(redis, claims.nonce):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_token"
+        )
+
+    profile = await _fetch_profile_or_error(claims.fid)
+    # The first sign-in after a recovery-phrase link lands here (the status
+    # poll no longer issues sessions), possibly before the user row exists.
+    has_signer = await user_signer_service.has_approved_signer(db, claims.fid)
+    user = await get_or_create_user(
+        db,
+        claims.fid,
+        profile,
+        signer_status=SIGNER_STATUS_APPROVED if has_signer else None,
+    )
+    return await _issue_login(
+        redis, response, user, is_pro=_is_pro(profile), use_cookie=body.use_cookie
+    )
+
+
+# ---------------------------------------------------------------------------
+# Miniapp token exchange
 # ---------------------------------------------------------------------------
 
 
@@ -813,6 +918,10 @@ class MiniAppVerifyResponse(BaseModel):
     fid: int
 
 
+class QuickAuthVerifyRequest(BaseModel):
+    token: str
+
+
 MINIAPP_JWT_EXPIRY_HOURS = 1
 MINIAPP_NONCE_TTL_SECONDS = 300  # 5 minutes
 MINIAPP_NONCE_PREFIX = "miniapp_nonce:"
@@ -821,12 +930,70 @@ MINIAPP_VERIFY_RATE_LIMIT = 10  # per minute per IP
 MINIAPP_VERIFY_RATE_WINDOW = 60
 
 
+async def _enforce_miniapp_rate_limit(redis: aioredis.Redis, request: Request) -> None:
+    """Shared per-IP budget for ``/miniapp-verify`` and ``/miniapp-quickauth``."""
+    rate_key = f"{MINIAPP_VERIFY_RATE_PREFIX}{_client_ip(request)}"
+    pipe = redis.pipeline()
+    pipe.incr(rate_key)
+    pipe.expire(rate_key, MINIAPP_VERIFY_RATE_WINDOW)
+    count, _ = await pipe.execute()
+    if count > MINIAPP_VERIFY_RATE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many verification attempts",
+        )
+
+
+def _miniapp_domains() -> set[str]:
+    domains = allowed_protocol_auth_domains(settings.QUICKAUTH_ALLOWED_AUDIENCES)
+    if not domains:
+        # Misconfigured server; fail closed rather than accepting any domain.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Miniapp auth domain not configured",
+        )
+    return domains
+
+
+def _mint_miniapp_session(fid: int, *, not_after: datetime | None = None) -> str:
+    """Short-lived session JWT; never outlives ``not_after`` when given."""
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=MINIAPP_JWT_EXPIRY_HOURS)
+    if not_after is not None:
+        expires_at = min(expires_at, not_after)
+    payload = {
+        "fid": fid,
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+MINIAPP_NONCE_RATE_PREFIX = "miniapp_nonce_rate:"
+# Unauthenticated, and every call stores a key in Redis for
+# MINIAPP_NONCE_TTL_SECONDS, so it is bounded per client IP. Generous:
+# carrier CGNAT puts many real users behind one IP, and a nonce costs only
+# one short-lived key.
+MINIAPP_NONCE_RATE_LIMIT = RateLimit(limit=120, window_seconds=60)
+
+
 @router.get("/miniapp-nonce", response_model=MiniAppNonceResponse)
 async def get_miniapp_nonce(
+    request: Request,
     redis: aioredis.Redis = Depends(get_redis),
 ):
     """Generate a server-side nonce for SIWF sign-in."""
-    nonce = secrets.token_urlsafe(32)
+    await enforce_rate_limits(
+        redis,
+        [
+            (
+                f"{MINIAPP_NONCE_RATE_PREFIX}{_client_ip(request)}",
+                MINIAPP_NONCE_RATE_LIMIT,
+            )
+        ],
+    )
+    # Alphanumeric only; the siwe parser rejects base64url "-" and "_".
+    nonce = secrets.token_hex(32)
     await redis.set(f"{MINIAPP_NONCE_PREFIX}{nonce}", "1", ex=MINIAPP_NONCE_TTL_SECONDS)
     return MiniAppNonceResponse(nonce=nonce)
 
@@ -837,161 +1004,62 @@ async def miniapp_verify(
     request: Request,
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Verify a SIWF credential from a Farcaster miniapp and issue a short-lived JWT.
+    """Verify a miniapp ``signIn`` SIWF credential and issue a short-lived JWT.
 
-    The miniapp calls `sdk.actions.signIn({ nonce })` which produces a SIWE-style
-    message + signature. We recover the signer address, extract the FID, then
-    verify the address is a custody or verified signer for that FID via Neynar.
+    The server nonce is consumed first (single use). The SIWE message must
+    name an allowed domain, chain id 10, that nonce, a current validity
+    window and one ``farcaster://fid/<fid>`` resource; its signer must be
+    the FID's custody address or an added auth address.
     """
-    # Rate limit by IP
-    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
-        request.client.host if request.client else "unknown"
-    )
-    rate_key = f"{MINIAPP_VERIFY_RATE_PREFIX}{client_ip}"
-    pipe = redis.pipeline()
-    pipe.incr(rate_key)
-    pipe.expire(rate_key, MINIAPP_VERIFY_RATE_WINDOW)
-    count, _ = await pipe.execute()
-    if count > MINIAPP_VERIFY_RATE_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many verification attempts",
-        )
+    await _enforce_miniapp_rate_limit(redis, request)
 
-    # Verify nonce was server-issued and consume it (one-time use)
-    nonce_key = f"{MINIAPP_NONCE_PREFIX}{body.nonce}"
-    consumed = await redis.delete(nonce_key)
+    consumed = await redis.delete(f"{MINIAPP_NONCE_PREFIX}{body.nonce}")
     if not consumed:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired nonce",
         )
 
-    # Verify the SIWE signature
     try:
-        signable = encode_defunct(text=body.message)
-        recovered_address = Account.recover_message(signable, signature=body.signature)
-    except Exception:
+        claims = await verify_miniapp_siwf_message(
+            body.message,
+            body.signature,
+            expected_nonce=body.nonce,
+            allowed_domains=_miniapp_domains(),
+        )
+    except ProtocolAuthError as exc:
+        logger.warning("miniapp_verify_rejected reason=%s", exc.reason)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid signature",
-        )
-
-    # Verify nonce appears in the signed message (prevents nonce substitution)
-    if body.nonce not in body.message:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Nonce mismatch in message",
-        )
-
-    # Extract FID from the SIWF message (farcaster://fid/{fid})
-    fid_match = re.search(r"farcaster://fid/(\d+)", body.message)
-    if not fid_match:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No FID found in message",
-        )
-    fid = int(fid_match.group(1))
-
-    # Verify the recovered address is a custody or verified address for this FID
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                "https://api.neynar.com/v2/farcaster/user/bulk",
-                params={"fids": str(fid)},
-                headers={"x-api-key": settings.NEYNAR_API_KEY},
-                timeout=10.0,
-            )
-            resp.raise_for_status()
-            users = resp.json().get("users", [])
-            if not users:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="FID not found",
-                )
-
-            user = users[0]
-            custody_address = (user.get("custody_address") or "").lower()
-            verified_addresses = [
-                a.lower()
-                for a in user.get("verified_addresses", {}).get("eth_addresses", [])
-            ]
-            recovered_lower = recovered_address.lower()
-
-            if recovered_lower != custody_address and recovered_lower not in verified_addresses:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Signer is not authorized for this FID",
-                )
-    except HTTPException:
-        raise
-    except Exception:
+            detail="Invalid sign-in message",
+        ) from None
+    except KeyGatewayError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to verify FID ownership",
-        )
+        ) from None
 
-    # Issue a short-lived JWT (1 hour)
-    now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(hours=MINIAPP_JWT_EXPIRY_HOURS)
-    payload = {
-        "fid": fid,
-        "iat": int(now.timestamp()),
-        "exp": int(expires_at.timestamp()),
-    }
-    token = jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
-
-    return MiniAppVerifyResponse(token=token, fid=fid)
+    return MiniAppVerifyResponse(
+        token=_mint_miniapp_session(claims.fid), fid=claims.fid
+    )
 
 
-# --- Farcaster Quick Auth ---------------------------------------------------
-#
-# Quick Auth (https://miniapps.farcaster.xyz/docs/sdk/quick-auth) is the
-# recommended modern auth path for Mini Apps. The client calls
-# `sdk.quickAuth.getToken()` which returns a JWT signed by Farcaster's
-# auth.farcaster.xyz server. We verify that JWT here (signature via JWKS,
-# issuer, audience, expiry) and exchange it for our own short-lived session
-# JWT so the rest of the API remains auth-method-agnostic.
+async def _ensure_miniapp_user(db: AsyncSession, fid: int) -> None:
+    """Best-effort user row so downstream endpoints don't 404 a new FID.
 
-_jwks_cache: dict = {"keys": [], "expires_at": 0.0}
-QUICKAUTH_JWKS_CACHE_TTL = 3600  # seconds
-
-
-class QuickAuthVerifyRequest(BaseModel):
-    token: str
-
-
-async def _fetch_quickauth_jwks(force: bool = False) -> list[dict]:
-    """Fetch and cache the Farcaster Quick Auth JWKS (1 hour TTL).
-
-    `force=True` bypasses the cache — used when the incoming token has a
-    kid that isn't in the cached JWKS, in case keys were rotated.
+    A failed profile fetch or upsert never fails auth; profile fields are
+    refreshed when available and signer state is never touched.
     """
-    now = time.time()
-    if not force and _jwks_cache["keys"] and now < _jwks_cache["expires_at"]:
-        return _jwks_cache["keys"]
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(settings.QUICKAUTH_JWKS_URL, timeout=10.0)
-        resp.raise_for_status()
-        data = resp.json()
-    keys = data.get("keys", [])
-    _jwks_cache["keys"] = keys
-    _jwks_cache["expires_at"] = now + QUICKAUTH_JWKS_CACHE_TTL
-    return keys
-
-
-def _allowed_quickauth_audiences() -> set[str]:
-    return {
-        a.strip()
-        for a in settings.QUICKAUTH_ALLOWED_AUDIENCES.split(",")
-        if a.strip()
-    }
-
-
-# Sentinel signer_uuid for users who authed via the miniapp Quick Auth
-# flow but have no Neynar signer registered with us. They can listen and
-# read but can't perform write actions that require a real signer.
-MINIAPP_QUICKAUTH_SIGNER_UUID = "miniapp-quickauth"
+    try:
+        profile = await fetch_user_profile(fid)
+    except (hypersnap.HypersnapError, ValueError):
+        logger.warning("miniapp profile fetch failed fid=%s", fid)
+        profile = {}
+    try:
+        await get_or_create_user(db, fid, profile)
+    except Exception:  # noqa: BLE001 - auth must not fail on the upsert
+        logger.exception("miniapp user upsert failed fid=%s", fid)
+        await db.rollback()
 
 
 @router.post("/miniapp-quickauth", response_model=MiniAppVerifyResponse)
@@ -1001,181 +1069,40 @@ async def miniapp_quickauth(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Verify a Farcaster Quick Auth JWT and issue our own session JWT.
+    """Exchange a Protocol Auth (``hqa1.``) token for a session JWT.
 
-    Flow on the client: `sdk.quickAuth.getToken()` returns a JWT issued by
-    `auth.farcaster.xyz` with `sub=fid`, `aud=<miniapp domain>`. We verify
-    the signature against the issuer's JWKS, check iss/aud/exp, then mint a
-    session JWT matching the shape of `/miniapp-verify` for drop-in reuse.
+    The token is verified locally (no JWKS): canonical SIWE message for an
+    allowed domain on chain 10, at most 1h lifetime, signed by the FID's
+    custody address or an added auth address. It is not consumed, so a
+    client may reuse a cached token within its lifetime; the session JWT
+    never outlives the token. A token carrying a signer-prepare nonce is the
+    custody-signed link token for ``/signer/register`` and is refused, so a
+    leaked link token can never be exchanged for a session.
     """
-    # Share the existing rate-limit budget with /miniapp-verify so a
-    # malicious client can't bypass it by splitting across both endpoints.
-    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
-        request.client.host if request.client else "unknown"
-    )
-    rate_key = f"{MINIAPP_VERIFY_RATE_PREFIX}{client_ip}"
-    pipe = redis.pipeline()
-    pipe.incr(rate_key)
-    pipe.expire(rate_key, MINIAPP_VERIFY_RATE_WINDOW)
-    count, _ = await pipe.execute()
-    if count > MINIAPP_VERIFY_RATE_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many verification attempts",
-        )
-
-    token = body.token
-    if not isinstance(token, str) or not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token"
-        )
-
+    await _enforce_miniapp_rate_limit(redis, request)
     try:
-        unverified_header = jwt.get_unverified_header(token)
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed token header"
+        claims = await verify_protocol_auth_token(
+            body.token,
+            allowed_domains=_miniapp_domains(),
         )
-    kid = unverified_header.get("kid")
-    if not kid:
+    except ProtocolAuthError as exc:
+        logger.warning("quickauth_rejected reason=%s", exc.reason)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing kid"
-        )
-
-    # Look up the signing key. If not in cache, refresh once in case keys
-    # were rotated; a second miss means the token isn't ours to verify.
-    try:
-        keys = await _fetch_quickauth_jwks()
-    except httpx.HTTPError:
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Quick Auth token",
+        ) from None
+    except KeyGatewayError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Unable to reach Farcaster Quick Auth",
-        )
-    key = next((k for k in keys if k.get("kid") == kid), None)
-    if key is None:
-        try:
-            keys = await _fetch_quickauth_jwks(force=True)
-        except httpx.HTTPError:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Unable to reach Farcaster Quick Auth",
-            )
-        key = next((k for k in keys if k.get("kid") == kid), None)
-    if key is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown signing key"
-        )
-
-    audiences = _allowed_quickauth_audiences()
-    if not audiences:
-        # Misconfigured server; fail closed rather than accepting any aud.
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Quick Auth audience not configured",
-        )
-
-    # python-jose enforces RFC 7519 strictly: `audience` only accepts a
-    # single string and `sub` must be a string. Quick Auth JWTs ship `sub`
-    # as an integer fid (per https://miniapps.farcaster.xyz/docs/sdk/quick-auth)
-    # and we want to match `aud` against an allowlist. Skip both checks
-    # here and validate them manually below.
-    try:
-        claims = jwt.decode(
-            token,
-            key,
-            algorithms=[unverified_header.get("alg", "RS256")],
-            issuer=settings.QUICKAUTH_ISSUER,
-            options={"verify_aud": False, "verify_sub": False},
-        )
-    except JWTError as exc:
-        logger.warning("quick-auth jwt verification failed: %s", exc)
+            detail="Failed to verify FID ownership",
+        ) from None
+    if await user_signer_service.is_prepare_nonce(redis, claims.nonce):
+        logger.warning("quickauth_rejected reason=signer_link_token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Quick Auth token",
         )
 
-    aud_claim = claims.get("aud")
-    aud_values: list[str] = (
-        [a for a in aud_claim if isinstance(a, str)]
-        if isinstance(aud_claim, list)
-        else [aud_claim]
-        if isinstance(aud_claim, str)
-        else []
-    )
-    if not any(a in audiences for a in aud_values):
-        logger.warning(
-            "quick-auth aud mismatch: token aud=%s, allowed=%s",
-            aud_values,
-            sorted(audiences),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Quick Auth token audience not allowed",
-        )
-
-    sub = claims.get("sub")
-    try:
-        fid = int(sub) if sub is not None else None
-    except (TypeError, ValueError):
-        fid = None
-    if fid is None or fid <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing fid in Quick Auth token",
-        )
-
-    # Ensure a User row exists for this fid so downstream endpoints
-    # (e.g. POST /v1/rooms/{id}/join, which calls _get_user) don't 404
-    # the first time a miniapp user shows up. Best-effort Neynar profile
-    # fetch — if it fails, fall back to a minimal placeholder so auth
-    # still succeeds; the user just gets a generic display name until
-    # the next request refreshes their profile.
-    try:
-        profile = await fetch_user_profile(fid)
-    except Exception as exc:
-        logger.warning("neynar profile fetch failed for fid=%s: %s", fid, exc)
-        profile = {}
-    try:
-        result = await db.execute(select(User).where(User.fid == fid))
-        existing = result.scalar_one_or_none()
-        if existing is None:
-            db.add(
-                User(
-                    fid=fid,
-                    signer_uuid=MINIAPP_QUICKAUTH_SIGNER_UUID,
-                    username=profile.get("username"),
-                    display_name=profile.get("display_name"),
-                    pfp_url=profile.get("pfp_url"),
-                    custody_address=profile.get("custody_address"),
-                )
-            )
-        else:
-            # Refresh profile fields if Neynar gave us anything new, but do
-            # NOT touch signer_uuid — preserve any real Neynar signer the
-            # user registered via the native app.
-            if profile.get("username"):
-                existing.username = profile["username"]
-            if profile.get("display_name"):
-                existing.display_name = profile["display_name"]
-            if profile.get("pfp_url"):
-                existing.pfp_url = profile["pfp_url"]
-            if profile.get("custody_address"):
-                existing.custody_address = profile["custody_address"]
-        await db.commit()
-    except Exception as exc:
-        logger.warning("user upsert failed for fid=%s: %s", fid, exc)
-        # Don't fail auth — downstream endpoints will surface the missing
-        # user as a 404, but we still want the JWT issued.
-
-    now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(hours=MINIAPP_JWT_EXPIRY_HOURS)
-    payload = {
-        "fid": fid,
-        "iat": int(now.timestamp()),
-        "exp": int(expires_at.timestamp()),
-    }
-    session_token = jwt.encode(
-        payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM
-    )
-
-    return MiniAppVerifyResponse(token=session_token, fid=fid)
+    await _ensure_miniapp_user(db, claims.fid)
+    session_token = _mint_miniapp_session(claims.fid, not_after=claims.expires_at)
+    return MiniAppVerifyResponse(token=session_token, fid=claims.fid)

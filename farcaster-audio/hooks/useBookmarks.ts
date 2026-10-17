@@ -12,17 +12,17 @@ import {
   removeLike,
   removeRecast,
   publishCast,
-} from "@/services/neynar";
-import type { NeynarCast } from "@/types/neynar";
+} from "@/services/feed";
+import type { FarcasterCast } from "@/types/farcaster";
 import type { FeedItem } from "@/types/voiceNote";
 
 function updateReaction(
-  casts: NeynarCast[],
+  casts: FarcasterCast[],
   hash: string,
   type: "like" | "recast",
   added: boolean,
   myFid: number,
-): NeynarCast[] {
+): FarcasterCast[] {
   return casts.map((cast) => {
     if (cast.hash !== hash) return cast;
     const reactions = { ...cast.reactions };
@@ -55,10 +55,10 @@ function updateReaction(
 }
 
 function updateBookmark(
-  casts: NeynarCast[],
+  casts: FarcasterCast[],
   hash: string,
   bookmarked: boolean,
-): NeynarCast[] {
+): FarcasterCast[] {
   return casts.map((cast) =>
     cast.hash === hash
       ? {
@@ -76,7 +76,7 @@ function updateBookmark(
 
 export function useBookmarks() {
   const user = useAuthStore((s) => s.user);
-  const [casts, setCasts] = useState<NeynarCast[]>([]);
+  const [casts, setCasts] = useState<FarcasterCast[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -171,7 +171,7 @@ export function useBookmarks() {
   const handleBookmark = useCallback(
     async (castHash: string, isBookmarked: boolean) => {
       if (isBookmarked) {
-        let removedCast: NeynarCast | undefined;
+        let removedCast: FarcasterCast | undefined;
         let removedIndex = -1;
         setCasts((prev) => {
           removedIndex = prev.findIndex((cast) => cast.hash === castHash);

@@ -22,7 +22,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import delete, func as sa_func, select, update
+from sqlalchemy import delete, func as sa_func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -31,11 +32,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.ban import Ban
 from app.models.participant import Participant
+from app.models.recording import Recording
 from app.models.room import Room
 from app.models.room_rsvp import RoomRsvp
 from app.models.user import User
 from app.services.block_service import get_blocked_fids, is_blocked
+from app.services.dev_webhook_service import dispatch as dispatch_dev_webhook
 from app.schemas.auth import UserResponse
+from app.schemas.farcaster_spaces import AudioRoom, FarcasterSpacesConfigError
 from app.schemas.participant import (
     BanResponse,
     JoinResponse,
@@ -54,15 +58,36 @@ from app.schemas.room import (
     RsvpSummary,
     RsvpUserResponse,
 )
-from app.services import permission_service
-from app.services.livekit_service import LiveKitService
+from app.services import farcaster_writes, permission_service
+from app.services.cast_ledger import record_cast
+from app.services.hypersnap_webhook_service import schedule_room_reply_sync
+from app.services.livekit_service import PARTICIPANT_TOKEN_TTL, LiveKitService
 from app.services.push_service import PushService
+from app.services.recording_agent_service import (
+    RecordingAgentError,
+    RecordingAgentService,
+)
 from app.services.redis_service import RedisService
+
+# Imported lazily by ``RoomService`` to keep the test stubs that
+# construct ``RoomService`` without the new services functional.
+from app.services.farcaster_spaces_service import FarcasterSpacesService
 
 logger = logging.getLogger(__name__)
 
+JUKE_HOME_URL = "https://juke.audio"
+SPACE_URL_TEMPLATE = "https://juke.audio/space/{room_id}"
+
 ANONYMOUS_LISTENER_TTL_SECONDS = 20 * 60
 ANONYMOUS_LISTENER_TOKEN_TTL_SECONDS = 15 * 60
+# Revocation markers must outlive any join token issued before the
+# kick/ban/demote (token TTL) plus clock skew between us and LiveKit.
+LIVEKIT_REVOCATION_TTL_SECONDS = int(PARTICIPANT_TOKEN_TTL.total_seconds()) + 5 * 60
+
+# Sentinel FID for system-initiated actions (not a real Farcaster FID).
+# Used when the reconciler / webhooks force-stop a recording with no
+# human actor.
+SYSTEM_ACTOR_FID = 0
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +110,7 @@ def _iso(dt: datetime | None) -> str | None:
 
 
 def _livekit_expires_at() -> str:
-    return (_utcnow() + timedelta(hours=6)).isoformat()
+    return (_utcnow() + PARTICIPANT_TOKEN_TTL).isoformat()
 
 
 def _anonymous_livekit_expires_at() -> str:
@@ -108,10 +133,24 @@ def _room_discovery_event(room_id: str, reason: str, status: str) -> dict[str, s
 
 
 class RoomService:
-    def __init__(self, db: AsyncSession, redis: RedisService, livekit: LiveKitService):
+    def __init__(
+        self,
+        db: AsyncSession,
+        redis: RedisService,
+        livekit: LiveKitService,
+        *,
+        farcaster_spaces: FarcasterSpacesService | None = None,
+        recording_agent: RecordingAgentService | None = None,
+    ):
         self.db = db
         self.redis = redis
         self.livekit = livekit
+        # Optional Phase-4 collaborators. Old call sites (and the
+        # source-level guard tests) still construct ``RoomService``
+        # without these — code paths that depend on them check for
+        # ``None`` and raise a 503.
+        self.farcaster_spaces = farcaster_spaces
+        self.recording_agent = recording_agent
         self._push: PushService | None = None
 
     @property
@@ -268,23 +307,16 @@ class RoomService:
             )
             await self.db.commit()
             await self.db.refresh(room)
+            self._sync_room_reply_webhook()
         elif announce_cast:
             cast_hash = await self._announce_room(room_id, title, host)
             if cast_hash:
-                webhook_id, webhook_secret = await self._register_cast_webhook(
-                    room_id, cast_hash
-                )
                 await self.db.execute(
-                    update(Room)
-                    .where(Room.id == room.id)
-                    .values(
-                        cast_hash=cast_hash,
-                        neynar_webhook_id=webhook_id,
-                        neynar_webhook_secret=webhook_secret,
-                    )
+                    update(Room).where(Room.id == room.id).values(cast_hash=cast_hash)
                 )
                 await self.db.commit()
                 await self.db.refresh(room)
+                self._sync_room_reply_webhook()
 
         # Generate LiveKit token for host
         token = self.livekit.generate_token(
@@ -305,6 +337,18 @@ class RoomService:
         await self.redis.publish_room_discovery_event(
             _room_discovery_event(room_id, "room_started", "active")
         )
+        await dispatch_dev_webhook(
+            self.db,
+            app_id=room.created_by_app_id,
+            event_type="room.started",
+            data={
+                "room_id": room_id,
+                "title": title,
+                "host_fid": fid,
+                "started_at": room.started_at.isoformat() if room.started_at else None,
+                "scheduled_at": None,
+            },
+        )
         logger.info("Room %s created by fid=%s", room_id, fid)
         return RoomCreateResponse(
             room=room_response,
@@ -312,6 +356,202 @@ class RoomService:
             livekit_ws_url=settings.LIVEKIT_WS_URL,
             expires_at=_livekit_expires_at(),
         )
+
+    async def _fetch_upstream_room_or_raise(self, farcaster_room_id: str) -> AudioRoom:
+        """Fetch the authoritative upstream Farcaster space or raise 5xx/404."""
+        if self.farcaster_spaces is None:
+            raise HTTPException(
+                status_code=503, detail="Farcaster spaces are unavailable."
+            )
+        try:
+            upstream = await self.farcaster_spaces.get_room(farcaster_room_id)
+        except FarcasterSpacesConfigError as exc:
+            raise HTTPException(
+                status_code=503, detail="Farcaster spaces are unavailable."
+            ) from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning(
+                "upstream get_room failed during native link: %s",
+                type(exc).__name__,
+            )
+            raise HTTPException(
+                status_code=502, detail="Couldn't verify the Farcaster space."
+            ) from exc
+        if upstream is None:
+            raise HTTPException(
+                status_code=404, detail="Upstream Farcaster space not found."
+            )
+        return upstream
+
+    async def _get_native_room_by_farcaster_id(
+        self, farcaster_room_id: str
+    ) -> Room | None:
+        result = await self.db.execute(
+            select(Room).where(Room.farcaster_room_id == farcaster_room_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def _claim_existing_native_room(self, row: Room, host: User) -> RoomResponse:
+        """Return an already-linked row to its verified upstream host.
+
+        Callers must have verified ``host.fid`` is the upstream host. If a
+        different Juke user claimed the row first (possible before the
+        upstream host check existed), re-attribute it.
+        """
+        if row.host_fid != host.fid:
+            logger.warning(
+                "Re-attributing native room %s to verified upstream host",
+                row.id,
+            )
+            row.host_fid = host.fid
+            row.metadata_ = {
+                **(row.metadata_ or {}),
+                "farcaster_host_fid": host.fid,
+            }
+            await self.db.commit()
+            await self.db.refresh(row)
+        # Existing native rows have no live LiveKit state; skip the Redis
+        # round-trip and return zero counts directly.
+        return await self._build_room_response(row, host, 0, 0)
+
+    async def link_farcaster_room(
+        self,
+        fid: int,
+        farcaster_room_id: str,
+        title: str,
+        scheduled_at: datetime | None = None,
+        description: str | None = None,
+    ) -> RoomResponse:
+        """Register a Farcaster-native room with Juke.
+
+        The upstream room was created by the user directly against
+        ``client.farcaster.xyz`` (the Warpcast bearer never crosses the
+        wire). We persist a Juke ``Room`` row pointing at the upstream
+        UUID so discovery and future cross-cutting features can
+        reference it.
+
+        ``host_fid`` is the **Juke** session FID (``fid``), which must
+        equal the upstream host FID; it is also stashed in
+        ``metadata_["farcaster_host_fid"]`` for non-host readers
+        (developer API, recording agent).
+
+        No LiveKit resources are allocated. No announcement cast is
+        posted (the upstream Farcaster client owns that surface).
+
+        SECURITY: the upstream room is fetched and its host must be the
+        caller's verified fid. Title / schedule come from upstream, not
+        the request body, so a caller can't claim (or retitle) a space
+        they don't host. A duplicate ``farcaster_room_id`` returns the
+        existing row — re-attributed to the verified host if an earlier
+        (pre-fix) claimant planted it.
+        """
+        host = await self._get_user(fid)
+
+        # The router already gates on ``user.farcaster_sync_enabled``,
+        # but re-check here so a future internal caller can't skip
+        # that guard.
+        if not host.farcaster_sync_enabled or host.farcaster_fid is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Farcaster sync not enabled",
+            )
+
+        upstream = await self._fetch_upstream_room_or_raise(farcaster_room_id)
+        if upstream.host.fid != fid:
+            raise HTTPException(
+                status_code=403,
+                detail="You are not the host of this Farcaster space",
+            )
+        if upstream.state == "ended":
+            raise HTTPException(
+                status_code=409,
+                detail="This Farcaster space has already ended",
+            )
+
+        title = upstream.title or title
+        description = upstream.description or description
+        if upstream.state == "scheduled":
+            scheduled_at = upstream.scheduled_at or scheduled_at
+            if scheduled_at is not None and scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+        else:
+            scheduled_at = None
+
+        existing_row = await self._get_native_room_by_farcaster_id(farcaster_room_id)
+        if existing_row is not None:
+            return await self._claim_existing_native_room(existing_row, host)
+
+        room = Room(
+            title=title,
+            host_fid=fid,
+            status="scheduled" if scheduled_at is not None else "active",
+            scheduled_at=scheduled_at,
+            started_at=None if scheduled_at is not None else _utcnow(),
+            livekit_room_id=None,
+            # Native rooms can't host agents — there's no Juke LiveKit
+            # room for them to dial into.
+            allow_agents=False,
+            # Native rooms can record via the Phase-4 recording-agent
+            # dispatcher (see ``_start_native_recording``); we start
+            # the row at ``recording=False`` and let the host opt in.
+            recording=False,
+            is_farcaster_native=True,
+            farcaster_room_id=farcaster_room_id,
+            metadata_=self._build_native_metadata(
+                farcaster_host_fid=upstream.host.fid,
+                description=description,
+            ),
+        )
+        self.db.add(room)
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            # Lost a race on the unique ``farcaster_room_id`` index.
+            await self.db.rollback()
+            existing_row = await self._get_native_room_by_farcaster_id(
+                farcaster_room_id
+            )
+            if existing_row is None:
+                raise
+            # rollback() expires every loaded instance; reload ``host`` so
+            # building the response doesn't lazy-load under asyncio.
+            host = await self._get_user(fid)
+            return await self._claim_existing_native_room(existing_row, host)
+        await self.db.refresh(room)
+
+        # Discovery clients (mobile, partner SDKs) subscribe to the
+        # global discovery stream; publish the same event a hosted
+        # room would so native rooms surface alongside them.
+        reason = "room_scheduled" if scheduled_at is not None else "room_started"
+        await self.redis.publish_room_discovery_event(
+            _room_discovery_event(_room_id_str(room.id), reason, room.status)
+        )
+
+        # Debug-level on purpose: the upstream UUID is high-cardinality
+        # and emitting it on every link request would dominate the log
+        # signal without buying anything operational.
+        logger.debug(
+            "Linked Farcaster-native room for fid=%s (status=%s)",
+            fid,
+            room.status,
+        )
+
+        return await self._build_room_response(room, host, 0, 0)
+
+    @staticmethod
+    def _build_native_metadata(
+        *, farcaster_host_fid: int, description: str | None
+    ) -> dict:
+        """Build the ``metadata_`` payload for a native room row.
+
+        Always records the upstream Warpcast FID so non-host readers
+        (developer API, recording agent) don't need to join back to
+        ``users.farcaster_fid`` of the Juke ``host_fid``.
+        """
+        meta: dict = {"farcaster_host_fid": farcaster_host_fid}
+        if description:
+            meta["description"] = description
+        return meta
 
     async def start_scheduled_room(self, room_id: str, fid: int) -> RoomGoLiveResponse:
         """
@@ -321,6 +561,20 @@ class RoomService:
         and returns a LiveKit token so the host can connect.
         """
         room = await self._get_room_or_404(room_id)
+
+        if room.is_farcaster_native:
+            # Native rooms have no Juke LiveKit room to allocate — going
+            # live means flipping the upstream Farcaster room via
+            # ``POST /v1/rooms/{id}/native-start``. Reject here so an old
+            # client can't drive this path into creating an orphaned Juke
+            # LiveKit room + token the host would never actually use.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Farcaster-native rooms go live via "
+                    "POST /v1/rooms/{id}/native-start"
+                ),
+            )
 
         if room.host_fid != fid:
             raise HTTPException(
@@ -413,8 +667,25 @@ class RoomService:
             logger.exception("Failed to send RSVP go-live pushes for room %s", room_id)
             pass  # don't block go-live
 
+        # A scheduled room's announcement cast predates go-live.
+        if room.cast_hash:
+            self._sync_room_reply_webhook()
         await self.redis.publish_room_discovery_event(
             _room_discovery_event(room_id, "room_started", "active")
+        )
+        await dispatch_dev_webhook(
+            self.db,
+            app_id=room.created_by_app_id,
+            event_type="room.started",
+            data={
+                "room_id": room_id,
+                "title": room.title,
+                "host_fid": fid,
+                "started_at": now.isoformat(),
+                "scheduled_at": (
+                    room.scheduled_at.isoformat() if room.scheduled_at else None
+                ),
+            },
         )
         logger.info("Scheduled room %s started by fid=%s", room_id, fid)
         return RoomGoLiveResponse(
@@ -495,13 +766,13 @@ class RoomService:
                 room, host, speaker_count, listener_count
             )
 
-        if not settings.JUKEAUDIO_SIGNER_UUID:
+        if not farcaster_writes.is_system_signer_configured():
             raise HTTPException(
                 status_code=503,
                 detail="System chat signer is not configured",
             )
 
-        # Lock before the external Neynar call so concurrent clients don't
+        # Lock before the external submit so concurrent clients don't
         # create duplicate fallback casts for the same room.
         locked_result = await self.db.execute(
             select(Room).where(Room.id == room.id).with_for_update()
@@ -520,15 +791,11 @@ class RoomService:
             )
 
         cast_hash = await self._create_system_chat_cast(room_id, room.title, host)
-        webhook_id, webhook_secret = await self._register_cast_webhook(
-            room_id, cast_hash
-        )
 
         room.cast_hash = cast_hash
-        room.neynar_webhook_id = webhook_id
-        room.neynar_webhook_secret = webhook_secret
         await self.db.commit()
         await self.db.refresh(room)
+        self._sync_room_reply_webhook()
 
         speaker_count, listener_count = await self._get_live_counts(room_id)
         return await self._build_room_response(
@@ -612,8 +879,6 @@ class RoomService:
         has_more = len(room_id_strs) > limit
         page_ids = room_id_strs[:limit]
 
-        if not page_ids:
-            return RoomListResponse(rooms=[], next_cursor=None)
         blocked_fids = (
             await get_blocked_fids(self.db, current_fid) if current_fid else set()
         )
@@ -668,7 +933,100 @@ class RoomService:
 
         next_cursor = str(cursor + limit) if has_more else None
 
+        # Union in DB-authoritative native active rooms. A native ``Room``
+        # row can be genuinely ``status='active'`` yet absent from the Redis
+        # active set because ``create_native_room``'s ``redis.add_active_room``
+        # is best-effort — a miss is swallowed and would otherwise make the
+        # room invisible to ``/v1/rooms?status=active``. The DB is the source
+        # of truth for native actives, so surface any the Redis page missed.
+        #
+        # Pagination contract: we only merge on the FIRST page (cursor == 0),
+        # appending DB-only natives (newest ``started_at`` first) AFTER the
+        # Redis-ordered rooms and only up to ``limit``. Subsequent pages keep
+        # paging off the Redis set, so ``next_cursor`` is unchanged. A DB-only
+        # native that doesn't fit the first page's remaining slots won't
+        # appear until the next reconciler pass / create re-adds it to Redis —
+        # acceptable for the discovery rail and self-healing.
+        if cursor == 0 and len(rooms) < limit:
+            await self._append_db_native_actives(
+                rooms=rooms,
+                seen_ids=set(page_ids),
+                blocked_fids=blocked_fids,
+                limit=limit,
+            )
+
         return RoomListResponse(rooms=rooms, next_cursor=next_cursor)
+
+    async def _append_db_native_actives(
+        self,
+        *,
+        rooms: list[RoomResponse],
+        seen_ids: set[str],
+        blocked_fids: set[int],
+        limit: int,
+    ) -> None:
+        """Append DB-authoritative native active rooms not already present.
+
+        Mutates ``rooms`` in place. Fetches native rooms flagged
+        ``is_farcaster_native AND status='active'``, skips any already in
+        ``seen_ids`` or hosted by a blocked FID, and builds responses using
+        the same participant-count + host-lookup logic as the Redis path.
+        Fills only up to ``limit`` total rooms.
+        """
+        remaining = limit - len(rooms)
+        if remaining <= 0:
+            return
+
+        # Bound the read at the SQL layer — never materialize the full
+        # native-active table. We may discard up to ``len(seen_ids)`` rows
+        # already present in the Redis page, so fetch that many extra
+        # beyond ``remaining`` to still be able to fill the page.
+        fetch_cap = remaining + len(seen_ids)
+        result = await self.db.execute(
+            select(Room)
+            .where(
+                Room.is_farcaster_native.is_(True),
+                Room.status == "active",
+            )
+            .order_by(Room.started_at.desc())
+            .limit(fetch_cap)
+        )
+        extra_rooms: list[Room] = []
+        for room in result.scalars().all():
+            rid = _room_id_str(room.id)
+            if rid in seen_ids or room.host_fid in blocked_fids:
+                continue
+            extra_rooms.append(room)
+            if len(extra_rooms) >= remaining:
+                break
+
+        if not extra_rooms:
+            return
+
+        extra_host_fids = list({room.host_fid for room in extra_rooms})
+        host_rows = await self.db.execute(
+            select(User).where(User.fid.in_(extra_host_fids))
+        )
+        hosts_by_fid: dict[int, User] = {
+            user.fid: user for user in host_rows.scalars().all()
+        }
+        extra_ids = [_room_id_str(room.id) for room in extra_rooms]
+        count_map = await self.redis.get_room_participant_counts(extra_ids)
+
+        for room in extra_rooms:
+            rid = _room_id_str(room.id)
+            host = hosts_by_fid.get(room.host_fid)
+            if host is None:
+                raise HTTPException(
+                    status_code=404, detail=f"User with fid={room.host_fid} not found"
+                )
+            speaker_count, listener_count = count_map.get(rid, (0, 0))
+            listener_count += await self._get_anonymous_listener_count(rid)
+            rooms.append(
+                await self._build_room_response(
+                    room, host, speaker_count, listener_count
+                )
+            )
 
     async def register_rsvp(self, room_id: str, fid: int) -> RsvpResponse:
         """RSVP to a scheduled room. Idempotent (uses INSERT ON CONFLICT DO NOTHING)."""
@@ -777,6 +1135,14 @@ class RoomService:
         # Cheap checks first so we don't hit LiveKit for a request we'll reject.
         room = await self._get_room_or_404(room_id)
 
+        # Phase 4 part 1: native-room recording dispatches a Juke-owned
+        # recording-agent FID into the upstream Farcaster LiveKit room.
+        # The agent joins as a passive listener and writes mixed audio
+        # to S3. The non-native (Juke-hosted) path continues to use
+        # LiveKit room-composite egress below.
+        if room.is_farcaster_native:
+            return await self._start_native_recording(room, fid)
+
         if room.status != "active":
             raise HTTPException(status_code=400, detail="Room is not active")
 
@@ -816,8 +1182,8 @@ class RoomService:
                 detail="Failed to start recording via media server",
             ) from exc
 
-        # Redis TTL: match the LiveKit token TTL ceiling (6h) — long enough to
-        # outlast any reasonable room while preventing orphaned keys.
+        # Redis TTL: 6h — long enough to outlast any reasonable room while
+        # preventing orphaned keys.
         # SET NX so a second concurrent caller can't overwrite a live
         # egress_id mid-race (e.g. two host devices hitting start together).
         key = f"room:{room_id}:egress_id"
@@ -891,6 +1257,12 @@ class RoomService:
         """
         room = await self._get_room_or_404(room_id)
 
+        # Phase 4 part 1: native-room recording uses an out-of-process
+        # recording agent rather than the LiveKit egress path. The
+        # Juke-hosted (non-native) branch below is unchanged.
+        if room.is_farcaster_native:
+            return await self._stop_native_recording(room, fid)
+
         actor_role = await self._get_actor_role(room_id, fid)
         if actor_role not in ("host", "co_host"):
             raise HTTPException(
@@ -908,6 +1280,548 @@ class RoomService:
 
         await self._stop_egress_for_room(room_id, fid, publish_event=True)
         return {"status": "stopping"}
+
+    # ------------------------------------------------------------------
+    # Phase 4 part 1 — native-room recording via out-of-process agent
+    # ------------------------------------------------------------------
+
+    def _assert_native_recording_host(self, room: Room, fid: int) -> None:
+        """Authorize a native-room recording request.
+
+        We can't reuse :py:meth:`_get_actor_role` here — it reads from
+        the Redis participant cache populated by Juke's ``/join``, but
+        native rooms never go through that endpoint (participants live
+        on Farcaster's LiveKit project). So the cache is empty and the
+        check always 403s with "not an active participant", even for
+        the host.
+
+        Native co-hosts also live upstream and aren't visible to Juke,
+        so the only role we can verify is host == ``room.host_fid``.
+        That's the host the create flow recorded; for mirrored rooms
+        it's the upstream host. Co-host recording on native rooms is a
+        deliberate non-feature until upstream exposes a participant
+        list we can authoritatively check against.
+        """
+        if room.host_fid != fid:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the host can record this space",
+            )
+
+    async def _start_native_recording(self, room: Room, fid: int) -> dict:
+        """Dispatch a Juke recording-agent FID into the upstream
+        Farcaster-native LiveKit room.
+
+        Flow:
+          1. Reserve an agent FID from
+             ``FarcasterSpacesService.pick_available_recording_agent``.
+          2. Mint a join token via the agent's bearer + upstream
+             ``POST /v1/audio-room/join``.
+          3. Hand signaling-url + token to
+             ``RecordingAgentService.start_recording`` (spawns Node
+             worker).
+          4. Persist ``recording_id`` + ``recording_agent_fid`` on the
+             room row (in ``metadata_``) and flip ``recording = True``.
+
+        Failures release the reserved agent before raising so a single
+        bad mint can't permanently sideline the agent pool.
+
+        Permission contract mirrors the egress path: host + co-host
+        only. Recording rate-limits also apply equally.
+        """
+        if self.farcaster_spaces is None or self.recording_agent is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Recording-agent infrastructure not configured",
+            )
+
+        if room.status != "active":
+            raise HTTPException(status_code=400, detail="Room is not active")
+
+        room_id = _room_id_str(room.id)
+        self._assert_native_recording_host(room, fid)
+
+        await self._enforce_recording_rate_limit(fid)
+        await self._assert_recording_duration_under_cap(room_id)
+
+        if not room.farcaster_room_id:
+            # Defensive: a row marked is_farcaster_native MUST have the
+            # upstream id. Treat the inconsistency as a config error.
+            raise HTTPException(
+                status_code=500,
+                detail="Native room missing farcaster_room_id",
+            )
+
+        # Reconcile upstream state. The host may have ended the room
+        # from the Farcaster app (or another Juke device) — upstream
+        # cleared it, but Juke's row stays `active` because we never
+        # observed the end. Without this check, the recording agent
+        # would try to join an ended upstream room, upstream would 4xx
+        # the join, and we'd surface a generic 502 to the user. Peek
+        # upstream first; if the room is gone or ended, mark our row
+        # ended and return a clean 409 the iOS client can interpret.
+        try:
+            upstream_snapshot = await self.farcaster_spaces.get_room(
+                room.farcaster_room_id
+            )
+        except FarcasterSpacesConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Farcaster spaces service unavailable",
+            ) from exc
+        except Exception as exc:
+            # Best-effort reconciliation. If upstream is flaky on the
+            # peek, fall through and let the agent-join path discover
+            # any real problem — better to attempt recording than to
+            # block on a transient upstream blip.
+            logger.warning(
+                "[native-recording] upstream peek failed (room=%s err=%s) — "
+                "proceeding optimistically",
+                room_id,
+                type(exc).__name__,
+            )
+            upstream_snapshot = "unknown"
+        if upstream_snapshot is None or (
+            hasattr(upstream_snapshot, "state")
+            and getattr(upstream_snapshot, "state", None) in ("ended", "cancelled")
+        ):
+            # Upstream is gone — reconcile our row so the rail, end-
+            # space CTA, and player all reflect reality.
+            now = _utcnow()
+            await self.db.execute(
+                update(Room)
+                .where(Room.id == room.id)
+                .values(status="ended", ended_at=now)
+            )
+            await self.db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail="This space has already ended on Farcaster.",
+            )
+
+        # Lock + reread under the same transaction so two concurrent
+        # callers can't both flip ``recording = True``.
+        locked = await self.db.execute(
+            select(Room).where(Room.id == room.id).with_for_update()
+        )
+        room = locked.scalar_one()
+        if room.recording:
+            raise HTTPException(
+                status_code=409,
+                detail="Recording is already in progress",
+            )
+
+        try:
+            picked = await self.farcaster_spaces.pick_available_recording_agent()
+        except FarcasterSpacesConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="No recording agents available",
+            ) from exc
+        if picked is None:
+            raise HTTPException(
+                status_code=503,
+                detail="No recording agents available",
+            )
+        agent_fid, agent_bearer = picked
+
+        try:
+            join_result = await self.farcaster_spaces.join_room_as_listener(
+                room_id=room.farcaster_room_id,
+                bearer=agent_bearer,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[native-recording] join_room_as_listener failed for "
+                "room=%s agent_fid=%s err=%s",
+                room_id,
+                agent_fid,
+                type(exc).__name__,
+            )
+            await self.farcaster_spaces.release_recording_agent(agent_fid)
+            await self.db.rollback()
+            # Race: room ended upstream between our peek and the agent
+            # join. Surface the same 409 as the pre-flight check so the
+            # iOS error UX is consistent.
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code is not None and 400 <= int(status_code) < 500:
+                # Reconcile our row — upstream told us the room is gone.
+                now = _utcnow()
+                await self.db.execute(
+                    update(Room)
+                    .where(Room.id == room.id)
+                    .values(status="ended", ended_at=now)
+                )
+                await self.db.commit()
+                raise HTTPException(
+                    status_code=409,
+                    detail="This space has already ended on Farcaster.",
+                ) from exc
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to join Farcaster room as recording agent",
+            ) from exc
+
+        signaling_url = join_result.get("wsUrl") or join_result.get("url")
+        token = join_result.get("token")
+        if not isinstance(signaling_url, str) or not isinstance(token, str):
+            await self.farcaster_spaces.release_recording_agent(agent_fid)
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=502,
+                detail="Upstream join response missing wsUrl/token",
+            )
+
+        # S3 target — match the existing recording path's prefix so
+        # retention cleanup + presigning helpers all keep working.
+        s3_target = f"recordings/{room_id}/native-{int(_utcnow().timestamp())}.ogg"
+
+        try:
+            recording_id = await self.recording_agent.start_recording(
+                room_id=room_id,
+                signaling_url=signaling_url,
+                token=token,
+                s3_target=s3_target,
+            )
+        except RecordingAgentError as exc:
+            logger.warning(
+                "[native-recording] worker spawn failed for room=%s "
+                "agent_fid=%s err=%s",
+                room_id,
+                agent_fid,
+                exc,
+            )
+            await self.farcaster_spaces.release_recording_agent(agent_fid)
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to start recording-agent worker",
+            ) from exc
+
+        # Persist state. metadata_ is a JSON column — copy then
+        # reassign so SQLAlchemy detects the change on a mutable dict.
+        # The ``recording_agent_fid`` lives in metadata_ so the stop
+        # path can release the agent; ``recording_id`` gets its own
+        # typed column for ops queries.
+        new_meta = dict(room.metadata_ or {})
+        new_meta["recording_agent_fid"] = agent_fid
+        new_meta["recording_s3_target"] = s3_target
+        # Capture the recording-segment start so the stop path can set
+        # the corresponding ``recordings.started_at``. ``rooms.started_at``
+        # is when the SPACE started — not when this segment started, and
+        # a host can record multiple segments per space.
+        new_meta["recording_started_at"] = _utcnow().isoformat()
+
+        await self.db.execute(
+            update(Room)
+            .where(Room.id == room.id)
+            .values(
+                recording=True,
+                recording_id=recording_id,
+                metadata_=new_meta,
+            )
+        )
+        await self.redis.redis.set(
+            f"room:{room_id}:native_recording_started_at",
+            int(_utcnow().timestamp()),
+            ex=6 * 60 * 60,
+        )
+        await self.db.commit()
+
+        await self.redis.publish_room_event(
+            room_id,
+            {
+                "event": "recording_started",
+                "room_id": room_id,
+                "by_fid": fid,
+            },
+        )
+
+        logger.info(
+            "Native recording started for room %s by fid=%s (agent_fid=%s "
+            "recording_id=%s...)",
+            room_id,
+            fid,
+            agent_fid,
+            recording_id[:8] if recording_id else "?",
+        )
+        return {
+            "recording_id": recording_id,
+            "status": "recording",
+        }
+
+    def _recover_recording_url_from_s3(
+        self, room_id: str, s3_key: str | None
+    ) -> str | None:
+        """Best-effort recovery of a native recording the worker already
+        uploaded but we never recorded the URL for.
+
+        Returns a canonical object URL when an object exists at ``s3_key``,
+        else ``None``. Never raises — S3 misconfig or a missing object
+        just means "nothing to recover."
+        """
+        if not isinstance(s3_key, str) or not s3_key:
+            return None
+        try:
+            from app.services.storage_service import StorageService
+
+            storage = StorageService()
+            # First: did the worker self-finalize (graceful disconnect) and
+            # leave a complete object? Otherwise: did it crash mid-recording
+            # and leave an incomplete multipart upload we can complete? Only
+            # reached once the worker is confirmed gone, so completing its
+            # upload can't race a live worker's own finalize.
+            recovered = storage.object_exists(s3_key) or (
+                storage.complete_orphaned_multipart_upload(s3_key)
+                and storage.object_exists(s3_key)
+            )
+            if recovered:
+                url = storage.build_object_url(s3_key)
+                logger.info(
+                    "[native-recording] recovered orphaned recording from S3 "
+                    "for room=%s key=%s",
+                    room_id,
+                    s3_key,
+                )
+                return url
+        except Exception as exc:  # noqa: BLE001 — recovery is best-effort
+            logger.warning(
+                "[native-recording] S3 recovery probe failed for room=%s "
+                "key=%s err=%s",
+                room_id,
+                s3_key,
+                type(exc).__name__,
+            )
+        return None
+
+    async def _finalize_native_recording_stop(
+        self, room: Room, recording_id: str, stopped_by_fid: int
+    ) -> str | None:
+        """Stop the recording-agent worker, persist the final S3 URL, and
+        release the agent FID.  Shared by the host and admin stop paths.
+
+        Returns the recording URL on success or ``None`` if the worker
+        failed to finalise (caller decides whether to surface a 502).
+        """
+        room_id = _room_id_str(room.id)
+        meta = dict(room.metadata_ or {})
+        agent_fid = meta.get("recording_agent_fid")
+
+        s3_key = meta.get("recording_s3_target")
+
+        recording_url: str | None = None
+        try:
+            recording_url = await self.recording_agent.stop_recording(recording_id)
+        except RecordingAgentError as exc:
+            logger.warning(
+                "[native-recording] worker stop failed for room=%s "
+                "recording_id=%s err=%s",
+                room_id,
+                recording_id[:8],
+                exc,
+            )
+            # The worker process is gone (backend redeploy, or it already
+            # self-finalized + exited when the LiveKit room disconnected —
+            # which is exactly what happens when a space ends on Farcaster's
+            # side). On disconnect the worker flushes ffmpeg and PutObjects
+            # the file to its deterministic ``s3_target`` BEFORE exiting, so
+            # the audio is very often already in S3 — we just never recorded
+            # the URL. Probe S3 and recover the file if it's there.
+            recording_url = self._recover_recording_url_from_s3(room_id, s3_key)
+
+        if isinstance(agent_fid, int):
+            await self.farcaster_spaces.release_recording_agent(agent_fid)
+
+        recording_started_at_raw = meta.get("recording_started_at")
+        meta.pop("recording_agent_fid", None)
+        meta.pop("recording_s3_target", None)
+        meta.pop("recording_started_at", None)
+
+        values: dict = {
+            "recording": False,
+            "recording_id": None,
+            "metadata_": meta,
+        }
+        if recording_url:
+            values["recording_url"] = recording_url
+            if isinstance(s3_key, str) and s3_key:
+                values["recording_key"] = s3_key
+        result = await self.db.execute(
+            update(Room)
+            .where(Room.id == room.id, Room.recording_id == recording_id)
+            .values(**values)
+        )
+        if result.rowcount == 0:
+            logger.info(
+                "[native-recording] stop skipped for room=%s recording_id=%s… "
+                "(already stopped by a concurrent call)",
+                room_id,
+                recording_id[:8],
+            )
+            return None
+
+        if recording_url:
+            recording_started_at = _utcnow()
+            if isinstance(recording_started_at_raw, str):
+                try:
+                    recording_started_at = datetime.fromisoformat(
+                        recording_started_at_raw
+                    )
+                except ValueError:
+                    pass
+            recording_ended_at = _utcnow()
+            duration = max(
+                0,
+                int((recording_ended_at - recording_started_at).total_seconds()),
+            )
+            self.db.add(
+                Recording(
+                    room_id=room.id,
+                    source="native",
+                    recording_url=recording_url,
+                    s3_key=s3_key if isinstance(s3_key, str) else None,
+                    started_at=recording_started_at,
+                    ended_at=recording_ended_at,
+                    duration_seconds=duration,
+                    upstream_recording_id=recording_id,
+                )
+            )
+        await self.db.commit()
+
+        started_raw = await self.redis.redis.get(
+            f"room:{room_id}:native_recording_started_at"
+        )
+        if started_raw:
+            try:
+                started_at = int(started_raw)
+                elapsed = max(0, int(_utcnow().timestamp()) - started_at)
+                if elapsed > 0:
+                    dur_key = self._recording_duration_key(room_id)
+                    await self.redis.redis.incrby(dur_key, elapsed)
+                    await self.redis.redis.expire(dur_key, 25 * 60 * 60)
+            except (ValueError, TypeError):
+                pass
+        await self.redis.redis.delete(f"room:{room_id}:native_recording_started_at")
+
+        await self.redis.publish_room_event(
+            room_id,
+            {
+                "event": "recording_stopped",
+                "room_id": room_id,
+                "by_fid": stopped_by_fid,
+            },
+        )
+
+        logger.info(
+            "Native recording stopped for room %s by fid=%s "
+            "(recording_id=%s... url=%s)",
+            room_id,
+            stopped_by_fid,
+            recording_id[:8],
+            "present" if recording_url else "missing",
+        )
+
+        return recording_url
+
+    async def _stop_native_recording(self, room: Room, fid: int) -> dict:
+        """Stop the recording-agent worker, persist the final S3 URL,
+        and release the agent FID.
+
+        Releases the agent FID even when the finalize errors out — a
+        flaky worker must not sideline an agent forever.
+        """
+        if self.farcaster_spaces is None or self.recording_agent is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Recording-agent infrastructure not configured",
+            )
+
+        self._assert_native_recording_host(room, fid)
+
+        if not room.recording:
+            raise HTTPException(
+                status_code=409,
+                detail="Recording is not active",
+            )
+
+        await self._enforce_recording_rate_limit(fid)
+
+        recording_id = room.recording_id
+        if not isinstance(recording_id, str) or not recording_id:
+            raise HTTPException(
+                status_code=409,
+                detail="No active recording-agent for this room",
+            )
+
+        recording_url = await self._finalize_native_recording_stop(
+            room, recording_id, stopped_by_fid=fid
+        )
+
+        if recording_url is None:
+            raise HTTPException(
+                status_code=502,
+                detail="Recording-agent worker failed to finalize",
+            )
+        return {"status": "stopped", "recording_url": recording_url}
+
+    async def admin_stop_native_recording(self, room_id: str, admin_fid: int) -> dict:
+        """Force-stop a native recording without host permission checks.
+
+        Used by the LiveKit ``room_finished`` webhook (auto-stop when the
+        upstream room closes) and the admin UI (manual recovery).  Skips
+        the host FID check and recording rate-limit — those are caller
+        concerns, not this method's.
+        """
+        if self.farcaster_spaces is None or self.recording_agent is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Recording-agent infrastructure not configured",
+            )
+
+        room = await self._get_room_or_404(room_id)
+
+        if not room.is_farcaster_native:
+            raise HTTPException(
+                status_code=400,
+                detail="Not a native Farcaster space",
+            )
+
+        if not room.recording:
+            raise HTTPException(
+                status_code=409,
+                detail="Recording is not active",
+            )
+
+        recording_id = room.recording_id
+        if not isinstance(recording_id, str) or not recording_id:
+            raise HTTPException(
+                status_code=409,
+                detail="No active recording-agent for this room",
+            )
+
+        recording_url = await self._finalize_native_recording_stop(
+            room, recording_id, stopped_by_fid=admin_fid
+        )
+
+        logger.info(
+            "Admin stop native recording for room %s by admin_fid=%s "
+            "(recording_url=%s)",
+            room_id,
+            admin_fid,
+            "present" if recording_url else "missing",
+        )
+
+        # Unlike the host stop path, admin/system stops MUST NOT raise when
+        # the worker can't finalize. This endpoint's primary job is to clear
+        # a STUCK recording flag — most often because the worker process is
+        # already gone (backend redeploy killed it, space ended on
+        # Farcaster's side). ``_finalize_native_recording_stop`` has already
+        # flipped ``recording=False`` and released the agent; surfacing a 502
+        # here would leave the operator thinking the orphan is unresolved
+        # when the DB state is, in fact, clean. Report the outcome instead.
+        if recording_url is None:
+            return {"status": "cleared", "recording_url": None}
+        return {"status": "stopped", "recording_url": recording_url}
 
     async def _stop_egress_for_room(
         self, room_id: str, fid: int, publish_event: bool
@@ -1019,12 +1933,19 @@ class RoomService:
                 exc_info=True,
             )
 
-    async def end_room(self, room_id: str, fid: int) -> None:
+    async def end_room(
+        self, room_id: str, fid: int, *, ended_via: str = "host"
+    ) -> None:
         """
         End an active room or cancel a scheduled room.
 
         Scheduled rooms have no Redis/LiveKit state, so only a DB update is needed.
         Active rooms require full teardown (LiveKit, Redis, webhooks).
+
+        ``ended_via`` tags the outbound ``room.finished`` payload so partner
+        webhook consumers can distinguish a human host clicking End Space
+        (``"host"``) from a server-side API end (``"api"``). Defaults to
+        ``"host"`` for backward compatibility with the iOS path.
         """
         room = await self._get_room_or_404(room_id)
 
@@ -1044,6 +1965,14 @@ class RoomService:
                 _room_discovery_event(room_id, "room_cancelled", "cancelled")
             )
             logger.info("Scheduled room %s cancelled by fid=%s", room_id, fid)
+            return
+
+        # Idempotent: re-ending an already-finished room is a no-op. Without
+        # this guard a double-call hits the actor_role check below, fails
+        # because the first call cleared Redis participant state, and
+        # surfaces a misleading 403 to the caller. Also prevents duplicate
+        # ``room.finished`` dispatch on retry-on-transient-network paths.
+        if room.status in ("ended", "cancelled"):
             return
 
         # Active rooms: require host/co-host role from Redis
@@ -1074,9 +2003,8 @@ class RoomService:
         )
         await self.db.commit()
 
-        # Clean up Neynar webhook (best-effort)
-        if room.neynar_webhook_id:
-            await self._delete_cast_webhook(room.neynar_webhook_id)
+        if room.cast_hash:
+            self._sync_room_reply_webhook()
 
         # Delete LiveKit room (best-effort; don't fail the operation if LiveKit is down)
         try:
@@ -1098,7 +2026,59 @@ class RoomService:
         await self.redis.publish_room_discovery_event(
             _room_discovery_event(room_id, "room_ended", "ended")
         )
-        logger.info("Room %s ended by fid=%s", room_id, fid)
+
+        # Dispatch outbound ``room.finished`` for developer-created rooms.
+        # Required here because the LiveKit ``room_finished`` webhook handler
+        # filters by ``Room.status == "active"`` — we just flipped to "ended"
+        # so the handler's dispatch branch will skip when LiveKit's event
+        # arrives moments later. Without this inline dispatch, partners
+        # never see ``room.finished`` for explicit-end paths (iOS host
+        # End Space, the new developer end endpoint, etc.). Empty-timeout
+        # auto-close still dispatches from the LiveKit handler because the
+        # row stays "active" until that webhook runs.
+        await dispatch_dev_webhook(
+            self.db,
+            app_id=room.created_by_app_id,
+            event_type="room.finished",
+            data={
+                "room_id": room_id,
+                "host_fid": room.host_fid,
+                "started_at": room.started_at.isoformat() if room.started_at else None,
+                "ended_at": now.isoformat(),
+                "ended_by_fid": fid,
+                # ``host`` = human pressed End Space; ``api`` = developer
+                # called POST /v1/developer/spaces/{id}/end on their own
+                # server. Consumers building "ended by X" UX should branch
+                # on this rather than treat ``ended_by_fid`` as a person.
+                "ended_via": ended_via,
+            },
+        )
+
+        logger.info("Room %s ended by fid=%s via=%s", room_id, fid, ended_via)
+
+    async def _publish_participants_changed(self, room_id: str) -> None:
+        """Best-effort, throttled discovery ping so the live rail refreshes
+        listener counts within ~1s of a join/leave.
+
+        The per-room event channel (``room:{id}:events``) already carries
+        ``participant_joined`` / ``participant_left`` for in-room clients, but
+        the discovery panel only subscribes to the discovery channel. Without
+        this ping, card listener counts only refresh on the 30s poll. Coalesced
+        server-side (see ``try_mark_participants_event``) to avoid event storms
+        on churny rooms; never raises — a pubsub hiccup must not fail the
+        join/leave itself.
+        """
+        try:
+            if await self.redis.try_mark_participants_event(room_id):
+                await self.redis.publish_room_discovery_event(
+                    _room_discovery_event(room_id, "participants_changed", "active")
+                )
+        except Exception:  # pragma: no cover — best-effort
+            logger.debug(
+                "participants_changed discovery publish failed for room %s",
+                room_id,
+                exc_info=True,
+            )
 
     async def join_room(self, room_id: str, fid: int) -> JoinResponse:
         """
@@ -1110,6 +2090,17 @@ class RoomService:
           - User is not already an active participant (idempotent re-join returns existing token).
         """
         room = await self._get_room_or_404(room_id)
+
+        # Farcaster-native rooms are media-hosted upstream on
+        # client.farcaster.xyz — there's no Juke LiveKit room to
+        # generate a token for. Clients should branch on
+        # ``room.is_farcaster_native`` and route the user through the
+        # Farcaster client directly. The 400 is defense-in-depth.
+        if room.is_farcaster_native:
+            raise HTTPException(
+                status_code=400,
+                detail="Native rooms join via client.farcaster.xyz directly",
+            )
 
         if room.status != "active":
             raise HTTPException(status_code=400, detail="Room is not active")
@@ -1189,6 +2180,9 @@ class RoomService:
 
         # Update Redis
         await self.redis.set_participant(room_id, fid, participant_data)
+        # A fresh, authorised grant supersedes any earlier kick/demote
+        # marker (see ``livekit_admission_service``).
+        await self.redis.clear_livekit_revocation(room_id, fid)
         await self.redis.set_user_active_room(fid, room_id)
 
         # Generate LiveKit token
@@ -1212,6 +2206,8 @@ class RoomService:
                 "display_name": display_name,
             },
         )
+        # Nudge the live rail so cards reflect the new listener within ~1s.
+        await self._publish_participants_changed(room_id)
 
         participants_data = await self.redis.get_all_participants(room_id)
         host = await self._get_user(room.host_fid)
@@ -1255,6 +2251,9 @@ class RoomService:
             session_id=session_id,
         )
         await self._register_anonymous_listener(room_id, session_id)
+        # Anonymous listeners count toward the listener total on cards — ping
+        # the live rail so the bump shows within ~1s (throttled).
+        await self._publish_participants_changed(room_id)
 
         participants_data = await self.redis.get_all_participants(room_id)
         host = await self._get_user(room.host_fid)
@@ -1305,10 +2304,27 @@ class RoomService:
         # Ban check (agents can be banned by FID like any participant)
         await self._assert_not_banned(room_id, agent_fid)
 
+        # Per-room concurrent agent cap. Limits a partner from spamming
+        # their own room with a swarm of synthetic identities (each holds
+        # data-publish rights and dilutes the participant list). Counts
+        # agents already in Redis with ``is_agent=True``. The idempotent
+        # rejoin path below skips this check by virtue of bailing
+        # earlier on the ``existing`` participant row.
+        existing = await self.redis.get_participant(room_id, agent_fid)
+        if not existing:
+            current_agents = await self._count_agents_in_room(room_id)
+            if current_agents >= settings.MAX_AGENTS_PER_ROOM:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        f"Room is at its agent cap "
+                        f"({settings.MAX_AGENTS_PER_ROOM}). Wait for an "
+                        f"existing agent to leave."
+                    ),
+                )
+
         display_name = agent_name
 
-        # Idempotency: if already in Redis, return a fresh token
-        existing = await self.redis.get_participant(room_id, agent_fid)
         if existing:
             token = self.livekit.generate_token(
                 room_id=room_id,
@@ -1374,6 +2390,9 @@ class RoomService:
 
         # Update Redis
         await self.redis.set_participant(room_id, agent_fid, participant_data)
+        # A fresh, authorised grant supersedes any earlier kick/demote
+        # marker (see ``livekit_admission_service``).
+        await self.redis.clear_livekit_revocation(room_id, agent_fid)
         await self.redis.set_user_active_room(agent_fid, room_id)
 
         # Generate LiveKit token with agent metadata + data publish rights
@@ -1399,6 +2418,8 @@ class RoomService:
                 "is_agent": True,
             },
         )
+        # Nudge the live rail so cards reflect the new participant within ~1s.
+        await self._publish_participants_changed(room_id)
 
         participants_data = await self.redis.get_all_participants(room_id)
         host = await self._get_user(room.host_fid)
@@ -1425,7 +2446,17 @@ class RoomService:
         """
         Leave a room. Marks left_at in DB, removes from Redis, clears user's active room.
         """
-        await self._get_room_or_404(room_id)
+        room = await self._get_room_or_404(room_id)
+
+        # Native rooms never had a Juke join in the first place — see
+        # ``join_room``. Return 400 so a buggy client that forgot to
+        # branch on ``is_farcaster_native`` gets a loud, actionable
+        # error instead of a silent no-op.
+        if room.is_farcaster_native:
+            raise HTTPException(
+                status_code=400,
+                detail="Native rooms leave via client.farcaster.xyz directly",
+            )
 
         # Update DB left_at
         now = _utcnow()
@@ -1466,11 +2497,20 @@ class RoomService:
             )
             await self.db.commit()
 
-            if room.neynar_webhook_id:
-                await self._delete_cast_webhook(room.neynar_webhook_id)
+            if room.cast_hash:
+                self._sync_room_reply_webhook()
 
             await self.redis.clear_room_state(room_id)
+            # Drain the live rail immediately — without this the emptied room
+            # lingers as "Live now" until the next 30s discovery poll.
+            await self.redis.publish_room_discovery_event(
+                _room_discovery_event(room_id, "room_ended", "ended")
+            )
             logger.info("Room %s auto-ended (no participants remaining)", room_id)
+        else:
+            # Room is still live but its listener count dropped — nudge the
+            # live rail so cards reflect the departure within ~1s (throttled).
+            await self._publish_participants_changed(room_id)
 
     async def raise_hand(
         self, room_id: str, fid: int, raised: bool
@@ -1564,6 +2604,9 @@ class RoomService:
         target_participant["role"] = "speaker"
         target_participant["is_muted"] = False
         await self.redis.set_participant(room_id, target_fid, target_participant)
+        # A fresh, authorised grant supersedes any earlier kick/demote
+        # marker (see ``livekit_admission_service``).
+        await self.redis.clear_livekit_revocation(room_id, target_fid)
 
         # Update DB
         await self.db.execute(
@@ -1666,6 +2709,14 @@ class RoomService:
         target_participant["is_muted"] = True
         target_participant["hand_raised"] = False
         await self.redis.set_participant(room_id, target_fid, target_participant)
+        # Cap any stale speaker token if it is replayed after the user's
+        # Redis row is gone (see ``livekit_admission_service``).
+        await self.redis.mark_livekit_revocation(
+            room_id,
+            target_fid,
+            RedisService.LIVEKIT_REVOCATION_LISTENER,
+            LIVEKIT_REVOCATION_TTL_SECONDS,
+        )
 
         # Update DB
         await self.db.execute(
@@ -1900,8 +2951,8 @@ class RoomService:
         )
         await self.db.commit()
 
-        if room.neynar_webhook_id:
-            await self._delete_cast_webhook(room.neynar_webhook_id)
+        if room.cast_hash:
+            self._sync_room_reply_webhook()
 
         try:
             await self.livekit.delete_room(room_id)
@@ -1948,9 +2999,20 @@ class RoomService:
         )
 
     async def list_active_rooms_from_db(self) -> list[RoomResponse]:
-        """Return all active rooms from DB (admin view, no pagination)."""
+        """Return rooms relevant to the admin view (no pagination).
+
+        Includes every ``active`` room PLUS any room still flagged
+        ``recording=True`` regardless of status. The latter surfaces
+        *orphaned recordings* — rooms whose space ended on Farcaster's
+        side (so the reconciler flipped them to ``ended``) but whose
+        recording flag never cleared. Without this, a stuck recording is
+        invisible to the admin Stop button because the room dropped off
+        the active list.
+        """
         result = await self.db.execute(
-            select(Room).where(Room.status == "active").order_by(Room.started_at.desc())
+            select(Room)
+            .where(or_(Room.status == "active", Room.recording.is_(True)))
+            .order_by(Room.started_at.desc())
         )
         rooms = result.scalars().all()
 
@@ -1991,12 +3053,9 @@ class RoomService:
             pfp_url=user.pfp_url,
         )
 
-        # Token TTL is 6 hours (matches LiveKitService.generate_token)
-        expires_at = _utcnow() + timedelta(hours=6)
-
         return TokenRefreshResponse(
             livekit_token=token,
-            expires_at=expires_at.isoformat(),
+            expires_at=_livekit_expires_at(),
         )
 
     # -----------------------------------------------------------------------
@@ -2078,9 +3137,7 @@ class RoomService:
     def _anonymous_listener_key(self, room_id: str) -> str:
         return f"room:{room_id}:anonymous_listeners"
 
-    async def _register_anonymous_listener(
-        self, room_id: str, session_id: str
-    ) -> None:
+    async def _register_anonymous_listener(self, room_id: str, session_id: str) -> None:
         key = self._anonymous_listener_key(room_id)
         now = _utcnow().timestamp()
         cutoff = now - ANONYMOUS_LISTENER_TTL_SECONDS
@@ -2122,6 +3179,14 @@ class RoomService:
             if p.get("fid") is not None
         ]
 
+    async def _count_agents_in_room(self, room_id: str) -> int:
+        """Return the number of agent-flagged participants currently in
+        ``room_id`` according to Redis. Used to enforce
+        ``MAX_AGENTS_PER_ROOM`` against the partner agent-join path.
+        """
+        participants = await self.redis.get_all_participants(room_id)
+        return sum(1 for p in participants if p.get("is_agent"))
+
     async def _count_participants(
         self, room_id: str, participants_data: list[dict]
     ) -> tuple[int, int]:
@@ -2159,7 +3224,8 @@ class RoomService:
             username=host.username or str(host.fid),
             display_name=host.display_name or host.username or str(host.fid),
             pfp_url=host.pfp_url,
-            custody_address=host.custody_address,
+            # Never publish the host's custody address in room payloads (L11a).
+            custody_address=None,
         )
 
         return RoomResponse(
@@ -2177,49 +3243,54 @@ class RoomService:
             cast_hash=room.cast_hash,
             allow_agents=room.allow_agents,
             rsvp_summary=rsvp_summary,
+            farcaster_room_id=room.farcaster_room_id,
+            is_farcaster_native=room.is_farcaster_native,
         )
 
     async def _announce_room(self, room_id: str, title: str, user: User) -> str | None:
         """Post announcement cast to Farcaster. Returns cast_hash or None."""
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    "https://api.neynar.com/v2/farcaster/cast",
-                    json={
-                        "signer_uuid": user.signer_uuid,
-                        "text": f"Live now: {title}\n\nListen on Juke",
-                        "embeds": [{"url": "https://juke.audio"}],
-                    },
-                    headers={"api_key": settings.NEYNAR_API_KEY},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return data.get("cast", {}).get("hash")
-        except Exception as e:
-            logger.warning("Failed to announce room: %s", e)
-            return None
+        return await self._publish_announcement(
+            user,
+            text=f"Live now: {title}\n\nListen on Juke",
+            embed_url=JUKE_HOME_URL,
+            room_id=room_id,
+        )
 
     async def _announce_room_scheduled(
         self, room_id: str, title: str, user: User, scheduled_label: str
     ) -> str | None:
         """Post announcement cast for a scheduled space. Returns cast_hash or None."""
+        return await self._publish_announcement(
+            user,
+            text=(
+                f"Upcoming space: {title}\n\nStarts {scheduled_label}\n\n"
+                "Join on Juke"
+            ),
+            embed_url=SPACE_URL_TEMPLATE.format(room_id=room_id),
+            room_id=room_id,
+        )
+
+    async def _publish_announcement(
+        self, user: User, *, text: str, embed_url: str, room_id: str
+    ) -> str | None:
+        """Best-effort host-signed announcement; never raises.
+
+        A host without an approved signer simply gets no announcement cast.
+        """
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    "https://api.neynar.com/v2/farcaster/cast",
-                    json={
-                        "signer_uuid": user.signer_uuid,
-                        "text": f"Upcoming space: {title}\n\nStarts {scheduled_label}\n\nJoin on Juke",
-                        "embeds": [{"url": f"https://juke.audio/space/{room_id}"}],
-                    },
-                    headers={"api_key": settings.NEYNAR_API_KEY},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return data.get("cast", {}).get("hash")
-        except Exception as e:
-            logger.warning("Failed to announce scheduled room: %s", e)
+            signer = await farcaster_writes.load_user_signer(self.db, user.fid)
+            cast_hash = await farcaster_writes.publish_cast(
+                signer, text=text, embed_urls=[embed_url]
+            )
+        except Exception as exc:  # noqa: BLE001 - announcement is best-effort
+            logger.warning(
+                "Failed to announce room %s: %s", room_id, type(exc).__name__
+            )
             return None
+        await record_cast(
+            self.db, fid=user.fid, cast_hash=cast_hash, source="room_announcement"
+        )
+        return cast_hash
 
     async def _create_system_chat_cast(
         self, room_id: str, title: str, host: User
@@ -2229,83 +3300,37 @@ class RoomService:
             f"Chat for: {title}\n\n"
             f"Hosted by @{host.username or host.fid}. Reply here to chat in Juke."
         )
+        # The host's FID is known, so the mention resolves with no lookup.
+        known = {host.username: host.fid} if host.username else {}
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    "https://api.neynar.com/v2/farcaster/cast",
-                    json={
-                        "signer_uuid": settings.JUKEAUDIO_SIGNER_UUID,
-                        "text": text,
-                        "embeds": [{"url": f"https://juke.audio/space/{room_id}"}],
-                    },
-                    headers={"x-api-key": settings.NEYNAR_API_KEY},
-                    timeout=15.0,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                cast_hash = data.get("cast", {}).get("hash")
-                if not cast_hash:
-                    raise ValueError("Neynar response missing cast hash")
-                return cast_hash
-        except HTTPException:
-            raise
+            signer = farcaster_writes.load_system_signer()
+            return await farcaster_writes.publish_cast(
+                signer,
+                text=text,
+                embed_urls=[SPACE_URL_TEMPLATE.format(room_id=room_id)],
+                resolve_username=farcaster_writes.known_mentions_resolver(known),
+            )
         except Exception as exc:
             logger.warning(
-                "Failed to create system chat cast for room %s: %s", room_id, exc
+                "Failed to create system chat cast for room %s: %s",
+                room_id,
+                type(exc).__name__,
             )
             raise HTTPException(
                 status_code=502,
                 detail="Failed to create chat target",
             ) from exc
 
-    async def _register_cast_webhook(
-        self, room_id: str, cast_hash: str
-    ) -> tuple[str | None, str | None]:
-        """Register a Neynar webhook to listen for replies to the announcement cast.
-        Returns (webhook_id, webhook_secret) or (None, None) on failure."""
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    "https://api.neynar.com/v2/farcaster/webhook",
-                    json={
-                        "name": f"space-replies-{room_id[:8]}",
-                        "url": f"{settings.API_BASE_URL}/v1/webhooks/neynar",
-                        "subscription": {
-                            "cast.created": {
-                                "parent_hashes": [cast_hash],
-                            },
-                        },
-                    },
-                    headers={"x-api-key": settings.NEYNAR_API_KEY},
-                )
-                resp.raise_for_status()
-                webhook = resp.json().get("webhook", {})
-                webhook_id = webhook.get("webhook_id")
-                webhook_secret = webhook.get("secret")
-                logger.info(
-                    "Registered Neynar webhook %s for room %s", webhook_id, room_id
-                )
-                return webhook_id, webhook_secret
-        except Exception as e:
-            logger.warning(
-                "Failed to register Neynar webhook for room %s: %s", room_id, e
-            )
-            return None, None
+    def _sync_room_reply_webhook(self) -> None:
+        """Re-sync the global room-reply webhook's parent_hashes (background).
 
-    async def _delete_cast_webhook(self, webhook_id: str) -> None:
-        """Delete a Neynar webhook. Best-effort; failures are logged."""
+        Called whenever a room with an announcement cast goes live or ends.
+        Best-effort: webhook sync must never fail a room operation.
+        """
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.request(
-                    "DELETE",
-                    "https://api.neynar.com/v2/farcaster/webhook",
-                    json={"webhook_id": webhook_id},
-                    headers={"x-api-key": settings.NEYNAR_API_KEY},
-                )
-                resp.raise_for_status()
-                logger.info("Deleted Neynar webhook %s", webhook_id)
-        except Exception as e:
-            logger.warning("Failed to delete Neynar webhook %s: %s", webhook_id, e)
+            schedule_room_reply_sync(self.redis.redis)
+        except Exception:
+            logger.exception("Failed to schedule room-reply webhook sync")
 
     # -----------------------------------------------------------------------
     # Private helpers
@@ -2368,12 +3393,29 @@ class RoomService:
     ) -> None:
         """
         Shared teardown logic for kick and ban:
-          1. Call LiveKit to disconnect the participant.
-          2. Remove from Redis.
+          1. Record a LiveKit revocation marker and remove from Redis.
+          2. Call LiveKit to disconnect the participant.
           3. Mark left_at in DB.
           4. Clear user's active room.
           5. Publish event.
         """
+        # Record the revocation BEFORE disconnecting so a reconnect racing
+        # the kick with a still-valid join token is rejected by the
+        # ``participant_joined`` webhook.
+        await self.redis.mark_livekit_revocation(
+            room_id,
+            fid,
+            RedisService.LIVEKIT_REVOCATION_REMOVED,
+            LIVEKIT_REVOCATION_TTL_SECONDS,
+        )
+
+        # Redis cleanup — before the LiveKit kick, so a stale-token
+        # reconnect landing mid-teardown finds no participant row and the
+        # admission webhook falls through to the ``removed`` marker.
+        await self.redis.remove_participant(room_id, fid)
+        await self.redis.remove_from_hand_queue(room_id, fid)
+        await self.redis.clear_user_active_room(fid)
+
         # LiveKit removal (best-effort; participant may have already disconnected)
         try:
             await self.livekit.kick_participant(room_id=room_id, identity=str(fid))
@@ -2383,11 +3425,6 @@ class RoomService:
                 fid,
                 room_id,
             )
-
-        # Redis cleanup
-        await self.redis.remove_participant(room_id, fid)
-        await self.redis.remove_from_hand_queue(room_id, fid)
-        await self.redis.clear_user_active_room(fid)
 
         # DB update
         now = _utcnow()

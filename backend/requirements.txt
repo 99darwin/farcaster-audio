@@ -1,4 +1,8 @@
-fastapi>=0.115.0
+# Framework pins are exact: with no lockfile, a floating major (e.g. the
+# starlette 1.3 route-table change that broke CI, PR #278) lands silently
+# on whichever day CI happens to run. Bump these deliberately in a PR.
+fastapi==0.139.0
+starlette==1.3.1
 uvicorn[standard]>=0.30.0
 gunicorn>=22.0.0
 pydantic>=2.0
@@ -6,17 +10,23 @@ pydantic-settings>=2.0
 sqlalchemy[asyncio]>=2.0
 asyncpg>=0.29.0
 alembic>=1.13.0
-redis[hiredis]>=5.0
+redis[hiredis]>=5.0.1
 livekit-api>=0.7.0
 python-jose[cryptography]>=3.3.0
 cryptography>=42.0.0
 httpx>=0.27.0
 boto3>=1.34.0
-pydub>=0.25.1
 python-multipart>=0.0.9
 sentry-sdk[fastapi]>=2.0
 eth-account>=0.13.0
 siwe>=4.4.0
+# abnf 2.5 rejects siwe's grammar (redefines core rule ALPHA) at import time
+abnf>=2.2,<2.5
+# Hypersnap migration: KeyGateway relaying, message hashing, vendored protos
+# (app/clients/proto was generated with protobuf 7.35.1 gencode).
+web3>=7.0.0
+blake3>=1.0.0
+protobuf>=7.35.1,<8
 x402[fastapi,httpx,evm]>=2.6.0
 cdp-sdk>=1.41.0
 # Test-only: in-memory SQLite for service-level cache tests.

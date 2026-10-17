@@ -1,25 +1,34 @@
 """
-Users router — proxies Neynar user profile and follow/unfollow endpoints.
+Users router — profile reads via Hypersnap; follow/unfollow writes as signed
+protocol messages.
 """
 
 import logging
+from contextlib import aclosing
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
-import httpx
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app.clients import hypersnap
 from app.dependencies import (
     get_current_user,
     get_db,
+    get_redis,
     get_spam_service,
     require_non_demo_user,
 )
+from app.models.recording import Recording
 from app.models.room import Room
-from app.routers.feed import _neynar_headers, _raise_upstream_error, _get_signer_uuid
 from app.schemas.room import RecordingListResponse, RecordingResponse
 from app.services.cast_bookmark_service import annotate_bookmarked_casts
+from app.services.farcaster_hydration import (
+    hydrate_user_viewer_context,
+    prepare_cast_payload,
+)
 from app.services.block_service import (
     create_block,
     delete_block,
@@ -27,6 +36,11 @@ from app.services.block_service import (
     get_blocked_fids,
     is_blocked,
     list_blocked_users,
+)
+from app.services.farcaster_writes import (
+    load_user_signer,
+    publish_follow,
+    write_errors_as_http,
 )
 from app.services.spam_service import SpamService
 from app.services.storage_service import StorageService
@@ -36,7 +50,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/users", tags=["users"])
 
-NEYNAR_BASE = "https://api.neynar.com/v2"
+# Upstream pages read per request to fill a page of top-level casts.
+USER_CASTS_MAX_PAGES = 4
 
 
 class BlockRequest(BaseModel):
@@ -50,35 +65,27 @@ async def search_users(
     _current_user: int = Depends(get_current_user),
     spam_service: SpamService = Depends(get_spam_service),
 ):
-    """Search for users by username prefix via Neynar."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{NEYNAR_BASE}/farcaster/user/search",
-            params={"q": q, "limit": limit, "viewer_fid": _current_user},
-            headers=_neynar_headers(),
-            timeout=10.0,
-        )
+    """Search for users by username prefix via Hypersnap."""
+    try:
+        data = await hypersnap.get("/user/search", {"q": q, "limit": limit})
+    except hypersnap.HypersnapError as exc:
+        hypersnap.raise_for_upstream(exc, context="users")
 
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
-
-    data = resp.json()
-    users = data.get("result", {}).get("users", [])
-    # Pass neynar_user_score through so annotate_users can use it for fresh FIDs
+    # Hypersnap returns ``users`` at the top level; Neynar nested it under
+    # ``result``. Accept both.
+    users = data.get("users") or (data.get("result") or {}).get("users", [])
+    # Score the full user objects (follower count, age, ...) for fresh FIDs
+    await spam_service.annotate_users(users)
     user_list = [
         {
             "fid": u.get("fid"),
             "username": u.get("username"),
             "display_name": u.get("display_name"),
             "pfp_url": u.get("pfp_url"),
-            "experimental": u.get("experimental"),
+            "is_spam": u.get("is_spam", False),
         }
         for u in users
     ]
-    await spam_service.annotate_users(user_list)
-    # Strip internal experimental data before returning to client
-    for u in user_list:
-        u.pop("experimental", None)
     return {"users": user_list}
 
 
@@ -87,19 +94,16 @@ async def get_user_by_username(
     username: str = Path(..., min_length=1, max_length=64),
     _current_user: int = Depends(get_current_user),
 ):
-    """Look up a user by username via Neynar."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{NEYNAR_BASE}/farcaster/user/by_username",
-            params={"username": username, "viewer_fid": _current_user},
-            headers=_neynar_headers(),
-            timeout=15.0,
-        )
+    """Look up a user by username via Hypersnap, with viewer follow state."""
+    try:
+        data = await hypersnap.get("/user/by-username", {"username": username})
+    except hypersnap.HypersnapError as exc:
+        hypersnap.raise_for_upstream(exc, context="users")
 
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
-
-    return resp.json()
+    user = data.get("user")
+    if isinstance(user, dict):
+        await hydrate_user_viewer_context(user, _current_user)
+    return data
 
 
 @router.get("/blocked")
@@ -145,24 +149,17 @@ async def get_user(
     current_user: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch a user profile by FID via Neynar, with viewer context."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{NEYNAR_BASE}/farcaster/user/bulk",
-            params={"fids": str(fid), "viewer_fid": current_user},
-            headers=_neynar_headers(),
-            timeout=15.0,
-        )
+    """Fetch a user profile by FID via Hypersnap, with viewer context."""
+    try:
+        data = await hypersnap.get("/user/bulk", {"fids": str(fid)})
+    except hypersnap.HypersnapError as exc:
+        hypersnap.raise_for_upstream(exc, context="users")
 
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
-
-    data = resp.json()
     users = data.get("users", [])
     if not users:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user = users[0]
+    user = await hydrate_user_viewer_context(users[0], current_user)
     viewer_context = {
         **(user.get("viewer_context") or {}),
         "blocked": await is_blocked(db, blocker_fid=current_user, blocked_fid=fid),
@@ -176,30 +173,51 @@ async def get_user_casts(
     fid: int = Path(..., ge=1),
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None),
+    include_replies: bool = Query(default=False),
     current_user: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
-    """Fetch a user's casts via Neynar."""
-    params: dict[str, str | int] = {
+    """Fetch a user's casts via Hypersnap.
+
+    Set ``include_replies=true`` to include the user's reply casts. The
+    param is forwarded, but Hypersnap currently returns replies regardless,
+    so replies are dropped locally when it is false. To keep pages full,
+    further upstream pages (up to ``USER_CASTS_MAX_PAGES``) are read until
+    ``limit`` top-level casts are collected; every consumed page is returned
+    whole, so a page can hold slightly more than ``limit`` casts.
+    """
+    params: dict[str, str | int | None] = {
         "fid": fid,
         "limit": limit,
-        "viewer_fid": current_user,
+        "cursor": cursor,
+        "include_replies": str(include_replies).lower(),
     }
-    if cursor:
-        params["cursor"] = cursor
+    casts: list[dict] = []
+    next_cursor: str | None = None
+    try:
+        async with aclosing(
+            hypersnap.paginate(
+                "/feed/user/casts", params, max_pages=USER_CASTS_MAX_PAGES
+            )
+        ) as pages:
+            async for page in pages:
+                casts.extend(
+                    cast
+                    for cast in page.get("casts") or []
+                    if include_replies or not cast.get("parent_hash")
+                )
+                next_cursor = (page.get("next") or {}).get("cursor") or None
+                if len(casts) >= limit:
+                    break
+    except hypersnap.HypersnapError as exc:
+        if not casts:
+            hypersnap.raise_for_upstream(exc, context="users")
+        # Keep what earlier pages gave; ``next_cursor`` resumes after them.
+        logger.warning("[users] user casts page fill stopped early: %s", exc)
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{NEYNAR_BASE}/farcaster/feed/user/casts",
-            params=params,
-            headers=_neynar_headers(),
-            timeout=15.0,
-        )
-
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
-
-    data = resp.json()
+    data = {"casts": casts, "next": {"cursor": next_cursor}}
+    await prepare_cast_payload(data, current_user, redis=redis)
     blocked_fids = await get_blocked_fids(db, current_user)
     data["casts"] = filter_casts(data.get("casts", []), blocked_fids)
     await annotate_bookmarked_casts(db, current_user, data)
@@ -212,24 +230,8 @@ async def follow_user(
     current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Follow a user via Neynar."""
-    signer_uuid = await _get_signer_uuid(db, current_user)
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{NEYNAR_BASE}/farcaster/user/follow",
-            json={
-                "signer_uuid": signer_uuid,
-                "target_fids": [fid],
-            },
-            headers=_neynar_headers(),
-            timeout=15.0,
-        )
-
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
-
-    return resp.json()
+    """Follow a user (``LinkAdd``), signed with the caller's app signer."""
+    return await _publish_follow(db, current_user, fid, action="add")
 
 
 @router.delete("/{fid}/follow")
@@ -238,25 +240,23 @@ async def unfollow_user(
     current_user: int = Depends(require_non_demo_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Unfollow a user via Neynar."""
-    signer_uuid = await _get_signer_uuid(db, current_user)
+    """Unfollow a user (``LinkRemove``), signed with the caller's app signer."""
+    return await _publish_follow(db, current_user, fid, action="remove")
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.request(
-            "DELETE",
-            f"{NEYNAR_BASE}/farcaster/user/follow",
-            json={
-                "signer_uuid": signer_uuid,
-                "target_fids": [fid],
-            },
-            headers=_neynar_headers(),
-            timeout=15.0,
+
+async def _publish_follow(
+    db: AsyncSession,
+    current_user: int,
+    target_fid: int,
+    *,
+    action: Literal["add", "remove"],
+) -> dict:
+    with write_errors_as_http("users"):
+        signer = await load_user_signer(db, current_user)
+        message_hash = await publish_follow(
+            signer, action=action, target_fid=target_fid
         )
-
-    if resp.status_code != 200:
-        _raise_upstream_error(resp)
-
-    return resp.json()
+    return {"success": True, "hash": message_hash}
 
 
 # ---------------------------------------------------------------------------
@@ -300,30 +300,30 @@ async def list_user_recordings(
     #     a no-op today but keeps the endpoint safe if "deleted" is added.
     #   - TODO: if Room ever grows an is_private / unlisted column, filter it
     #     out here too.
+    # Source from the recordings table so the per-user list reflects
+    # multiple segments per space, sorted by segment start.
     query = (
-        select(Room)
+        select(Recording, Room)
+        .join(Room, Room.id == Recording.room_id)
         .where(
             Room.host_fid == fid,
-            Room.recording_url.is_not(None),
-            Room.recording_url != "",
             Room.status != "deleted",
-            Room.started_at >= cutoff,
+            Recording.started_at >= cutoff,
         )
-        .order_by(Room.started_at.desc())
+        .order_by(Recording.started_at.desc())
         .offset(cursor)
         .limit(limit + 1)
     )
     result = await db.execute(query)
-    rows = list(result.scalars().all())
+    rows = list(result.all())
 
     has_more = len(rows) > limit
     page = rows[:limit]
 
-    # For rows with a stored key, mint a short-lived (15 min) presigned GET
-    # so leaked URLs can't be replayed and the bucket can stay private. For
-    # legacy rows that only have ``recording_url`` we fall through to it —
-    # those URLs were already public-readable, so the short-lived presign
-    # would be a regression, not an improvement.
+    # For rows with a stored key, mint a short-lived (15 min) presigned
+    # GET so leaked URLs can't be replayed and the bucket can stay
+    # private. For legacy rows that only have ``recording_url`` we fall
+    # through to it.
     storage: StorageService | None = None
 
     def _get_storage() -> StorageService:
@@ -335,41 +335,33 @@ async def list_user_recordings(
     PRESIGN_TTL_SECONDS = 15 * 60
 
     recordings: list[RecordingResponse] = []
-    for room in page:
-        duration_seconds: int | None = None
-        if room.ended_at and room.started_at:
-            duration_seconds = max(
-                0, int((room.ended_at - room.started_at).total_seconds())
-            )
-
-        # Prefer presigned URL from stored key. If presigning fails, log and
-        # return an empty string so clients see "no URL yet" rather than a
-        # broken link.
+    for rec, room in page:
         url = ""
-        if room.recording_key:
+        if rec.s3_key:
             try:
                 url = _get_storage().generate_presigned_get_url(
-                    room.recording_key, expires_in=PRESIGN_TTL_SECONDS
+                    rec.s3_key, expires_in=PRESIGN_TTL_SECONDS
                 )
             except Exception:
                 logger.exception(
-                    "Failed to presign recording for room=%s key=%s",
-                    room.id,
-                    room.recording_key,
+                    "Failed to presign recording_id=%s key=%s",
+                    rec.id,
+                    rec.s3_key,
                 )
                 url = ""
-        elif room.recording_url:
-            # Legacy row — no key stored. Fall back to the persisted URL.
-            url = room.recording_url
-
+        elif rec.recording_url:
+            url = rec.recording_url
+        if not url:
+            continue
         recordings.append(
             RecordingResponse(
+                id=str(rec.id),
                 room_id=str(room.id),
                 title=room.title,
                 recording_url=url,
-                started_at=room.started_at.isoformat() if room.started_at else "",
-                ended_at=room.ended_at.isoformat() if room.ended_at else None,
-                duration_seconds=duration_seconds,
+                started_at=rec.started_at.isoformat() if rec.started_at else "",
+                ended_at=rec.ended_at.isoformat() if rec.ended_at else None,
+                duration_seconds=rec.duration_seconds,
                 cast_hash=room.cast_hash,
             )
         )

@@ -1,9 +1,11 @@
 """Tests for the local DB-backed snap signer status cache.
 
 These tests pin down the contract that:
-- Terminal statuses (`approved`, `revoked`) never trigger a Neynar call.
-- Pending statuses trigger at most one Neynar call per 30s window.
-- A first-time request (no row) triggers exactly one Neynar call and persists.
+- `revoked` is truly terminal — never triggers a Hypersnap call.
+- `approved` is reconciled at most once per 24h — fresh rows skip Hypersnap,
+  stale rows refresh (catches on-chain revocations that bypass our flow).
+- `pending_approval` triggers at most one Hypersnap call per 30s window.
+- A first-time request (no row) triggers exactly one Hypersnap call and persists.
 - Invalidate marks the row revoked and subsequent reads stay local.
 - The router authorization boundary still rejects callers who don't own
   the public key.
@@ -60,7 +62,7 @@ async def db_session():
 
 @pytest.mark.asyncio
 async def test_first_time_call_persists_row(db_session):
-    """Missing row → exactly one Neynar call → row persisted."""
+    """Missing row → exactly one Hypersnap call → row persisted."""
     with patch(
         "app.services.snap_signer_service.check_ed25519_signer_status",
         new_callable=AsyncMock,
@@ -86,8 +88,8 @@ async def test_first_time_call_persists_row(db_session):
 
 
 @pytest.mark.asyncio
-async def test_approved_row_skips_neynar(db_session):
-    """A row that's already `approved` must NOT trigger a Neynar call."""
+async def test_fresh_approved_row_skips_neynar(db_session):
+    """A FRESH `approved` row (within the 24h window) must NOT call Hypersnap."""
     now = datetime.now(timezone.utc)
     db_session.add(
         SnapSigner(
@@ -112,6 +114,44 @@ async def test_approved_row_skips_neynar(db_session):
     mock_check.assert_not_called()
     assert result["status"] == "approved"
     assert result["fid"] == OWNER_FID
+
+
+@pytest.mark.asyncio
+async def test_stale_approved_row_reconciles_with_hypersnap(db_session):
+    """A STALE `approved` row (>24h old) re-checks Hypersnap so on-chain
+    revocations that bypass our invalidate flow eventually surface."""
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        SnapSigner(
+            public_key=PUBLIC_KEY,
+            fid=OWNER_FID,
+            status="approved",
+            registered_at=now - timedelta(days=2),
+            last_checked_at=now - timedelta(hours=25),
+            approved_at=now - timedelta(days=2),
+        )
+    )
+    await db_session.commit()
+
+    with patch(
+        "app.services.snap_signer_service.check_ed25519_signer_status",
+        new_callable=AsyncMock,
+        return_value={
+            "public_key": PUBLIC_KEY,
+            "status": "pending_approval",
+            "fid": OWNER_FID,
+        },
+    ) as mock_check:
+        result = await snap_signer_service.get_signer_status_cached(
+            db_session, PUBLIC_KEY
+        )
+
+    assert mock_check.await_count == 1
+    # An approved key no longer listed on-chain was removed: terminal
+    # revoked, surfaced to the caller and persisted to the row.
+    assert result["status"] == "revoked"
+    row = await db_session.get(SnapSigner, PUBLIC_KEY)
+    assert row.status == "revoked"
 
 
 @pytest.mark.asyncio
@@ -140,7 +180,7 @@ async def test_pending_throttles_to_one_call_per_window(db_session):
             "fid": OWNER_FID,
         },
     ) as mock_check:
-        # First call: stale → refreshes (1 Neynar call).
+        # First call: stale → refreshes (1 Hypersnap call).
         await snap_signer_service.get_signer_status_cached(db_session, PUBLIC_KEY)
         # Second call within the 30s window: must hit DB only.
         await snap_signer_service.get_signer_status_cached(db_session, PUBLIC_KEY)
@@ -193,14 +233,27 @@ def _auth_header(fid: int) -> dict:
     token = jwt.encode(
         {
             "fid": fid,
-            "exp": int(
-                (datetime.now(timezone.utc) + _td(hours=24)).timestamp()
-            ),
+            "exp": int((datetime.now(timezone.utc) + _td(hours=24)).timestamp()),
         },
         settings.JWT_SECRET,
         algorithm=settings.JWT_ALGORITHM,
     )
     return {"Authorization": f"Bearer {token}"}
+
+
+async def _seed_row(db_session, fid: int, status: str = "pending_approval"):
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        SnapSigner(
+            public_key=PUBLIC_KEY,
+            fid=fid,
+            status=status,
+            registered_at=now,
+            last_checked_at=now,
+            approved_at=now if status == "approved" else None,
+        )
+    )
+    await db_session.commit()
 
 
 @pytest.fixture
@@ -230,11 +283,12 @@ async def client_with_db(db_session):
 
 
 @pytest.mark.asyncio
-async def test_signer_status_returns_403_for_non_owner(client_with_db):
+async def test_signer_status_returns_403_for_non_owner(client_with_db, db_session):
     """Caller fid != stored owner returns 403 from /signer-status."""
     ac, mock_redis = client_with_db
-    # Owner is OWNER_FID; caller will authenticate as OTHER_FID.
-    mock_redis.get = AsyncMock(return_value=str(OWNER_FID).encode())
+    await _seed_row(db_session, OWNER_FID)
+    # A stale Redis claim naming the caller must not grant access.
+    mock_redis.get = AsyncMock(return_value=str(OTHER_FID).encode())
 
     response = await ac.get(
         "/v1/snaps/signer-status",
@@ -265,8 +319,9 @@ async def test_signer_invalidate_marks_revoked_and_blocks_non_owner(
     )
     await db_session.commit()
 
-    # Non-owner first: redis says owner is OWNER_FID; caller is OTHER_FID.
-    mock_redis.get = AsyncMock(return_value=str(OWNER_FID).encode())
+    # Non-owner first: the row belongs to OWNER_FID; caller is OTHER_FID.
+    # A Redis value naming the caller is ignored (ownership is the DB row).
+    mock_redis.get = AsyncMock(return_value=str(OTHER_FID).encode())
     # Pipeline mock for the rate-limit incr.
     pipe = AsyncMock()
     pipe.__aenter__ = AsyncMock(return_value=pipe)
@@ -291,7 +346,7 @@ async def test_signer_invalidate_marks_revoked_and_blocks_non_owner(
     )
     assert good.status_code == 204
 
-    # Subsequent read returns revoked WITHOUT a Neynar call.
+    # Subsequent read returns revoked WITHOUT a Hypersnap call.
     with patch(
         "app.services.snap_signer_service.check_ed25519_signer_status",
         new_callable=AsyncMock,

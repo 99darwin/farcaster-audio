@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, Pressable, Linking } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
 import { useMiniAppStore } from "@/stores/miniappStore";
@@ -10,8 +10,12 @@ import type { SnapResponse } from "@/types/snap";
 import type { VoiceNoteDetail } from "@/types/voiceNote";
 import { SnapCard } from "@/components/feed/snap/SnapCard";
 import { VoiceNotePlayer } from "@/components/voice-notes/VoiceNotePlayer";
-import type { NeynarEmbed } from "@/types/neynar";
+import { FarcasterSpaceEmbedCard } from "@/components/feed/FarcasterSpaceEmbedCard";
+import { parseFarcasterSpaceUrl } from "@/services/parseSpaceUrl";
+import type { FarcasterEmbed } from "@/types/farcaster";
 import type { CastEmbedLocationContext } from "@/types/miniapp";
+import { openSafeExternalUrl } from "@/utils/externalLinks";
+import { isValidMiniAppUrl } from "@/utils/url";
 
 const MINIAPP_URL_PREFIXES = [
   "https://warpcast.com/~/mini-app/",
@@ -20,8 +24,10 @@ const MINIAPP_URL_PREFIXES = [
   "https://farcaster.xyz/~/mini-app/",
 ];
 
-/** Get frame metadata — Neynar uses both `fc_frame` and `frame` keys */
-function getFrameMeta(embed: NeynarEmbed): Record<string, unknown> | undefined {
+/** Get frame metadata — the API uses both `fc_frame` and `frame` keys */
+function getFrameMeta(
+  embed: FarcasterEmbed,
+): Record<string, unknown> | undefined {
   return embed.metadata?.fc_frame ?? (embed.metadata as any)?.frame;
 }
 
@@ -29,13 +35,13 @@ function isIntermediaryMiniAppUrl(url: string): boolean {
   return MINIAPP_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
 }
 
-function isMiniApp(embed: NeynarEmbed): boolean {
+function isMiniApp(embed: FarcasterEmbed): boolean {
   if (getFrameMeta(embed)) return true;
   const url = embed.url ?? "";
   return isIntermediaryMiniAppUrl(url);
 }
 
-function getMiniAppUrl(embed: NeynarEmbed): string {
+function getMiniAppUrl(embed: FarcasterEmbed): string {
   const frame = getFrameMeta(embed);
   if (!frame) return embed.url ?? "";
 
@@ -47,7 +53,7 @@ function getMiniAppUrl(embed: NeynarEmbed): string {
     return button.action.url;
   }
 
-  // Neynar may also use `buttons` array
+  // The API may also use `buttons` array
   const buttons = frame.buttons as
     | Array<{ action_type?: string; target?: string }>
     | undefined;
@@ -56,7 +62,7 @@ function getMiniAppUrl(embed: NeynarEmbed): string {
     if (launchButton?.target) return launchButton.target;
   }
 
-  // Miniapp manifest fields that Neynar may inline
+  // Miniapp manifest fields that the API may inline
   if (typeof frame.homeUrl === "string" && frame.homeUrl) {
     return frame.homeUrl;
   }
@@ -75,7 +81,7 @@ function getMiniAppUrl(embed: NeynarEmbed): string {
 }
 
 /** Extract a domain hint from frame metadata (image URL, splash URL, etc.) */
-function getFrameDomainHint(embed: NeynarEmbed): string | undefined {
+function getFrameDomainHint(embed: FarcasterEmbed): string | undefined {
   const frame = getFrameMeta(embed);
   if (!frame) return undefined;
 
@@ -109,18 +115,18 @@ function getFrameDomainHint(embed: NeynarEmbed): string | undefined {
   return undefined;
 }
 
-function getOgImage(embed: NeynarEmbed): string | undefined {
+function getOgImage(embed: FarcasterEmbed): string | undefined {
   const frame = getFrameMeta(embed);
   const frameImage = frame?.image_url as string | undefined;
   if (frameImage) return frameImage;
   return embed.metadata?.html?.ogImage?.[0]?.url;
 }
 
-function getOgTitle(embed: NeynarEmbed): string | undefined {
+function getOgTitle(embed: FarcasterEmbed): string | undefined {
   return embed.metadata?.html?.ogTitle;
 }
 
-function getOgDescription(embed: NeynarEmbed): string | undefined {
+function getOgDescription(embed: FarcasterEmbed): string | undefined {
   return embed.metadata?.html?.ogDescription;
 }
 
@@ -146,7 +152,7 @@ function isTwitterUrl(url: string): boolean {
   return domain === "x.com" || domain === "twitter.com";
 }
 
-function getTwitterInfo(embed: NeynarEmbed): {
+function getTwitterInfo(embed: FarcasterEmbed): {
   author?: string;
   text?: string;
 } {
@@ -176,7 +182,7 @@ function getTwitterInfo(embed: NeynarEmbed): {
 }
 
 interface OgPreviewProps {
-  embed: NeynarEmbed;
+  embed: FarcasterEmbed;
   /** Cast context for miniapp location — pass hash + author for cast_embed context */
   castContext?: {
     hash: string;
@@ -190,6 +196,14 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
   const styles = useStyles();
   const url = embed.url;
   const openMiniApp = useMiniAppStore((s) => s.openMiniApp);
+
+  // Detect Farcaster-native audio space embeds. The strict UUID gate in
+  // `parseFarcasterSpaceUrl` keeps arbitrary embed URLs out of the
+  // in-Juke navigation path. When the embed card's lookup turns up
+  // nothing (no room, no bearer, network failure) it signals back and
+  // we render the generic OG preview below as a graceful fallback.
+  const farcasterSpace = url ? parseFarcasterSpaceUrl(url) : null;
+  const [farcasterSpaceFallback, setFarcasterSpaceFallback] = useState(false);
 
   // Detect our own voice note embeds and render natively
   const voiceNoteId = url ? getJukeVoiceNoteId(url) : null;
@@ -208,19 +222,12 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
     };
   }, [voiceNoteId]);
 
-  if (voiceNoteId && vnDetail) {
-    return (
-      <View style={styles.voiceNoteEmbed}>
-        <VoiceNotePlayer voiceNote={vnDetail.voice_note} variant="compact" />
-      </View>
-    );
-  }
-
-  // If it's a Juke URL but still loading, show nothing (avoid miniapp card flash)
-  if (voiceNoteId) return null;
-
   // Snap detection: only for non-mini-app URLs with no existing frame metadata.
   // Seed from the session cache so scrolled-back-into-view cards render instantly.
+  // NOTE: these hooks MUST stay above all conditional returns below —
+  // otherwise the FarcasterSpaceEmbedCard fallback path (which mutates
+  // state mid-render via onFallback) will change the hook count between
+  // renders and trip React's rules-of-hooks check.
   const canDetectSnap = !!url && !getFrameMeta(embed) && !isMiniApp(embed);
   const [snap, setSnap] = useState<SnapResponse | null>(() =>
     canDetectSnap && url ? getCachedSnap(url) : null,
@@ -236,6 +243,30 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
       cancelled = true;
     };
   }, [canDetectSnap, url, snap]);
+
+  if (voiceNoteId && vnDetail) {
+    return (
+      <View style={styles.voiceNoteEmbed}>
+        <VoiceNotePlayer voiceNote={vnDetail.voice_note} variant="compact" />
+      </View>
+    );
+  }
+
+  // If it's a Juke URL but still loading, show nothing (avoid miniapp card flash)
+  if (voiceNoteId) return null;
+
+  // Farcaster-native audio space embed. The card resolves the room
+  // snapshot on mount; if that resolution fails it triggers
+  // `onFallback`, which flips `farcasterSpaceFallback` and lets the
+  // generic OG card render instead on the next pass.
+  if (farcasterSpace && !farcasterSpaceFallback) {
+    return (
+      <FarcasterSpaceEmbedCard
+        spaceId={farcasterSpace.id}
+        onFallback={() => setFarcasterSpaceFallback(true)}
+      />
+    );
+  }
 
   if (!url) return null;
 
@@ -261,13 +292,14 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
   const handlePress = async () => {
     if (miniApp) {
       const miniAppUrl = getMiniAppUrl(embed);
+      // Embed metadata is author-controlled; refuse anything that is not a
+      // public https URL before resolving it or handing it to the OS.
+      if (!isValidMiniAppUrl(miniAppUrl)) return;
       try {
         const domainHint = getFrameDomainHint(embed);
         const resolved = await resolveMiniApp(miniAppUrl, domainHint);
         // Guard against invalid resolved URLs (e.g. about:blank from bad manifests)
-        if (!resolved.launchUrl || !resolved.launchUrl.startsWith("https://")) {
-          return;
-        }
+        if (!isValidMiniAppUrl(resolved.launchUrl)) return;
         const location: CastEmbedLocationContext | undefined = castContext
           ? {
               type: "cast_embed",
@@ -291,10 +323,10 @@ export function OgPreview({ embed, castContext }: OgPreviewProps) {
         });
       } catch {
         // Fallback to external URL if resolution fails
-        Linking.openURL(miniAppUrl);
+        await openSafeExternalUrl(miniAppUrl);
       }
     } else {
-      Linking.openURL(url);
+      await openSafeExternalUrl(url);
     }
   };
 

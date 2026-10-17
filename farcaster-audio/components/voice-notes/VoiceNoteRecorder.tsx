@@ -6,13 +6,13 @@ import {
   TextInput,
   Switch,
   Modal,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
   Animated,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useVoiceNoteRecorder } from "@/hooks/useVoiceNoteRecorder";
 import { useVoiceNoteStore } from "@/stores/voiceNoteStore";

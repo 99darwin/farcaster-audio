@@ -1,8 +1,8 @@
 """Local source-of-truth for Farcaster auth addresses (secp256k1).
 
 Mirrors `snap_signers`, but keyed by the 0x-prefixed Ethereum address
-used as a Farcaster auth address. Same lifecycle: pending -> approved
-(one-way) or pending -> revoked.
+used as a Farcaster auth address (KeyRegistry keyType 2). Same lifecycle:
+pending -> approved (one-way) or pending -> revoked.
 """
 
 from datetime import datetime
@@ -29,3 +29,5 @@ class AuthAddress(Base):
     last_checked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Optimism tx hash of the ``KeyGateway.addFor`` that added this address.
+    add_tx_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)

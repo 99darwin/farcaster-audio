@@ -3,13 +3,18 @@ import Link from "next/link";
 import { JukeSpaceEmbed } from "@/components/juke-space-embed";
 import { getSpaceDetail } from "@/lib/spaces";
 
+// Never put the embed URL (which may still carry a deprecated `?token=`
+// partner JWT before the client strips it) in a Referer header.
+const EMBED_REFERRER_POLICY = "strict-origin";
+
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 export async function generateMetadata({
   params,
-}: PageProps): Promise<Metadata> {
+}: Pick<PageProps, "params">): Promise<Metadata> {
   const { id } = await params;
   const data = await getSpaceDetail(id);
 
@@ -17,6 +22,7 @@ export async function generateMetadata({
     return {
       title: "Juke Space",
       description: "Listen to a live Juke space.",
+      referrer: EMBED_REFERRER_POLICY,
     };
   }
 
@@ -24,11 +30,29 @@ export async function generateMetadata({
     title: `${data.room.title} - Juke Embed`,
     description: `Hosted by ${data.room.host.display_name}. Listen live on Juke.`,
     robots: { index: false, follow: true },
+    referrer: EMBED_REFERRER_POLICY,
   };
 }
 
-export default async function EmbedSpacePage({ params }: PageProps) {
+export default async function EmbedSpacePage({
+  params,
+  searchParams,
+}: PageProps) {
   const { id } = await params;
+  const search = await searchParams;
+  const audioParam = Array.isArray(search.audio) ? search.audio[0] : search.audio;
+  const audioMode: "on" | "off" = audioParam === "off" ? "off" : "on";
+  // Partner SSO bridge: a developer app may pre-mint a short-lived Juke
+  // JWT via POST /v1/developer/partner-tokens and pass it on the embed
+  // URL — recommended as `#token=` (read client-side, never sent here);
+  // the `?token=` query read below is deprecated but still honored. The
+  // embed adopts the session client-side and skips sign-in. The backend
+  // re-verifies the JWT on every authed call, so a malformed/expired
+  // token still fails safely at join time.
+  const tokenParam = Array.isArray(search.token) ? search.token[0] : search.token;
+  const partnerToken = typeof tokenParam === "string" && tokenParam.length > 0
+    ? tokenParam
+    : undefined;
   const detail = await getSpaceDetail(id);
 
   if (!detail) {
@@ -57,5 +81,12 @@ export default async function EmbedSpacePage({ params }: PageProps) {
     );
   }
 
-  return <JukeSpaceEmbed spaceId={id} initialData={detail} />;
+  return (
+    <JukeSpaceEmbed
+      spaceId={id}
+      initialData={detail}
+      audioMode={audioMode}
+      partnerToken={partnerToken}
+    />
+  );
 }

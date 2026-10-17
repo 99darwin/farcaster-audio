@@ -53,6 +53,36 @@ class RedisService:
         participants = await self.get_all_participants(room_id)
         return sum(1 for p in participants if p.get("role") == "listener")
 
+    # --- LiveKit grant revocations ---
+    #
+    # Kick/ban/demote only change the *live* LiveKit connection. A
+    # previously issued join token stays valid until it expires, so we
+    # record the revocation for (at least) the token lifetime and the
+    # ``participant_joined`` webhook enforces it if the stale token is
+    # replayed after the user's Redis participant row is gone.
+
+    LIVEKIT_REVOCATION_REMOVED = "removed"
+    LIVEKIT_REVOCATION_LISTENER = "listener"
+
+    def livekit_revocation_key(self, room_id: str, fid: int) -> str:
+        return f"room:{room_id}:lk_revoked:{fid}"
+
+    async def mark_livekit_revocation(
+        self, room_id: str, fid: int, kind: str, ttl_seconds: int
+    ) -> None:
+        await self.redis.set(
+            self.livekit_revocation_key(room_id, fid), kind, ex=ttl_seconds
+        )
+
+    async def clear_livekit_revocation(self, room_id: str, fid: int) -> None:
+        await self.redis.delete(self.livekit_revocation_key(room_id, fid))
+
+    async def get_livekit_revocation(self, room_id: str, fid: int) -> str | None:
+        value = await self.redis.get(self.livekit_revocation_key(room_id, fid))
+        if isinstance(value, bytes):
+            value = value.decode()
+        return value if isinstance(value, str) else None
+
     def anonymous_listener_key(self, room_id: str) -> str:
         return f"room:{room_id}:anonymous_listeners"
 
@@ -141,6 +171,24 @@ class RedisService:
     async def publish_room_discovery_event(self, event: dict[str, Any]) -> None:
         await self.redis.publish(self.ROOM_DISCOVERY_CHANNEL, json.dumps(event))
 
+    PARTICIPANTS_EVENT_THROTTLE_SECONDS = 2
+
+    async def try_mark_participants_event(
+        self, room_id: str, window_seconds: int = PARTICIPANTS_EVENT_THROTTLE_SECONDS
+    ) -> bool:
+        """Leading-edge throttle for participant-change discovery pings.
+
+        Returns ``True`` at most once per ``window_seconds`` per room — the
+        caller should publish a ``participants_changed`` discovery event only
+        when this returns ``True``. Subsequent calls within the window return
+        ``False`` so a burst of joins/leaves on a busy room coalesces into a
+        single discovery event instead of a storm. The 30s discovery poll is
+        the backstop for changes that land inside a throttle window.
+        """
+        key = f"room:{room_id}:pc_ping"
+        was_set = await self.redis.set(key, "1", nx=True, ex=window_seconds)
+        return bool(was_set)
+
     # --- Recent SIWN Step-Up ---
     #
     # Set a short-lived marker after a successful SIWN login so dangerous
@@ -173,11 +221,28 @@ class RedisService:
     async def check_rate_limit(
         self, key: str, limit: int, window_seconds: int
     ) -> tuple[bool, int]:
-        """Atomically increment a counter and return (allowed, retry_after_seconds).
+        """Backwards-compatible 2-tuple wrapper around ``check_rate_limit_status``.
 
-        Returns `(True, 0)` if the request is within `limit` for the window,
-        otherwise `(False, retry_after)` where retry_after is the remaining TTL
-        of the window in seconds (always >= 1).
+        Returns ``(allowed, retry_after_seconds)``. New callers that want
+        ``remaining`` / ``reset_in_seconds`` for response headers should use
+        ``check_rate_limit_status`` directly.
+        """
+        status = await self.check_rate_limit_status(key, limit, window_seconds)
+        return status[0], status[1]
+
+    async def check_rate_limit_status(
+        self, key: str, limit: int, window_seconds: int
+    ) -> tuple[bool, int, int, int]:
+        """Atomic increment + return full bucket state.
+
+        Returns ``(allowed, retry_after_seconds, remaining, reset_in_seconds)``.
+
+        - ``allowed``: True if the request is within ``limit`` for the window
+        - ``retry_after_seconds``: ≥1 when blocked, 0 when allowed
+        - ``remaining``: how many further calls fit in the current window
+          (clamped to ≥0)
+        - ``reset_in_seconds``: TTL on the bucket key — when the counter
+          resets to 0
         """
         pipe = self.redis.pipeline()
         pipe.incr(key)
@@ -188,16 +253,18 @@ class RedisService:
         except (TypeError, ValueError):
             # In tests where Redis is mocked, a non-int response means the
             # rate limiter isn't actually wired up — fail open.
-            return True, 0
-        if attempts <= limit:
-            return True, 0
+            return True, 0, limit, window_seconds
         ttl = await self.redis.ttl(key)
         try:
             ttl_int = int(ttl)
         except (TypeError, ValueError):
             ttl_int = window_seconds
-        retry_after = max(1, ttl_int if ttl_int > 0 else window_seconds)
-        return False, retry_after
+        reset_in_seconds = ttl_int if ttl_int > 0 else window_seconds
+        remaining = max(0, limit - attempts)
+        if attempts <= limit:
+            return True, 0, remaining, reset_in_seconds
+        retry_after = max(1, reset_in_seconds)
+        return False, retry_after, 0, reset_in_seconds
 
     # --- Cleanup ---
 

@@ -32,7 +32,7 @@ import { FeedList } from "@/components/feed/FeedList";
 import { ComposeModal } from "@/components/feed/ComposeModal";
 import { CastCard } from "@/components/feed/CastCard";
 import { spacing, typography } from "@/constants/theme";
-import type { NeynarCast } from "@/types/neynar";
+import type { FarcasterCast } from "@/types/farcaster";
 import type { UserSearchItem } from "@/services/api";
 import type { ChannelSearchItem, MiniappResult } from "@/types/api";
 
@@ -97,18 +97,18 @@ export default function SearchScreen() {
 
   // Compose modal for reply/quote interactions on the Casts tab.
   const [isComposeVisible, setIsComposeVisible] = useState(false);
-  const [replyTarget, setReplyTarget] = useState<NeynarCast | null>(null);
-  const [quoteCastTarget, setQuoteCastTarget] = useState<NeynarCast | null>(
+  const [replyTarget, setReplyTarget] = useState<FarcasterCast | null>(null);
+  const [quoteCastTarget, setQuoteCastTarget] = useState<FarcasterCast | null>(
     null,
   );
 
-  const openReply = useCallback((cast: NeynarCast) => {
+  const openReply = useCallback((cast: FarcasterCast) => {
     setReplyTarget(cast);
     setQuoteCastTarget(null);
     setIsComposeVisible(true);
   }, []);
 
-  const openQuoteCast = useCallback((cast: NeynarCast) => {
+  const openQuoteCast = useCallback((cast: FarcasterCast) => {
     setQuoteCastTarget(cast);
     setReplyTarget(null);
     setIsComposeVisible(true);
@@ -222,7 +222,7 @@ export default function SearchScreen() {
                 <Text style={styles.sectionLink}>See all</Text>
               </Pressable>
             </View>
-            {top.casts.map((cast: NeynarCast) => (
+            {top.casts.map((cast: FarcasterCast) => (
               <CastCard
                 key={cast.hash}
                 cast={cast}

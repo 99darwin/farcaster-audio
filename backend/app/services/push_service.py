@@ -6,15 +6,17 @@ and Expo push delivery.
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
-from urllib.parse import urlparse
+from typing import Any, Literal
+from urllib.parse import unquote, urlparse
 
 import httpx
 import redis.asyncio as aioredis
 from sqlalchemy import distinct, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import hypersnap
 from app.config import settings
 from app.models.device_token import DeviceToken
 from app.models.miniapp_notification import MiniAppNotification
@@ -27,7 +29,6 @@ from app.services.spam_service import SpamService
 logger = logging.getLogger(__name__)
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
-NEYNAR_BASE = "https://api.neynar.com/v2"
 REDIS_ACTIVE_FIDS_KEY = "push:active_fids"
 REDIS_PREFS_PREFIX = "push:prefs:"
 PREFS_CACHE_TTL = 300  # 5 minutes
@@ -44,6 +45,8 @@ def _preview(text: str, max_len: int = 140) -> str:
 
 PFP_CACHE_PREFIX = "push:pfp:"
 PFP_CACHE_TTL = 86400  # 24h, including null sentinel for users without a PFP
+THREAD_ROOT_AUTHOR_CACHE_PREFIX = "push:thread-root-author:"
+THREAD_ROOT_AUTHOR_CACHE_TTL = 60 * 60 * 24 * 7
 SPACE_LIVE_IDEMPOTENCY_PREFIX = "push:space_live:"
 SPACE_LIVE_IDEMPOTENCY_TTL = 60 * 60 * 24 * 30
 JUKE_WEB_BASE_URL = "https://juke.audio"
@@ -52,6 +55,25 @@ MINIAPP_NOTIFICATION_HOSTS = {
     "api.warpcast.xyz",
     "notifs.warpcast.com",
 }
+# Image CDNs Farcaster profile pictures are actually served from. Matching
+# is exact host or subdomain. These are shared, high-volume CDNs, so a
+# request there does not tell any one profile owner who was notified.
+PUSH_IMAGE_HOSTS = frozenset(
+    {
+        "imagedelivery.net",  # Cloudflare Images (Warpcast uploads)
+        "wrpcd.net",  # Warpcast image proxy
+        "i.imgur.com",
+        "res.cloudinary.com",
+        "i.seadn.io",  # OpenSea NFT pfps
+        "openseauserdata.com",
+        "lh3.googleusercontent.com",
+        "pbs.twimg.com",
+    }
+)
+# Path/query markers of an image proxy fetching another origin (checked
+# after percent-decoding, to catch ``https%3A%2F%2F`` and double encoding).
+PROXIED_FETCH_MARKERS = ("http:", "https:", "//", "/image/fetch/")
+PROXY_DECODE_ROUNDS = 3
 
 
 def _is_safe_image_url(url: str | None) -> bool:
@@ -65,30 +87,45 @@ def _is_safe_image_url(url: str | None) -> bool:
       - point at an attacker-owned tracking pixel and learn which FIDs
         received pushes (correlation/surveillance vector)
       - point at internal/private hosts (SSRF-adjacent — NSE tries to fetch)
+
+    Only https URLs on a known image CDN (:data:`PUSH_IMAGE_HOSTS`, or a
+    subdomain of one) pass; anything else degrades to a text-only push, so
+    an arbitrary attacker host never learns who received a notification.
     """
     if not url:
         return False
     try:
         parsed = urlparse(url)
+        port = parsed.port
     except ValueError:
         return False
-    if parsed.scheme != "https":
+    if parsed.scheme != "https" or port not in (None, 443):
         return False
-    if not parsed.netloc:
+    if parsed.username is not None or parsed.password is not None:
         return False
-    host = (parsed.hostname or "").lower()
+    host = (parsed.hostname or "").lower().rstrip(".")
     if not host:
         return False
-    # Reject obvious private/internal hosts.
-    if host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
+    if not any(
+        host == allowed or host.endswith("." + allowed) for allowed in PUSH_IMAGE_HOSTS
+    ):
         return False
-    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("169.254."):
-        return False
-    if host.startswith("172."):
-        parts = host.split(".")
-        if len(parts) >= 2 and parts[1].isdigit() and 16 <= int(parts[1]) <= 31:
-            return False
-    return True
+    return not _is_proxied_fetch(parsed.path, parsed.query)
+
+
+def _is_proxied_fetch(path: str, query: str) -> bool:
+    """True when an allowlisted CDN URL would fetch another origin.
+
+    Image proxies on allowlisted hosts (``wrpcd.net/cdn-cgi/image/<opts>/
+    https%3A%2F%2F…``, Cloudinary ``/image/fetch/<url>``) would let an
+    attacker-chosen origin see each delivery on a cache miss, so they are
+    treated as untrusted.
+    """
+    decoded = f"{path}?{query}"
+    for _ in range(PROXY_DECODE_ROUNDS):
+        decoded = unquote(decoded)
+    decoded = decoded.lower()
+    return any(marker in decoded for marker in PROXIED_FETCH_MARKERS)
 
 
 def _is_safe_miniapp_notification_url(url: str) -> bool:
@@ -99,16 +136,23 @@ def _is_safe_miniapp_notification_url(url: str) -> bool:
     return parsed.scheme == "https" and parsed.hostname in MINIAPP_NOTIFICATION_HOSTS
 
 
+def _dialect_insert(db: AsyncSession):
+    """``insert`` with ON CONFLICT support for the session's dialect."""
+    if db.bind is not None and db.bind.dialect.name == "sqlite":
+        return sqlite_insert
+    return pg_insert
+
+
 def _redis_bool(value) -> bool:
     return value in (True, 1, b"1", "1")
 
 
-def _extract_actor(event_type: str, payload: dict) -> tuple[int | None, float | None]:
-    """Return (actor_fid, neynar_user_score) for a Neynar webhook payload.
+def _extract_actor(event_type: str, payload: dict) -> tuple[int | None, dict | None]:
+    """Return (actor_fid, actor_user_object) for a webhook payload.
 
     The "actor" is whoever triggered the notification — author for cast.created,
-    reactor for reaction.created, follower for follow.created. The score, when
-    present, lets SpamService short-circuit a DB lookup.
+    reactor for reaction.created, follower for follow.created. The user object
+    lets SpamService score a FID it has no cached or stored verdict for.
     """
     data = payload.get("data") or {}
     if event_type == "cast.created":
@@ -120,8 +164,7 @@ def _extract_actor(event_type: str, payload: dict) -> tuple[int | None, float | 
     else:
         return (None, None)
     fid = actor.get("fid")
-    score = (actor.get("experimental") or {}).get("neynar_user_score")
-    return (fid if isinstance(fid, int) else None, score)
+    return (fid if isinstance(fid, int) else None, actor)
 
 
 class PushService:
@@ -130,7 +173,7 @@ class PushService:
         self.redis = redis
 
     async def _resolve_pfp_url(self, fid: int | None) -> str | None:
-        """Resolve a user's pfp_url, falling back to Neynar bulk-users when needed.
+        """Resolve a user's pfp_url, falling back to Hypersnap user/bulk if needed.
 
         Neynar webhook payloads include a skinny actor object (fid + username
         only — no pfp_url), so we have to enrich on the push path. Cache the
@@ -146,25 +189,107 @@ class PushService:
 
         pfp: str | None = None
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    f"{NEYNAR_BASE}/farcaster/user/bulk",
-                    params={"fids": str(fid)},
-                    headers={"x-api-key": settings.NEYNAR_API_KEY},
-                    timeout=5.0,
-                )
-                resp.raise_for_status()
-                users = resp.json().get("users", [])
-                if users:
-                    candidate = users[0].get("pfp_url")
-                    if isinstance(candidate, str) and candidate:
-                        pfp = candidate
-        except Exception as e:
-            logger.warning("Neynar pfp lookup failed for fid=%s: %s", fid, e)
+            users = (await hypersnap.get("/user/bulk", {"fids": str(fid)})).get(
+                "users", []
+            )
+        except hypersnap.HypersnapError as e:
+            logger.warning("Hypersnap pfp lookup failed for fid=%s: %s", fid, e)
             return None
+        if users:
+            candidate = users[0].get("pfp_url")
+            if isinstance(candidate, str) and candidate:
+                pfp = candidate
 
         await self.redis.set(cache_key, pfp or "", ex=PFP_CACHE_TTL)
         return pfp
+
+    async def _resolve_thread_root_author_fid(
+        self, thread_hash: str | None
+    ) -> int | None:
+        """Resolve the original author for a reply thread.
+
+        Neynar's ``cast.created`` webhook identifies only the immediate parent
+        author. For replies-to-replies we also notify the original poster, so
+        resolve the canonical thread cast by hash and cache its author. A
+        lookup failure is deliberately soft: the immediate parent still gets
+        their notification and Neynar can retry future events normally.
+        """
+        if not thread_hash:
+            return None
+
+        cache_key = f"{THREAD_ROOT_AUTHOR_CACHE_PREFIX}{thread_hash}"
+        cached = await self.redis.get(cache_key)
+        if cached is not None:
+            try:
+                cached_fid = int(cached)
+            except (TypeError, ValueError):
+                return None
+            return cached_fid if cached_fid > 0 else None
+
+        try:
+            data = await hypersnap.get(
+                "/cast", {"identifier": thread_hash, "type": "hash"}
+            )
+            author_fid = data.get("cast", {}).get("author", {}).get("fid")
+        except hypersnap.HypersnapError as exc:
+            logger.warning(
+                "Hypersnap thread-root lookup failed for hash=%s: %s",
+                thread_hash,
+                exc,
+            )
+            return None
+
+        if not isinstance(author_fid, int) or author_fid <= 0:
+            return None
+        await self.redis.set(
+            cache_key,
+            str(author_fid),
+            ex=THREAD_ROOT_AUTHOR_CACHE_TTL,
+        )
+        return author_fid
+
+    async def _send_event_push_if_eligible(
+        self,
+        *,
+        target_fid: int | None,
+        actor_fid: int | None,
+        notification_type: str,
+        title: str,
+        body: str,
+        data: dict,
+        image_url: str | None,
+    ) -> bool:
+        """Apply self/registration/preference gates, then deliver one event."""
+        if not isinstance(target_fid, int) or target_fid <= 0:
+            return False
+        if actor_fid == target_fid:
+            logger.info("Skipping self-notification for fid=%s", target_fid)
+            return False
+        is_active = await self.redis.sismember(REDIS_ACTIVE_FIDS_KEY, str(target_fid))
+        if not is_active:
+            logger.info("Skipping fid=%s (target): not in active_fids set", target_fid)
+            return False
+        if not await self.is_enabled(target_fid, notification_type):
+            logger.info(
+                "Skipping fid=%s: %s notifications disabled",
+                target_fid,
+                notification_type,
+            )
+            return False
+        logger.info(
+            "Sending %s push to fid=%s from fid=%s",
+            notification_type,
+            target_fid,
+            actor_fid,
+        )
+        await self.send_push(
+            fid=target_fid,
+            title=title,
+            body=body,
+            data=data,
+            image_url=image_url,
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Device token management
@@ -176,8 +301,11 @@ class PushService:
         """Upsert a device token and add the FID to the active set."""
         # Enforce per-user token limit — deactivate oldest if at cap
         from sqlalchemy import func as sa_func
+
         count_result = await self.db.execute(
-            select(sa_func.count()).where(DeviceToken.fid == fid, DeviceToken.is_active.is_(True))
+            select(sa_func.count()).where(
+                DeviceToken.fid == fid, DeviceToken.is_active.is_(True)
+            )
         )
         active_count = count_result.scalar() or 0
         if active_count >= MAX_TOKENS_PER_USER:
@@ -190,29 +318,55 @@ class PushService:
             old_ids = [row[0] for row in oldest.all()]
             if old_ids:
                 await self.db.execute(
-                    update(DeviceToken).where(DeviceToken.id.in_(old_ids)).values(is_active=False)
+                    update(DeviceToken)
+                    .where(DeviceToken.id.in_(old_ids))
+                    .values(is_active=False)
                 )
 
-        stmt = pg_insert(DeviceToken).values(
+        # An Expo token identifies one device, so it belongs to exactly one
+        # fid: the latest to register it (the account signed in on that
+        # device now). Re-registering moves it rather than adding a second
+        # binding, so a device that switched accounts stops receiving the
+        # previous account's pushes. (Expo tokens are bearer identifiers:
+        # this does not prove device possession.)
+        previous_owner = await self.db.scalar(
+            select(DeviceToken.fid).where(
+                DeviceToken.expo_push_token == expo_push_token
+            )
+        )
+        now = datetime.now(timezone.utc)
+        stmt = _dialect_insert(self.db)(DeviceToken).values(
             fid=fid,
             expo_push_token=expo_push_token,
             device_id=device_id,
             is_active=True,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=now,
         )
         stmt = stmt.on_conflict_do_update(
-            constraint="uq_device_tokens_fid_token",
+            index_elements=[DeviceToken.expo_push_token],
             set_={
+                "fid": fid,
                 "is_active": True,
                 "device_id": device_id,
-                "updated_at": datetime.now(timezone.utc),
+                "updated_at": now,
             },
         )
         await self.db.execute(stmt)
         await self.db.commit()
 
         await self.redis.sadd(REDIS_ACTIVE_FIDS_KEY, str(fid))
+        if previous_owner is not None and previous_owner != fid:
+            await self._drop_from_active_set_if_no_tokens(previous_owner)
         await self._sync_webhook_fids()
+
+    async def _drop_from_active_set_if_no_tokens(self, fid: int) -> None:
+        result = await self.db.execute(
+            select(DeviceToken.id)
+            .where(DeviceToken.fid == fid, DeviceToken.is_active.is_(True))
+            .limit(1)
+        )
+        if result.scalar_one_or_none() is None:
+            await self.redis.srem(REDIS_ACTIVE_FIDS_KEY, str(fid))
 
     async def unregister_token(self, fid: int, expo_push_token: str) -> None:
         """Deactivate a device token. Remove FID from active set if no tokens remain."""
@@ -332,15 +486,17 @@ class PushService:
     @staticmethod
     def _any_enabled(prefs: NotificationPreferencesResponse) -> bool:
         """Return True if at least one notification type is enabled."""
-        return any([
-            prefs.follows_enabled,
-            prefs.likes_enabled,
-            prefs.replies_enabled,
-            prefs.recasts_enabled,
-            prefs.space_started_enabled,
-            prefs.space_invited_enabled,
-            prefs.hand_raised_enabled,
-        ])
+        return any(
+            [
+                prefs.follows_enabled,
+                prefs.likes_enabled,
+                prefs.replies_enabled,
+                prefs.recasts_enabled,
+                prefs.space_started_enabled,
+                prefs.space_invited_enabled,
+                prefs.hand_raised_enabled,
+            ]
+        )
 
     async def is_enabled(self, fid: int, notification_type: str) -> bool:
         """Check if a specific notification type is enabled for a user."""
@@ -384,11 +540,9 @@ class PushService:
         # An invalid pfp_url (http://, data:, internal host, etc.) silently
         # degrades to a text-only push rather than blocking delivery.
         attach_image = bool(image_url) and _is_safe_image_url(image_url)
-        if not attach_image:
-            logger.info(
-                "Push image skipped fid=%s image_url=%r safe=%s",
-                fid, image_url, _is_safe_image_url(image_url) if image_url else None,
-            )
+        if image_url and not attach_image:
+            # The URL itself is user-controlled profile data; don't log it.
+            logger.info("Push image skipped fid=%s: host not allowlisted", fid)
         messages: list[dict] = []
         for token in tokens:
             message_data = dict(data or {})
@@ -422,7 +576,11 @@ class PushService:
 
                 # Handle invalid tokens
                 for i, ticket in enumerate(result_data):
-                    if ticket.get("status") == "error" and ticket.get("details", {}).get("error") == "DeviceNotRegistered":
+                    if (
+                        ticket.get("status") == "error"
+                        and ticket.get("details", {}).get("error")
+                        == "DeviceNotRegistered"
+                    ):
                         logger.info("Deactivating expired push token for fid=%s", fid)
                         await self.db.execute(
                             update(DeviceToken)
@@ -510,9 +668,7 @@ class PushService:
         )
         return result.scalar_one_or_none() is not None
 
-    async def _mark_delivery_once(
-        self, room_id: str, campaign: str, fid: int
-    ) -> bool:
+    async def _mark_delivery_once(self, room_id: str, campaign: str, fid: int) -> bool:
         key = f"{SPACE_LIVE_IDEMPOTENCY_PREFIX}{campaign}:{room_id}"
         try:
             added = _redis_bool(await self.redis.sadd(key, str(fid)))
@@ -694,13 +850,16 @@ class PushService:
                 summary.native_targets += 1
                 sent_any = True
             if has_miniapp:
-                sent_any = await self._send_miniapp_notification(
-                    fid=target_fid,
-                    title=message_title,
-                    body=message_body,
-                    target_url=f"{JUKE_WEB_BASE_URL}/space/{room_id}",
-                    notification_id=f"{campaign}:{room_id}:{target_fid}",
-                ) or sent_any
+                sent_any = (
+                    await self._send_miniapp_notification(
+                        fid=target_fid,
+                        title=message_title,
+                        body=message_body,
+                        target_url=f"{JUKE_WEB_BASE_URL}/space/{room_id}",
+                        notification_id=f"{campaign}:{room_id}:{target_fid}",
+                    )
+                    or sent_any
+                )
                 summary.miniapp_targets += 1
             if sent_any:
                 summary.users_sent += 1
@@ -711,9 +870,7 @@ class PushService:
     # Neynar webhook event handling
     # ------------------------------------------------------------------
 
-    async def handle_notification_event(
-        self, event_type: str, payload: dict
-    ) -> None:
+    async def handle_notification_event(self, event_type: str, payload: dict) -> None:
         """Process an incoming Neynar webhook event and send push notifications."""
         logger.info("handle_notification_event: type=%s", event_type)
 
@@ -721,10 +878,10 @@ class PushService:
         # Otherwise the user receives a push, taps it, and finds the cast hidden
         # by feed/thread filtering — a confusing dead end. SpamService is
         # Redis-cached so this is a hot-path-safe check.
-        actor_fid_check, actor_score_check = _extract_actor(event_type, payload)
+        actor_fid_check, actor_check = _extract_actor(event_type, payload)
         if actor_fid_check is not None:
             spam_service = SpamService(self.db, self.redis)
-            if await spam_service.is_spam(actor_fid_check, actor_score_check):
+            if await spam_service.is_spam(actor_fid_check, actor_check):
                 logger.info(
                     "Skipping %s push: actor fid=%s flagged as spam",
                     event_type,
@@ -743,8 +900,12 @@ class PushService:
             cast_data = payload.get("data", {})
             parent_author_fid = cast_data.get("parent_author", {}).get("fid")
             author = cast_data.get("author", {})
-            author_name = author.get("display_name") or author.get("username", "Someone")
-            actor_pfp_url = author.get("pfp_url") or await self._resolve_pfp_url(author.get("fid"))
+            author_name = author.get("display_name") or author.get(
+                "username", "Someone"
+            )
+            actor_pfp_url = author.get("pfp_url") or await self._resolve_pfp_url(
+                author.get("fid")
+            )
             cast_hash = cast_data.get("hash", "")
 
             # Build a thread-aware URL so the client opens the full conversation
@@ -755,7 +916,10 @@ class PushService:
                 or cast_hash
             )
             if thread_hash and thread_hash != cast_hash:
-                cast_url = f"/cast/{thread_hash}?focusHash={cast_hash}"
+                # Open the triggering reply itself so replies deeper than the
+                # client's fetch threshold cannot be buried/missing. The root
+                # remains available through an explicit context link.
+                cast_url = f"/cast/{cast_hash}?contextHash={thread_hash}"
             else:
                 cast_url = f"/cast/{cast_hash}"
             cast_route_data = {
@@ -771,57 +935,112 @@ class PushService:
                 if m.get("fid")
             ]
 
-            if parent_author_fid:
-                target_fid = parent_author_fid
-                notification_type = "reply"
-                title = "New Reply"
-                preview = _preview(cast_data.get("text", ""))
-                body = f"{author_name}: {preview}" if preview else f"{author_name} replied to your cast"
-                data = {"type": "reply", "url": cast_url, **cast_route_data}
+            actor_fid = author.get("fid")
+            reply_target_fids: list[int] = []
+            if isinstance(parent_author_fid, int) and parent_author_fid > 0:
+                reply_target_fids.append(parent_author_fid)
+
+            # Replies to replies should also reach the original poster. Only
+            # perform the lookup when the immediate parent is not the root.
+            parent_hash = cast_data.get("parent_hash")
+            if (
+                reply_target_fids
+                and thread_hash
+                and parent_hash
+                and thread_hash != parent_hash
+            ):
+                root_author_fid = await self._resolve_thread_root_author_fid(
+                    thread_hash
+                )
+                if (
+                    root_author_fid is not None
+                    and root_author_fid not in reply_target_fids
+                ):
+                    reply_target_fids.append(root_author_fid)
+
+            preview = _preview(cast_data.get("text", ""))
+            reply_body = (
+                f"{author_name}: {preview}"
+                if preview
+                else f"{author_name} replied in your conversation"
+            )
+            reply_data = {
+                "type": "reply",
+                "url": cast_url,
+                **cast_route_data,
+            }
+            for reply_target_fid in reply_target_fids:
+                await self._send_event_push_if_eligible(
+                    target_fid=reply_target_fid,
+                    actor_fid=actor_fid,
+                    notification_type="reply",
+                    title="New Reply",
+                    body=reply_body,
+                    data=reply_data,
+                    image_url=actor_pfp_url,
+                )
 
             # Send mention notifications (separate from reply)
             for mfid in mentioned_fids:
-                if mfid == author.get("fid"):
-                    continue  # Don't notify self-mentions
-                is_active = await self.redis.sismember(REDIS_ACTIVE_FIDS_KEY, str(mfid))
-                if not is_active:
+                # One event should not produce both reply + mention pushes for
+                # the same person.
+                if mfid in reply_target_fids:
                     continue
-                if await self.is_enabled(mfid, "mention"):
-                    mention_preview = _preview(cast_data.get("text", ""))
-                    mention_body = (
-                        f"{author_name} mentioned you: {mention_preview}"
-                        if mention_preview
-                        else f"{author_name} mentioned you in a cast"
-                    )
-                    await self.send_push(
-                        fid=mfid,
-                        title="You were mentioned",
-                        body=mention_body,
-                        data={
-                            "type": "mention",
-                            "url": cast_url,
-                            **cast_route_data,
-                        },
-                        image_url=actor_pfp_url,
-                    )
+                mention_body = (
+                    f"{author_name} mentioned you: {preview}"
+                    if preview
+                    else f"{author_name} mentioned you in a cast"
+                )
+                await self._send_event_push_if_eligible(
+                    target_fid=mfid,
+                    actor_fid=actor_fid,
+                    notification_type="mention",
+                    title="You were mentioned",
+                    body=mention_body,
+                    data={
+                        "type": "mention",
+                        "url": cast_url,
+                        **cast_route_data,
+                    },
+                    image_url=actor_pfp_url,
+                )
+
+            # cast.created may fan out to parent + root + mentions, so it is
+            # fully handled here rather than falling through the single-target
+            # delivery path used by reactions/follows.
+            return
 
         elif event_type == "reaction.created":
             reaction_data = payload.get("data", {})
             reaction_type = reaction_data.get("reaction_type")
             cast = reaction_data.get("cast", {})
             cast_author = cast.get("author")
-            logger.debug("reaction cast.author type=%s value=%s", type(cast_author).__name__, cast_author)
-            target_fid = cast_author.get("fid") if isinstance(cast_author, dict) else cast_author
+            logger.debug(
+                "reaction cast.author type=%s value=%s",
+                type(cast_author).__name__,
+                cast_author,
+            )
+            target_fid = (
+                cast_author.get("fid") if isinstance(cast_author, dict) else cast_author
+            )
             reactor = reaction_data.get("user", {})
-            reactor_name = reactor.get("display_name") or reactor.get("username", "Someone")
-            actor_pfp_url = reactor.get("pfp_url") or await self._resolve_pfp_url(reactor.get("fid"))
+            reactor_name = reactor.get("display_name") or reactor.get(
+                "username", "Someone"
+            )
+            actor_pfp_url = reactor.get("pfp_url") or await self._resolve_pfp_url(
+                reactor.get("fid")
+            )
             cast_hash = cast.get("hash", "")
 
             cast_preview = _preview(cast.get("text", ""))
             if reaction_type in ("like", 1):
                 notification_type = "likes"
                 title = "New Like"
-                body = f"{reactor_name} liked: {cast_preview}" if cast_preview else f"{reactor_name} liked your cast"
+                body = (
+                    f"{reactor_name} liked: {cast_preview}"
+                    if cast_preview
+                    else f"{reactor_name} liked your cast"
+                )
                 data = {
                     "type": "like",
                     "url": f"/cast/{cast_hash}",
@@ -830,7 +1049,11 @@ class PushService:
             elif reaction_type in ("recast", 2):
                 notification_type = "recasts"
                 title = "New Recast"
-                body = f"{reactor_name} recasted: {cast_preview}" if cast_preview else f"{reactor_name} recasted your cast"
+                body = (
+                    f"{reactor_name} recasted: {cast_preview}"
+                    if cast_preview
+                    else f"{reactor_name} recasted your cast"
+                )
                 data = {
                     "type": "recast",
                     "url": f"/cast/{cast_hash}",
@@ -841,9 +1064,13 @@ class PushService:
             follow_data = payload.get("data", {})
             target_fid = follow_data.get("user", {}).get("fid")
             follower = follow_data.get("follower", {})
-            follower_name = follower.get("display_name") or follower.get("username", "Someone")
+            follower_name = follower.get("display_name") or follower.get(
+                "username", "Someone"
+            )
             follower_fid = follower.get("fid")
-            actor_pfp_url = follower.get("pfp_url") or await self._resolve_pfp_url(follower_fid)
+            actor_pfp_url = follower.get("pfp_url") or await self._resolve_pfp_url(
+                follower_fid
+            )
 
             notification_type = "follows"
             title = "New Follower"
@@ -855,13 +1082,13 @@ class PushService:
             }
 
         if not target_fid or not notification_type:
-            logger.info("Skipping event %s: no target_fid or notification_type", event_type)
+            logger.info(
+                "Skipping event %s: no target_fid or notification_type", event_type
+            )
             return
 
         # Don't notify yourself
-        actor_fid = payload.get("data", {}).get("author", {}).get("fid") or \
-                    payload.get("data", {}).get("user", {}).get("fid") or \
-                    payload.get("data", {}).get("follower", {}).get("fid")
+        actor_fid = actor_fid_check
         if actor_fid == target_fid:
             logger.info("Skipping self-notification for fid=%s", target_fid)
             return
@@ -874,10 +1101,19 @@ class PushService:
 
         # Check notification preference
         if not await self.is_enabled(target_fid, notification_type):
-            logger.info("Skipping fid=%s: %s notifications disabled", target_fid, notification_type)
+            logger.info(
+                "Skipping fid=%s: %s notifications disabled",
+                target_fid,
+                notification_type,
+            )
             return
 
-        logger.info("Sending %s push to fid=%s from fid=%s", notification_type, target_fid, actor_fid)
+        logger.info(
+            "Sending %s push to fid=%s from fid=%s",
+            notification_type,
+            target_fid,
+            actor_fid,
+        )
         await self.send_push(
             fid=target_fid,
             title=title,
@@ -896,6 +1132,7 @@ class PushService:
         raiser_name: str,
         room_id: str,
         raiser_pfp_url: str | None = None,
+        raiser_fid: int | None = None,
     ) -> None:
         """Notify the space host that someone raised their hand."""
         is_active = await self.redis.sismember(REDIS_ACTIVE_FIDS_KEY, str(host_fid))
@@ -903,11 +1140,14 @@ class PushService:
             return
         if not await self.is_enabled(host_fid, "hand_raised"):
             return
+        data: dict[str, Any] = {"type": "hand_raised", "url": f"/space/{room_id}"}
+        if raiser_fid is not None:
+            data["raiser_fid"] = raiser_fid
         await self.send_push(
             fid=host_fid,
             title="Hand Raised",
             body=f"{raiser_name} wants to speak",
-            data={"type": "hand_raised", "url": f"/space/{room_id}"},
+            data=data,
             image_url=raiser_pfp_url,
         )
 
@@ -928,81 +1168,18 @@ class PushService:
         await self.send_push(
             fid=target_fid,
             title="Invited to Speak",
-            body=f"{inviter_name} invited you to speak in \"{room_title}\"",
+            body=f'{inviter_name} invited you to speak in "{room_title}"',
             data={"type": "space_invite", "url": f"/space/{room_id}"},
             image_url=inviter_pfp_url,
         )
 
     # ------------------------------------------------------------------
-    # Neynar webhook target_fids sync
+    # Hypersnap webhook target_fids sync
     # ------------------------------------------------------------------
 
     async def _sync_webhook_fids(self) -> None:
-        """Update all Neynar notification webhooks with the current active FID list."""
-        webhook_url = f"{settings.API_BASE_URL}/v1/webhooks/neynar/notifications"
+        """Point the Hypersnap push webhooks at the current active FID set."""
+        from app.services.hypersnap_webhook_service import sync_push_webhooks
 
-        # Each webhook type uses different subscription filter keys.
-        # - cast.created: parent_author_fids (replies) + mentioned_fids (mentions)
-        #   These are OR'd by Neynar, so we get both.
-        # - reaction.created: target_fids (person whose cast was liked/recasted)
-        # - follow.created: target_fids (person being followed)
-        webhooks = [
-            {
-                "webhook_id": settings.NEYNAR_WEBHOOK_ID_CAST,
-                "name": "juke-push-cast",
-                "event_key": "cast.created",
-                "fid_keys": ["parent_author_fids", "mentioned_fids"],
-            },
-            {
-                "webhook_id": settings.NEYNAR_WEBHOOK_ID_REACTION,
-                "name": "juke-push-reaction",
-                "event_key": "reaction.created",
-                "fid_keys": ["target_fids"],
-            },
-            {
-                "webhook_id": settings.NEYNAR_WEBHOOK_ID_FOLLOW,
-                "name": "juke-push-follow",
-                "event_key": "follow.created",
-                "fid_keys": ["target_fids"],
-            },
-        ]
-        webhooks = [w for w in webhooks if w["webhook_id"]]
-        if not webhooks:
-            logger.warning("No NEYNAR_WEBHOOK_ID_* env vars set — skipping sync")
-            return
-
-        # Get all active FIDs from Redis
         raw_fids = await self.redis.smembers(REDIS_ACTIVE_FIDS_KEY)
-        fid_list = [int(f) for f in raw_fids]
-
-        if not fid_list:
-            logger.info("No active FIDs — clearing webhook filters")
-
-        try:
-            async with httpx.AsyncClient() as client:
-                for wh in webhooks:
-                    filters = {key: fid_list for key in wh["fid_keys"]}
-                    subscription = {wh["event_key"]: filters}
-                    resp = await client.put(
-                        f"{NEYNAR_BASE}/farcaster/webhook",
-                        json={
-                            "webhook_id": wh["webhook_id"],
-                            "name": wh["name"],
-                            "url": webhook_url,
-                            "subscription": subscription,
-                        },
-                        headers={"x-api-key": settings.NEYNAR_API_KEY},
-                        timeout=15.0,
-                    )
-                    if resp.status_code >= 400:
-                        logger.error(
-                            "Neynar webhook sync failed for %s: %s %s",
-                            wh["webhook_id"], resp.status_code, resp.text,
-                        )
-                        continue
-                    logger.info(
-                        "Synced webhook %s with %d target FIDs",
-                        wh["webhook_id"], len(fid_list),
-                    )
-        except Exception as e:
-            logger.error("Failed to sync webhook target_fids: %s", e)
+        await sync_push_webhooks([int(f) for f in raw_fids])

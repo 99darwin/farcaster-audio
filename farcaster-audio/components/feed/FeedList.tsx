@@ -6,15 +6,18 @@ import {
   View,
   Text,
   StyleSheet,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { CastCard } from "@/components/feed/CastCard";
+import { conversationParent } from "@/utils/castUpdates";
 import { VoiceNoteFeedItem } from "@/components/voice-notes/VoiceNoteFeedItem";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { ErrorView } from "@/components/common/ErrorView";
 import { useTheme } from "@/hooks/useTheme";
 import { useThemedStyles } from "@/hooks/useThemedStyles";
-import type { NeynarCast } from "@/types/neynar";
+import type { FarcasterCast } from "@/types/farcaster";
 import type { FeedItem } from "@/types/voiceNote";
 
 function SkeletonCard() {
@@ -102,8 +105,8 @@ interface FeedListProps {
   onLike: (hash: string, isLiked: boolean) => void;
   onRecast: (hash: string, isRecasted: boolean) => void;
   onBookmark: (hash: string, isBookmarked: boolean) => void;
-  onQuoteCast: (cast: NeynarCast) => void;
-  onReply: (cast: NeynarCast) => void;
+  onQuoteCast: (cast: FarcasterCast) => void;
+  onReply: (cast: FarcasterCast) => void;
   onBlockAuthor?: (fid: number) => Promise<void> | void;
   onVoiceNoteLike?: (id: string, isLiked: boolean) => void;
   onVoiceNoteRecast?: (id: string, isRecasted: boolean) => void;
@@ -113,6 +116,11 @@ interface FeedListProps {
   emptySubtitle?: string;
   error?: string | null;
   onRetry?: () => void;
+  /**
+   * Keeps the final row reachable beneath an overlaid control without
+   * shrinking the list viewport (for example, the floating tab bar).
+   */
+  contentContainerStyle?: StyleProp<ViewStyle>;
 }
 
 export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
@@ -138,6 +146,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
     emptySubtitle = "Follow people to see their posts here",
     error,
     onRetry,
+    contentContainerStyle,
   },
   ref,
 ) {
@@ -181,18 +190,36 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
           />
         );
       }
+      const cast = item.data;
+      const parent = conversationParent(cast);
+      const cardProps = {
+        myFid,
+        onLike,
+        onRecast,
+        onBookmark,
+        onQuoteCast,
+        onReply,
+        onBlockAuthor,
+      };
+      // X-style conversation: the parent post, a connector line, then the
+      // reply. Older backends send only a preview, which CastCard inlines.
       return (
-        <CastCard
-          cast={item.data}
-          myFid={myFid}
-          onLike={onLike}
-          onRecast={onRecast}
-          onBookmark={onBookmark}
-          onQuoteCast={onQuoteCast}
-          onReply={onReply}
-          onBlockAuthor={onBlockAuthor}
-          onPress={() => handleCastPress(item.data.hash)}
-        />
+        <>
+          {parent ? (
+            <CastCard
+              {...cardProps}
+              cast={parent}
+              connectBelow
+              onPress={() => handleCastPress(parent.hash)}
+            />
+          ) : null}
+          <CastCard
+            {...cardProps}
+            cast={cast}
+            connectAbove={!!parent}
+            onPress={() => handleCastPress(cast.hash)}
+          />
+        </>
       );
     },
     [
@@ -265,7 +292,7 @@ export const FeedList = forwardRef<FlatList, FeedListProps>(function FeedList(
         ) : null
       }
       contentContainerStyle={
-        items.length === 0 ? styles.emptyContainer : undefined
+        [items.length === 0 && styles.emptyContainer, contentContainerStyle]
       }
     />
   );

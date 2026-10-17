@@ -1,0 +1,46 @@
+{
+  "result": {
+    "metadata": {
+      "urls": [
+        {
+          "type": "url",
+          "openGraph": {
+            "url": "https://juke.audio",
+            "sourceUrl": "https://juke.audio",
+            "title": "Juke",
+            "description": "Live audio on Farcaster",
+            "domain": "juke.audio",
+            "image": {
+              "url": "https://juke.audio/og.png"
+            },
+            "useLargeImage": true
+          }
+        }
+      ],
+      "medias": [
+        {
+          "version": "2",
+          "width": 1200,
+          "height": 630,
+          "staticRaster": "https://imagedelivery.net/abc/original",
+          "mimeType": "image/png"
+        }
+      ],
+      "mentions": [
+        {
+          "fid": 1001,
+          "username": "alice",
+          "displayName": "Alice",
+          "pfp": {
+            "url": "https://i.imgur.com/alice.png"
+          }
+        }
+      ],
+      "casts": [
+        {
+          "hash": "0xabc123"
+        }
+      ]
+    }
+  }
+}

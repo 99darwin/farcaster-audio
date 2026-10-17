@@ -21,10 +21,7 @@ def test_extract_s3_key_path_style_url():
             "https://your-s3-endpoint.example.com/juke-recordings/"
             "recordings/room-abc/20260101T120000Z.ogg"
         )
-        assert (
-            _extract_s3_key(url)
-            == "recordings/room-abc/20260101T120000Z.ogg"
-        )
+        assert _extract_s3_key(url) == "recordings/room-abc/20260101T120000Z.ogg"
 
 
 def test_extract_s3_key_virtual_hosted_url():
@@ -37,10 +34,7 @@ def test_extract_s3_key_virtual_hosted_url():
             "https://juke-recordings.s3.us-east-1.amazonaws.com/"
             "recordings/room-abc/20260101T120000Z.ogg"
         )
-        assert (
-            _extract_s3_key(url)
-            == "recordings/room-abc/20260101T120000Z.ogg"
-        )
+        assert _extract_s3_key(url) == "recordings/room-abc/20260101T120000Z.ogg"
 
 
 def test_extract_s3_key_empty_returns_none():
@@ -71,10 +65,7 @@ def test_extract_s3_key_rejects_non_recordings_key():
         mock_settings.AWS_S3_BUCKET_NAME = "juke-recordings"
         mock_settings.AWS_ENDPOINT_URL = "https://your-s3-endpoint.example.com"
         mock_settings.AWS_DEFAULT_REGION = "us-east-1"
-        url = (
-            "https://your-s3-endpoint.example.com/juke-recordings/"
-            "secrets/credentials.env"
-        )
+        url = "https://your-s3-endpoint.example.com/juke-recordings/" "secrets/credentials.env"
         assert _extract_s3_key(url) is None
 
 

@@ -69,8 +69,13 @@ class VoiceNoteFeedResponse(BaseModel):
     next_cursor: str | None = None
 
 
+# Voice notes are at most 60 s; allow 2x slack for client timer drift. The
+# service additionally clamps to the note's real duration before storing.
+MAX_LISTENED_MS = 120_000
+
+
 class PlayRequest(BaseModel):
-    listened_ms: int = Field(..., ge=0)
+    listened_ms: int = Field(..., ge=0, le=MAX_LISTENED_MS)
     completed: bool = False
 
 

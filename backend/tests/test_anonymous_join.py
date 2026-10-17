@@ -64,6 +64,8 @@ def _room(status="active"):
         recording=False,
         cast_hash=None,
         allow_agents=True,
+        farcaster_room_id=None,
+        is_farcaster_native=False,
     )
 
 

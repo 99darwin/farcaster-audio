@@ -1,16 +1,17 @@
 import { UserProfile } from "./user";
 import { Room, Participant, ParticipantRole } from "./space";
-import type { NeynarCast, NeynarFeedResponse } from "./neynar";
+import type { FarcasterCast, FarcasterFeedResponse } from "./farcaster";
+import type { DirectCastAuthRequest } from "./messages";
 
 // Auth
-export interface LoginRequest {
-  signer_uuid: string;
-  fid: number;
-}
-
 export interface LoginResponse {
   jwt: string;
-  refresh_token: string;
+  /**
+   * Null when the server returns the refresh token as an HttpOnly cookie
+   * (`use_cookie=true`). iOS does not opt into cookies, so this should
+   * always be present in practice — storage layer treats null as an error.
+   */
+  refresh_token: string | null;
   expires_at: string;
   user: UserProfile;
 }
@@ -19,8 +20,79 @@ export interface RefreshRequest {
   refresh_token: string;
 }
 
-export interface AuthUrlResponse {
-  authorization_url: string;
+// Hypersnap signer link + Protocol Auth (frozen contract:
+// hypersnap-auth-contract.md §1–§2). Every hex value is 0x-prefixed lowercase,
+// every timestamp unix seconds.
+
+export type HexString = `0x${string}`;
+
+/** A complete EIP-712 payload, signed as-is with `signTypedData`. */
+export interface Eip712Payload {
+  domain: Record<string, unknown>;
+  types: Record<string, { name: string; type: string }[]>;
+  primaryType: string;
+  message: Record<string, unknown>;
+}
+
+export interface SignerPrepareRequest {
+  fid: number;
+  auth_address: HexString;
+}
+
+export interface ProtocolAuthChallenge {
+  domain: string;
+  uri: string;
+  nonce: string;
+  expires_at: number;
+}
+
+export interface SignerPrepareResponse {
+  prepare_id: string;
+  custody_address: HexString;
+  signer_public_key: HexString;
+  typed_data: {
+    signer: Eip712Payload;
+    auth_address: Eip712Payload;
+  };
+  protocol_auth: ProtocolAuthChallenge;
+  expires_at: number;
+}
+
+export interface SignerRegisterRequest {
+  prepare_id: string;
+  signer_add_signature: HexString;
+  auth_address_add_signature: HexString;
+  protocol_auth_token: string;
+  /** Custody-signed Direct Casts token request; both or neither. */
+  dc_auth_request?: DirectCastAuthRequest;
+  dc_auth_signature?: string;
+}
+
+export type SignerLinkStatus = "pending" | "submitted" | "approved" | "failed";
+
+export interface SignerRegisterResponse {
+  prepare_id: string;
+  status: SignerLinkStatus;
+}
+
+export interface SignerStatusResponse {
+  prepare_id: string;
+  status: SignerLinkStatus;
+  signer_tx_hash: HexString | null;
+  auth_address_tx_hash: HexString | null;
+  error: string | null;
+  // No `login`: the server always sends null there (kept only for old
+  // builds). After `approved`, sign in through `/v1/auth/protocol` with the
+  // device auth address (`loginWithAuthAddressAfterLink`).
+}
+
+export interface ProtocolLoginRequest {
+  token: string;
+  use_cookie: boolean;
+}
+
+export interface SiwfNonceResponse {
+  nonce: string;
 }
 
 // Rooms
@@ -145,8 +217,8 @@ export interface CastCreateResponse {
   hash?: string;
 }
 
-export type ChannelFeedResponse = NeynarFeedResponse;
-export type BookmarksFeedResponse = NeynarFeedResponse;
+export type ChannelFeedResponse = FarcasterFeedResponse;
+export type BookmarksFeedResponse = FarcasterFeedResponse;
 
 export interface ChannelSearchItem {
   id: string;
@@ -199,22 +271,12 @@ export interface CastSearchMeta {
 }
 
 export interface CastSearchResponse {
-  casts: NeynarCast[];
+  casts: FarcasterCast[];
   next: { cursor: string | null };
   meta: CastSearchMeta;
 }
 
 // Auth Address
-export interface RegisterAuthAddressRequest {
-  auth_address: string;
-}
-
-export interface RegisterAuthAddressResponse {
-  auth_address: string;
-  status: string;
-  approval_url: string | null;
-}
-
 export interface AuthAddressStatusResponse {
   auth_address: string;
   status: string;

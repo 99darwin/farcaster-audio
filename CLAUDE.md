@@ -2,17 +2,17 @@
 
 ## Project Overview
 
-Farcaster Audio Spaces Client is an iOS app combining the Farcaster social feed with persistent audio spaces (like Twitter/X Spaces). Users can join and host live audio rooms while browsing their Farcaster feed, reacting, and interacting socially. MVP is iOS only.
+Juke is a Farcaster client for iOS, Android and the web that combines the social feed with live audio spaces (like Twitter/X Spaces). Users join and host live audio rooms while browsing their feed, post, react, and send Direct Casts.
 
 ## Architecture Summary
 
-- **Frontend**: Expo SDK 55 bare workflow (React Native, iOS-only MVP)
-- **Landing**: Next.js (App Router) at juke.audio — Tailwind CSS + Framer Motion
+- **Mobile**: Expo SDK 55 bare workflow (React Native, iOS + Android)
+- **Web**: Next.js (App Router) — landing site plus the full web client — Tailwind CSS + Framer Motion
 - **Backend**: FastAPI (Python) serving a REST + WebSocket API
 - **Database**: PostgreSQL 16 (via SQLAlchemy + Alembic)
 - **Cache / Pub-Sub**: Redis 7
 - **Audio**: LiveKit (SFU-based real-time audio)
-- **Farcaster Integration**: Neynar (auth, feed, reactions, social graph)
+- **Farcaster Integration**: Hypersnap (open Farcaster node: reads, protobuf message writes, webhooks); on-chain KeyGateway signers on Optimism; Direct Casts proxied through the backend
 
 ## Tech Stack
 
@@ -28,7 +28,7 @@ Farcaster Audio Spaces Client is an iOS app combining the Farcaster social feed 
 | Database      | PostgreSQL                  | 16        |
 | Cache         | Redis                       | 7         |
 | Audio         | LiveKit                     | latest    |
-| Farcaster     | Neynar                      | v2 API    |
+| Farcaster     | Hypersnap                   | —         |
 | Auth          | JWT (access + refresh)      | —         |
 
 ## Directory Structure
@@ -64,10 +64,10 @@ farcaster-audio-client/
 ## Dev Commands
 
 ```bash
-# Start Postgres, Redis, and API server
-cd backend && docker-compose up
+# Start Postgres and Redis
+cd backend && docker-compose up -d
 
-# Start Expo dev server (iOS)
+# Start Expo dev server (iOS / Android)
 cd farcaster-audio && npx expo start
 
 # Run backend tests
@@ -104,34 +104,42 @@ cd farcaster-audio && npx jest
 
 ## Environment Variables
 
-Never commit values. Keys only are listed here for reference.
+Never commit values. Each app ships a `.env.example`; the authoritative list of
+backend settings is `backend/app/config.py`.
 
-### Backend (`backend/.env`)
+### Backend (`backend/.env`, core keys)
 
 ```
 DATABASE_URL
 REDIS_URL
 JWT_SECRET
-JWT_ALGORITHM
-JWT_EXPIRY_HOURS
-JWT_REFRESH_EXPIRY_DAYS
-NEYNAR_API_KEY
-NEYNAR_CLIENT_ID
+ENVIRONMENT
+CORS_ORIGINS
+API_BASE_URL
 LIVEKIT_API_KEY
 LIVEKIT_API_SECRET
 LIVEKIT_WS_URL
-ENVIRONMENT
-CORS_ORIGINS
-LOG_LEVEL
+SIWF_DOMAIN
+QUICKAUTH_ALLOWED_AUDIENCES
+HYPERSNAP_HTTP_URL
+OPTIMISM_RPC_URL
+KEY_RELAYER_PRIVATE_KEY
+SIGNER_ENCRYPTION_KEY
+FARCASTER_APP_MNEMONIC
+FARCASTER_APP_FID
+ADMIN_SECRET
+MESSAGING_ENABLED
 ```
 
-### Frontend (`farcaster-audio/.env`)
+### Mobile (`farcaster-audio/.env`)
 
 ```
-EXPO_PUBLIC_NEYNAR_CLIENT_ID
-EXPO_PUBLIC_NEYNAR_API_KEY
 EXPO_PUBLIC_API_BASE_URL
+EXPO_PUBLIC_WEB_BASE_URL
 EXPO_PUBLIC_LIVEKIT_WS_URL
+EXPO_PUBLIC_HYPERSNAP_HTTP_URL
+EXPO_PUBLIC_EAS_PROJECT_ID
+EXPO_PUBLIC_SENTRY_DSN
 ```
 
 ## Testing

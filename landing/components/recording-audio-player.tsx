@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { formatRecordingDuration } from "@/lib/recordings";
 
 const SEEK_BACK_SECONDS = 10;
 const SEEK_FORWARD_SECONDS = 30;
@@ -9,12 +10,27 @@ interface RecordingAudioPlayerProps {
   audioUrl: string;
   title: string;
   hostName: string;
+  /**
+   * ISO date string for the recording (used for the timestamp display).
+   * Optional — omit to suppress the date line.
+   */
+  recordedAt?: string | null;
+  /**
+   * Duration in seconds — shown next to the date. Optional.
+   */
+  durationSeconds?: number | null;
   artworkUrl?: string | null;
   className?: string;
 }
 
 /**
- * Native <audio controls> with Media Session API wiring.
+ * Styled recording player card for the profile / feed context.
+ *
+ * Renders:
+ *   • Avatar / artwork + title + host row (metadata header)
+ *   • Duration + recorded-date sub-row
+ *   • Native <audio controls> wired to the Media Session API for
+ *     lock-screen / Bluetooth remote controls + iOS background audio.
  *
  * The Media Session metadata + action handlers are required for two
  * distinct reasons:
@@ -34,6 +50,8 @@ export function RecordingAudioPlayer({
   audioUrl,
   title,
   hostName,
+  recordedAt,
+  durationSeconds,
   artworkUrl,
   className,
 }: RecordingAudioPlayerProps) {
@@ -47,15 +65,17 @@ export function RecordingAudioPlayer({
     }
     const ms = navigator.mediaSession;
 
-    const artwork =
-      artworkUrl
-        ? [
-            { src: artworkUrl, sizes: "256x256", type: "image/png" },
-            { src: artworkUrl, sizes: "512x512", type: "image/png" },
-          ]
-        : [
-            { src: "/app-icon.png", sizes: "512x512", type: "image/png" },
-          ];
+    // Only pass artworkUrl to MediaMetadata when it is an absolute URL.
+    // Relative paths would be rejected by the Media Session API in most
+    // browsers; better to fall back to the known-good app icon.
+    const isAbsoluteUrl =
+      artworkUrl != null && /^https?:\/\//i.test(artworkUrl);
+    const artwork = isAbsoluteUrl
+      ? [
+          { src: artworkUrl, sizes: "256x256", type: "image/png" },
+          { src: artworkUrl, sizes: "512x512", type: "image/png" },
+        ]
+      : [{ src: "/app-icon.png", sizes: "512x512", type: "image/png" }];
 
     ms.metadata = new MediaMetadata({
       title,
@@ -131,14 +151,79 @@ export function RecordingAudioPlayer({
     };
   }, [audioUrl, title, hostName, artworkUrl]);
 
+  const formattedDate = recordedAt ? formatShortDate(recordedAt) : null;
+
   return (
-    <audio
-      ref={audioRef}
-      controls
-      preload="metadata"
-      src={audioUrl}
-      className={className}
-      controlsList="nodownload"
-    />
+    <div
+      className={`rounded-lg border border-white/10 bg-white/5 p-3 ${className ?? ""}`}
+    >
+      {/* Metadata header */}
+      <div className="mb-3 flex items-center gap-3">
+        {artworkUrl ? (
+          <img
+            src={artworkUrl}
+            alt=""
+            width={40}
+            height={40}
+            className="h-10 w-10 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold text-white/70">
+            {hostName.charAt(0).toUpperCase()}
+          </div>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-white/90">{title}</p>
+          <p className="truncate text-xs text-white/50">@{hostName}</p>
+        </div>
+
+        {(durationSeconds != null || formattedDate) && (
+          <div className="shrink-0 text-right">
+            {durationSeconds != null && (
+              <p className="text-xs font-medium tabular-nums text-white/60">
+                {formatRecordingDuration(durationSeconds)}
+              </p>
+            )}
+            {formattedDate && (
+              <p className="text-[10px] text-white/30">{formattedDate}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Native audio controls */}
+      <audio
+        ref={audioRef}
+        controls
+        preload="metadata"
+        src={audioUrl}
+        controlsList="nodownload"
+        className="w-full"
+        style={{ colorScheme: "dark" }}
+      />
+    </div>
   );
+}
+
+/** Format an ISO date string as "Jan 5" or "Jan 5, 2024" for older dates. */
+function formatShortDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    // new Date("") and new Date("invalid") return NaN-dates — they do NOT throw.
+    // Guard explicitly so we return "" rather than the string "Invalid Date".
+    if (!Number.isFinite(d.getTime())) return "";
+    const now = new Date();
+    // Use UTC year to avoid the timezone-crossing bug: date-only ISO strings
+    // (e.g. "2026-01-01") parse as UTC midnight, so getFullYear() returns the
+    // prior day's year in negative-UTC-offset locales. UTC year matches intent.
+    const sameYear = d.getUTCFullYear() === now.getUTCFullYear();
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      ...(sameYear ? {} : { year: "numeric" }),
+    });
+  } catch {
+    return "";
+  }
 }

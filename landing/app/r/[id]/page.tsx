@@ -157,6 +157,33 @@ export default async function RecordingPage({ params }: PageProps) {
             </svg>
             Open in Juke
           </a>
+          {/* Download the audio file. `recording.recording_url` is presigned
+              fresh on every server render of this page, so the link is valid
+              for its full TTL from page load — unlike a shared presigned URL,
+              which expires ~15 min after it was minted. */}
+          <a
+            href={recording.recording_url}
+            download={`${recording.title || "juke-recording"}.ogg`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-juke-border/60 px-8 py-3 text-sm font-semibold text-juke-text-on-dark-secondary transition-colors hover:border-juke-border hover:text-juke-text-on-dark focus-visible:ring-2 focus-visible:ring-juke-border focus-visible:ring-offset-2 focus-visible:ring-offset-juke-navy sm:w-auto"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-6L12 15m0 0 4.5-4.5M12 15V3"
+              />
+            </svg>
+            Download
+          </a>
           <p className="text-xs text-juke-text-on-dark-tertiary">
             Listen in the app for the full experience
           </p>
